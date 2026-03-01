@@ -26,8 +26,8 @@ de la plateforme de trading algorithmique.
 
 1. **VPN obligatoire** — toute communication avec le VPS passe par le tunnel WireGuard intégré.
    L'intercepteur HTTP bloque les appels si le tunnel n'est pas actif.
-2. **Certificate pinning** — les certificats du VPS sont épinglés via `network_security_config.xml`
-   et OkHttp `CertificatePinner`. Une réponse d'un tiers est rejetée même sur HTTPS.
+2. **Certificate pinning** — les certificats du VPS sont épinglés via OkHttp `CertificatePinner`
+   (SHA-256, depuis `local.properties`). Une réponse d'un tiers est rejetée même sur HTTPS.
 3. **Stockage chiffré** — JWT, clés WireGuard et credentials stockés dans `EncryptedDataStore`
    (AES-256-GCM, clé dans Android Keystore, jamais exportable).
 4. **Biométrie** — déverrouillage de l'app requis après 5 minutes d'inactivité.
@@ -79,21 +79,21 @@ Transversaux :
 
 ```
 LoginScreen
-    └── [auth OK + VPN up]
-        └── DashboardScreen (bottom nav)
-            ├── Portfolio tab
-            │   ├── PositionsScreen
-            │   └── PositionDetailScreen
-            ├── Devices tab
-            │   ├── DeviceListScreen
-            │   │   └── DeviceDetailScreen (LAN only)
-            │   └── PairingScreen (scan QR + PIN)
-            ├── Alerts tab
-            │   └── AlertListScreen
-            └── Settings tab
-                ├── VpnSettingsScreen
-                ├── SecuritySettingsScreen
-                └── AboutScreen
+    ├── [totp_enabled] → TotpScreen → GET /v1/portfolios → Dashboard
+    └── [auth OK + VPN up] → GET /v1/portfolios → DashboardScreen (bottom nav)
+        ├── Portfolio tab
+        │   ├── PositionsScreen
+        │   └── PositionDetailScreen
+        ├── Devices tab (admin uniquement — is_admin == true)
+        │   ├── DeviceListScreen
+        │   │   └── DeviceDetailScreen (LAN only)
+        │   └── Pairing flow (ScanVpsQrScreen → ScanDeviceQrScreen → PairingProgressScreen → PairingDoneScreen)
+        ├── Alerts tab
+        │   └── AlertListScreen
+        └── Settings tab
+            ├── VpnSettingsScreen
+            ├── SecuritySettingsScreen
+            └── AboutScreen
 ```
 
 ---
@@ -106,12 +106,12 @@ Structure prévue pour accueillir plusieurs widgets indépendants (Glance API, A
 |--------|--------|---------|-----------------|
 | **P&L du jour** | 2x1 | Gain/perte journalier en € et % | 5 min (WorkManager) |
 | **Positions ouvertes** | 2x2 | Liste scrollable des N premières positions | 5 min |
-| **Alertes récentes** | 2x1 | Derniers signaux ou alertes de risque | 1 min |
-| **État système** | 2x1 | Health VPS + nombre de devices Radxa actifs | 5 min |
-| **Cours rapide** | 1x1 | Un seul ticker configurable | 1 min |
+| **Alertes récentes** | 2x1 | Derniers signaux ou alertes de risque | 5 min |
+| **État système** | 2x1 | Health VPS + devices Radxa actifs (admin) | 5 min |
+| **Cours rapide** | 1x1 | Un seul ticker configurable | 5 min |
 
-> Les widgets n'initialisent pas le tunnel VPN. Ils utilisent un token de session mis en
-> cache localement (TTL court) et indiquent "VPN requis" si le cache est expiré.
+> Les widgets lisent Room (cache local) via WorkManager — aucun appel API direct depuis le widget.
+> Si le cache est trop ancien : "Données indisponibles — ouvrez l'app".
 
 ---
 
