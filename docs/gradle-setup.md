@@ -6,15 +6,15 @@ Fichier à placer dans `gradle/libs.versions.toml`.
 
 ```toml
 [versions]
-kotlin              = "2.0.21"
-agp                 = "8.7.3"
-ksp                 = "2.0.21-1.0.28"
+kotlin              = "2.2.20"
+agp                 = "8.13.2"
+ksp                 = "2.3.6"
 
-compose-bom         = "2025.01.00"
+compose-bom         = "2026.02.01"
 activity-compose    = "1.10.0"
 lifecycle           = "2.8.7"
 
-hilt                = "2.52"
+hilt                = "2.58"
 hilt-androidx       = "1.2.0"
 
 retrofit            = "2.11.0"
@@ -30,7 +30,7 @@ biometric           = "1.2.0-alpha05"   # ⚠ alpha — ne pas upgrader sans tes
 workmanager         = "2.10.0"
 glance              = "1.1.1"
 navigation          = "2.8.5"
-coroutines          = "1.9.0"
+coroutines          = "1.10.2"
 
 camerax             = "1.4.1"
 mlkit-barcode       = "17.3.0"
@@ -47,7 +47,7 @@ timber              = "5.0.1"
 turbine             = "1.2.0"
 mockk               = "1.13.13"
 junit               = "4.13.2"
-compose-test-bom    = "2025.01.00"
+compose-test-bom    = "2026.02.01"
 
 [libraries]
 # ── Compose ──────────────────────────────────────────────────────────────────
@@ -56,6 +56,7 @@ compose-ui                  = { group = "androidx.compose.ui", name = "ui" }
 compose-ui-tooling-preview  = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
 compose-ui-tooling          = { group = "androidx.compose.ui", name = "ui-tooling" }
 compose-material3           = { group = "androidx.compose.material3", name = "material3" }
+compose-material-icons      = { group = "androidx.compose.material", name = "material-icons-core" }
 compose-activity            = { group = "androidx.activity", name = "activity-compose", version.ref = "activity-compose" }
 compose-lifecycle-runtime   = { group = "androidx.lifecycle", name = "lifecycle-runtime-compose", version.ref = "lifecycle" }
 compose-viewmodel           = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-compose", version.ref = "lifecycle" }
@@ -126,6 +127,7 @@ rootbeer                    = { group = "com.scottyab", name = "rootbeer-lib", v
 junit                       = { group = "junit", name = "junit", version.ref = "junit" }
 mockk                       = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
 turbine                     = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine" }
+coroutines-android          = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 coroutines-test             = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
 compose-ui-test             = { group = "androidx.compose.ui", name = "ui-test-junit4" }
 compose-ui-test-manifest    = { group = "androidx.compose.ui", name = "ui-test-manifest" }
@@ -155,7 +157,7 @@ owasp-depcheck              = { id = "org.owasp.dependencycheck", version.ref = 
 ## Notes importantes
 
 ### Compatibilité KSP / Kotlin
-La version KSP (`ksp = "2.0.21-1.0.28"`) doit correspondre **exactement** à la version
+La version KSP (`ksp = "2.3.6"`) doit correspondre **exactement** à la version
 Kotlin. Format : `{kotlin_version}-{ksp_patch}`. Vérifier à chaque upgrade Kotlin.
 
 ### Room + KSP

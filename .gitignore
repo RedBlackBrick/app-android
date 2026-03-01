@@ -1,21 +1,21 @@
 ### Android / Kotlin ###
 *.iml
-.gradle/
-local.properties
-*.jks
-*.keystore
-google-services.json
+*.iws
+*.ipr
 .idea/
-.DS_Store
+.kotlin/
 
 # Build outputs
 /build/
 app/build/
 **/build/
+out/
 
 # Generated files
 **/generated/
 **/.cxx/
+.externalNativeBuild/
+cmake-build-*/
 
 # ProGuard
 proguard/
@@ -24,26 +24,35 @@ proguard/
 captures/
 *.hprof
 
-# Keystore files
-*.jks
-*.keystore
-
-# Secrets — jamais commités
+# Secrets & credentials — jamais commités
 local.properties
 keystore/
 secrets.properties
+*.jks
+*.keystore
+*.p12
+google-services.json
+.env
 
-# Test reports
+# Android SDK — répertoires locaux (ne pas commiter le SDK)
+build-tools/
+platform-tools/
+platforms/
+licenses/
+
+# Release artifacts
+*.apk
+*.aab
+
+# Test reports & coverage
 **/test-results/
 **/reports/
-
-# Coverage
 **/jacoco/
 *.exec
 
-# NDK (if needed later)
-.externalNativeBuild/
-cmake-build-*/
+# Screenshot tests — failures uniquement (golden images sont commités)
+**/snapshots/failures/
+**/roborazzi/failures/
 
 ### Gradle ###
 .gradle
@@ -52,11 +61,13 @@ cmake-build-*/
 buildSrc/.gradle
 .gradletasknamecache
 
-### IntelliJ / Android Studio ###
-*.iws
-out/
-.idea/
-*.ipr
+### Firebase ###
+.firebase/
+firebase.json
+.firebaserc
+
+### OWASP Dependency Check ###
+dependency-check-report*
 
 ### macOS ###
 .DS_Store
