@@ -1,0 +1,77 @@
+### Android / Kotlin ###
+*.iml
+.gradle/
+local.properties
+*.jks
+*.keystore
+google-services.json
+.idea/
+.DS_Store
+
+# Build outputs
+/build/
+app/build/
+**/build/
+
+# Generated files
+**/generated/
+**/.cxx/
+
+# ProGuard
+proguard/
+
+# Android Studio profiling
+captures/
+*.hprof
+
+# Keystore files
+*.jks
+*.keystore
+
+# Secrets — jamais commités
+local.properties
+keystore/
+secrets.properties
+
+# Test reports
+**/test-results/
+**/reports/
+
+# Coverage
+**/jacoco/
+*.exec
+
+# NDK (if needed later)
+.externalNativeBuild/
+cmake-build-*/
+
+### Gradle ###
+.gradle
+**/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.jar
+buildSrc/.gradle
+.gradletasknamecache
+
+### IntelliJ / Android Studio ###
+*.iws
+out/
+.idea/
+*.ipr
+
+### macOS ###
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.Spotlight-V100
+.Trashes
+
+### Linux ###
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+
+### Logs ###
+*.log
