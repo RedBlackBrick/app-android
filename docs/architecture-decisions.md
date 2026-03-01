@@ -11,10 +11,18 @@ Les détails d'implémentation sont dans `CLAUDE.md`.
 `EncryptedDataStore`. Le cookie refresh est envoyé automatiquement sur `/v1/auth/refresh`.
 Voir `CLAUDE.md §11`.
 
-## B — Verrou biométrique → validité Keystore 5 min d'inactivité
+## B — Verrou biométrique → deux mécanismes distincts combinés
 
-Clé Keystore avec `setUserAuthenticationValidityDurationSeconds(300)`.
-Déclencheur = inactivité UI (pas d'interaction écran), pas un timer absolu.
+**Mécanisme 1 — Keystore** : clé créée avec `setUserAuthenticationValidityDurationSeconds(300)`.
+Ce timer court depuis la **dernière authentification biométrique réussie** — géré par Android.
+
+**Mécanisme 2 — Inactivity tracker** : timer dans `MainActivity` réinitialisé à chaque
+`dispatchTouchEvent`. Au bout de 5 min sans interaction, l'overlay biométrique s'affiche.
+
+Ces deux mécanismes sont indépendants et se complètent : le Keystore protège la clé crypto,
+l'inactivity tracker protège l'UI. Ils ne sont pas interchangeables.
+
+Gestion `KeyPermanentlyInvalidatedException` obligatoire (biométrie supprimée → clé invalidée).
 Les widgets ne demandent jamais de biométrie. Voir `CLAUDE.md §4`.
 
 ## C — LAN Radxa cleartext HTTP → cleartext global permis
@@ -50,6 +58,17 @@ Voir `CLAUDE.md §2` (section Fonctionnalités conditionnelles).
 `TotpScreen` séparé (pas de dialog). Flow : `LoginScreen → TotpScreen → GET /v1/portfolios → Dashboard`.
 La session reste active grâce au refresh token transparent — l'utilisateur ne se reconnecte pas.
 Voir `CLAUDE.md §11` (flow complet et persistance).
+
+## I — PairingRepository → OkHttpClient dédié LAN
+
+`SendPinToDeviceUseCase` et `ConfirmPairingUseCase` ne font pas d'appels réseau directement
+(violation clean architecture). Ils délèguent à `PairingRepository` (interface dans `domain/`,
+implémentation dans `data/`).
+
+`PairingRepositoryImpl` utilise un `OkHttpClient` **séparé** (`@Named("lan")`) sans les
+interceptors VPS (pas de CsrfInterceptor, pas d'AuthInterceptor, pas de VpnRequiredInterceptor).
+La validation `isLocalNetwork()` est faite dans le Repository avant chaque appel.
+Voir `CLAUDE.md §8`.
 
 ## H — CSRF → CsrfInterceptor + EncryptedCookieJar
 

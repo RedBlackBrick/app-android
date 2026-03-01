@@ -88,7 +88,8 @@ val LocalExtendedColors = staticCompositionLocalOf { lightExtendedColors }
 
 ## Typographie
 
-**Police principale : Inter** (Google Fonts downloadable font — même police que le web)
+**Police principale : Inter** (bundlée dans l'APK — même police que le web)
+**Police mono : JetBrains Mono** (bundlée — évite la variabilité de `FontFamily.Monospace` selon les devices)
 
 ```kotlin
 // ui/theme/Type.kt
@@ -99,16 +100,31 @@ val interFontFamily = FontFamily(
     Font(R.font.inter_bold, FontWeight.Bold),
 )
 // Fallback : Roboto (défaut Android) si Inter non chargé
+
+// Police mono bundlée — cohérence visuelle garantie sur tous les devices
+// Licence OFL (compatible distribution)
+val jetBrainsMonoFamily = FontFamily(
+    Font(R.font.jetbrainsmono_regular, FontWeight.Normal),
+    Font(R.font.jetbrainsmono_medium, FontWeight.Medium),
+)
 ```
 
-Ajouter dans `res/font/` les fichiers `.ttf` Inter (téléchargés depuis fonts.google.com).
+Ajouter dans `res/font/` les fichiers `.ttf` Inter **et** JetBrains Mono. Ces polices sont
+**bundlées dans l'APK** (téléchargées une fois par le développeur, pas chargées à runtime).
+Sources : fonts.google.com (Inter) et jetbrains.com/lp/mono/ (JetBrains Mono, licence OFL).
+
+> Ne pas utiliser les "Downloadable Fonts" Android (chargement runtime depuis les serveurs Google) —
+> cette app est utilisée via VPN et le device peut ne pas avoir accès à Google Fonts au démarrage.
+
+**Ne pas utiliser `FontFamily.Monospace`** — c'est la police mono système du device (Droid Sans Mono,
+Courier New, etc.) qui varie selon le fabricant. Utiliser `jetBrainsMonoFamily` partout.
 
 ### Scale typographique M3 → web
 
 | Token M3 | Taille | Poids | Usage |
 |----------|--------|-------|-------|
-| `displayLarge` | 57sp | Regular | — (non utilisé) |
-| `displayMedium` | 45sp | Regular | — (non utilisé) |
+| `displayLarge` | 57sp | Regular | — (non exposé en surface mais configuré Inter) |
+| `displayMedium` | 45sp | Regular | — (non exposé en surface mais configuré Inter) |
 | `headlineLarge` | 32sp | SemiBold | Titres de page (≈ 3xl web 30px) |
 | `headlineMedium` | 28sp | SemiBold | Sections |
 | `headlineSmall` | 24sp | SemiBold | Sous-sections (≈ 2xl 24px) |
@@ -122,7 +138,11 @@ Ajouter dans `res/font/` les fichiers `.ttf` Inter (téléchargés depuis fonts.
 | `labelMedium` | 12sp | Medium | Badges, chips |
 | `labelSmall` | 11sp | Medium | Captions |
 
-**Mono** : `FontFamily.Monospace` pour les prix/valeurs financières (même logique que le web).
+**Mono** : `jetBrainsMonoFamily` pour les prix/valeurs financières — **ne pas utiliser `FontFamily.Monospace`** (varie selon le device).
+
+> Tous les slots M3 (y compris `displayLarge`/`displayMedium` marqués "non utilisés") doivent être
+> configurés avec Inter dans `TradingTypography`. Si un composant M3 les utilise en interne,
+> il tombera sur Roboto par défaut sinon.
 
 ---
 
@@ -143,15 +163,15 @@ Ajouter dans `res/font/` les fichiers `.ttf` Inter (téléchargés depuis fonts.
 
 Grille **4dp** identique au web (4px grid).
 
-| Token | dp | Utilisation |
-|-------|----|-------------|
-| `spacing.xs` | 4dp | Padding minimal, gap icône/texte |
-| `spacing.sm` | 8dp | Padding interne petit composant |
-| `spacing.md` | 12dp | Padding standard |
-| `spacing.lg` | 16dp | Marges standard (défaut) |
-| `spacing.xl` | 24dp | Espacement entre sections |
-| `spacing.2xl` | 32dp | Espacement majeur |
-| `spacing.3xl` | 48dp | Séparations de blocs |
+| Token (doc + code) | dp | Utilisation |
+|--------------------|-----|-------------|
+| `Spacing.xs` | 4dp | Padding minimal, gap icône/texte |
+| `Spacing.sm` | 8dp | Padding interne petit composant |
+| `Spacing.md` | 12dp | Padding standard |
+| `Spacing.lg` | 16dp | Marges standard (défaut) |
+| `Spacing.xl` | 24dp | Espacement entre sections |
+| `Spacing.xxl` | 32dp | Espacement majeur |
+| `Spacing.xxxl` | 48dp | Séparations de blocs |
 
 ```kotlin
 // ui/theme/Spacing.kt
@@ -173,14 +193,27 @@ object Spacing {
 Material 3 utilise des couleurs de surface tintées (pas des ombres CSS).
 Pour les cards en dark mode, M3 ajoute automatiquement une teinte de la couleur primaire.
 
-| Niveau | Usage Android | Web équivalent |
-|--------|--------------|----------------|
-| `Elevation.Level0` | Background page | — |
-| `Elevation.Level1` | Cards au repos | shadow-sm |
-| `Elevation.Level2` | Cards au hover | shadow-md |
-| `Elevation.Level3` | FAB, App bars | shadow-lg |
-| `Elevation.Level4` | Modals | shadow-xl |
-| `Elevation.Level5` | Dialogs critiques | shadow-2xl |
+| Niveau | dp | Usage Android | Web équivalent |
+|--------|----|--------------|----------------|
+| `Elevation.Level0` | 0dp | Background page | — |
+| `Elevation.Level1` | 1dp | Cards au repos | shadow-sm |
+| `Elevation.Level2` | 3dp | Cards au hover | shadow-md |
+| `Elevation.Level3` | 6dp | FAB, App bars | shadow-lg |
+| `Elevation.Level4` | 8dp | Modals | shadow-xl |
+| `Elevation.Level5` | 12dp | Dialogs critiques | shadow-2xl |
+
+```kotlin
+// ui/theme/Elevation.kt
+// Obligatoire — sans cet objet les développeurs utilisent des .dp hardcodés
+object Elevation {
+    val Level0 = 0.dp
+    val Level1 = 1.dp
+    val Level2 = 3.dp
+    val Level3 = 6.dp
+    val Level4 = 8.dp
+    val Level5 = 12.dp
+}
+```
 
 ---
 
@@ -188,6 +221,10 @@ Pour les cards en dark mode, M3 ajoute automatiquement une teinte de la couleur 
 
 **Approche** : `darkColorScheme` M3 statique (pas de DynamicColor Android 12+) pour
 garantir la cohérence exacte avec le thème dark web.
+
+> Les utilisateurs de Pixel/Samsung s'attendent à ce que les apps suivent leur couleur
+> Material You. Afficher une note dans `SecuritySettingsScreen` :
+> *"Le thème de l'application est fixe pour correspondre à la plateforme web de trading."*
 
 ```kotlin
 // ui/theme/Theme.kt
@@ -221,15 +258,24 @@ Text(color = colors.pnlPositive, text = "+1,250.00 €")
 ### Affichage P&L
 
 ```kotlin
-// Couleur conditionnelle selon signe de la valeur
-fun pnlColor(value: BigDecimal): Color {
-    val ext = LocalExtendedColors.current
-    return when {
-        value > BigDecimal.ZERO -> ext.pnlPositive
-        value < BigDecimal.ZERO -> ext.pnlNegative
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
-    }
+// Version @Composable — pour usage dans les Composables
+@Composable
+fun pnlColor(value: BigDecimal): Color =
+    pnlColor(value, LocalExtendedColors.current, MaterialTheme.colorScheme)
+
+// Version non-Composable — pour tests unitaires et TextStyle pré-construits
+fun pnlColor(value: BigDecimal, ext: ExtendedColors, scheme: ColorScheme): Color = when {
+    value > BigDecimal.ZERO -> ext.pnlPositive
+    value < BigDecimal.ZERO -> ext.pnlNegative
+    else -> scheme.onSurfaceVariant
 }
+```
+
+La version avec paramètres explicites permet de tester `pnlColor()` sans contexte Compose :
+```kotlin
+// Dans un test unitaire
+val color = pnlColor(BigDecimal("150.00"), lightExtendedColors, lightColorScheme)
+assertEquals(lightExtendedColors.pnlPositive, color)
 ```
 
 ### Badges de statut
@@ -247,11 +293,12 @@ fun pnlColor(value: BigDecimal): Color {
 Toujours afficher en police **mono** avec alignement à droite :
 
 ```kotlin
+// pnlColor est @Composable — appel valide depuis un Composable uniquement
 Text(
     text = formatAmount(position.unrealizedPnl),
     style = MaterialTheme.typography.bodyLarge.copy(
-        fontFamily = FontFamily.Monospace,
-        fontFeatureSettings = "tnum"  // chiffres tabulaires
+        fontFamily = jetBrainsMonoFamily,   // pas FontFamily.Monospace (varie selon device)
+        fontFeatureSettings = "tnum"        // chiffres tabulaires
     ),
     color = pnlColor(position.unrealizedPnl),
     textAlign = TextAlign.End
@@ -260,6 +307,56 @@ Text(
 
 ---
 
+## Animations
+
+Durées et easing standards — à respecter pour la cohérence entre screens :
+
+| Type | Durée | Easing M3 | Usage |
+|------|-------|-----------|-------|
+| Entrée d'un élément | 300ms | `EmphasizedDecelerator` | Screen entrant, card apparaissant |
+| Sortie d'un élément | 200ms | `EmphasizedAccelerator` | Screen sortant, card disparaissant |
+| Transition de valeur (P&L) | 500ms | `EmphasizedEasing` | Mise à jour chiffre en direct |
+| Feedback immédiat | 100ms | `LinearOutSlowIn` | Ripple, état pressed |
+
+```kotlin
+// ui/theme/Motion.kt
+object Motion {
+    val EnterDuration = 300
+    val ExitDuration = 200
+    val ValueUpdateDuration = 500
+
+    val EmphasizedDecelerate = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1.0f)
+    val EmphasizedAccelerate = CubicBezierEasing(0.3f, 0.0f, 0.8f, 0.15f)
+}
+```
+
+**`AnimatedContent` vs `AnimatedVisibility` — distinction obligatoire :**
+
+| Composable | Usage correct |
+|------------|--------------|
+| `AnimatedVisibility` | Apparition/disparition d'un élément (show/hide) |
+| `AnimatedContent` | Transition entre deux **contenus différents** (Loading → Success, valeur qui change) |
+
+```kotlin
+// CORRECT — transition Loading → Success → Error
+AnimatedContent(
+    targetState = uiState,
+    transitionSpec = { fadeIn(tween(Motion.EnterDuration)) togetherWith fadeOut(tween(Motion.ExitDuration)) }
+) { state ->
+    when (state) {
+        is QuoteUiState.Loading -> LoadingPlaceholder()
+        is QuoteUiState.Success -> QuoteCard(state.data)
+        is QuoteUiState.Error   -> ErrorBanner(state.message)
+    }
+}
+
+// INCORRECT — AnimatedVisibility pour du crossfade entre états
+// (produit un flash blanc entre les deux états)
+```
+
+Pour les transitions de navigation : `NavHost` avec `EnterTransition.fadeIn(tween(Motion.EnterDuration))`.
+Pour les valeurs P&L en polling : `AnimatedContent` sur la valeur elle-même (crossfade chiffre à chiffre).
+
 ## Règles à respecter
 
 | Règle | Détail |
@@ -267,7 +364,7 @@ Text(
 | Pas de couleur hardcodée | Toujours `MaterialTheme.colorScheme.*` ou `LocalExtendedColors.current.*` |
 | Pas de `Color.Red` / `Color.Green` | Utiliser `error` / `success` des tokens |
 | Police Inter partout | Même le texte secondaire — cohérence web |
-| Mono pour les valeurs numériques | Prix, P&L, quantités, pourcentages |
+| Mono pour les valeurs numériques | `jetBrainsMonoFamily` — jamais `FontFamily.Monospace` |
 | Dark mode testé | Chaque composant doit fonctionner en light et dark |
 | Pas de `DynamicColor` | On ne suit pas la couleur du wallpaper Android |
 | Spacing via `Spacing.*` | Pas de `.dp` hardcodé dans les Composables |

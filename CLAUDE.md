@@ -59,7 +59,7 @@ com.tradingplatform.app/
 │   ├── model/             # Domain models (purs Kotlin, sans annotations Android/Retrofit/Room)
 │   ├── repository/        # Interfaces Repository (définies dans domain, implémentées dans data)
 │   └── usecase/
-│       ├── auth/          # LoginUseCase, LogoutUseCase, RefreshTokenUseCase
+│       ├── auth/          # LoginUseCase, LogoutUseCase
 │       ├── portfolio/     # GetPortfolioUseCase, GetPositionsUseCase
 │       ├── device/        # GetDevicesUseCase, GetDeviceStatusUseCase
 │       ├── alerts/        # GetAlertsUseCase, MarkAlertReadUseCase
@@ -135,10 +135,45 @@ Le flag `is_admin` (champ `user` dans la réponse login / `/auth/me`) conditionn
 
 - L'onglet Devices dans la navigation est affiché **uniquement si `user.is_admin == true`**
 - Le bouton "Ajouter un device" (démarrage pairing) est réservé aux admins
-- Les widgets admin sont enregistrés dans le manifest mais restent vides (placeholder) si `is_admin == false`
+- Les widgets admin (`SystemStatusWidget`) sont **désactivés** dans le launcher si `is_admin == false` — ils n'apparaissent pas dans le picker de widgets
 - Stocker `is_admin` dans `EncryptedDataStore` après login — relire à chaque démarrage
+- Désactiver/activer via `PackageManager` après login :
 
-### Glance widgets + Hilt — pattern obligatoire
+```kotlin
+// Dans LoginViewModel après récupération de is_admin
+fun applyAdminWidgetVisibility(isAdmin: Boolean) {
+    val state = if (isAdmin)
+        PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+    else
+        PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+    packageManager.setComponentEnabledSetting(
+        ComponentName(context, SystemStatusWidgetReceiver::class.java),
+        state,
+        PackageManager.DONT_KILL_APP
+    )
+}
+```
+
+### Hilt — deux patterns selon le composant
+
+| Composant | Pattern Hilt | Raison |
+|-----------|-------------|--------|
+| `GlanceAppWidget` | `EntryPointAccessors` | Glance ne supporte pas l'injection Hilt standard |
+| `WidgetUpdateWorker` | `@HiltWorker` + `@AssistedInject` | WorkManager supporte Hilt nativement |
+
+```kotlin
+// WidgetUpdateWorker — injection standard via @HiltWorker
+@HiltWorker
+class WidgetUpdateWorker @AssistedInject constructor(
+    @Assisted context: Context,
+    @Assisted workerParams: WorkerParameters,
+    private val getPortfolioUseCase: GetPortfolioUseCase,
+    private val getAlertsUseCase: GetAlertsUseCase,
+    private val getQuoteUseCase: GetQuoteUseCase,
+) : CoroutineWorker(context, workerParams) { ... }
+```
+
+### Glance widgets + Hilt — pattern obligatoire (GlanceAppWidget uniquement)
 
 Les widgets Glance ne supportent pas l'injection Hilt standard. Utiliser `EntryPointAccessors` :
 
@@ -147,7 +182,7 @@ Les widgets Glance ne supportent pas l'injection Hilt standard. Utiliser `EntryP
 @InstallIn(SingletonComponent::class)
 interface WidgetEntryPoint {
     fun getPortfolioUseCase(): GetPortfolioUseCase
-    fun getDevicesUseCase(): GetDevicesUseCase       // null-safe si !is_admin
+    fun getDevicesUseCase(): GetDevicesUseCase       // vérifier is_admin dans provideGlance() avant d'appeler
     fun getAlertsUseCase(): GetAlertsUseCase
     fun getMarketDataUseCase(): GetMarketDataUseCase // pour QuoteWidget
 }
@@ -175,17 +210,132 @@ affichent le cache daté sans déclencher d'erreur bloquante.
 | `pnl_snapshots` | 5 min | DashboardScreen, PnlWidget |
 | `alerts` | permanent | AlertListScreen, AlertsWidget |
 | `devices` | 1 min | DeviceListScreen offline (admin) |
+| `quotes` | 10 min | QuoteWidget (offline-first cohérent) |
 
 Le timestamp de dernière sync est stocké avec chaque entité (`synced_at: Long`).
 L'UI affiche "Données du HH:mm" si le cache a plus de 10 min.
 
+**Widgets** : le timestamp `synced_at` est affiché dans tous les widgets sans exception —
+pas uniquement dans l'UI principale. Pour un app de trading, afficher un cours de 10 min
+sans indication est trompeur.
+
+### Politique de rétention Room
+
+| Table | Politique |
+|-------|-----------|
+| `alerts` | 30 jours **ou** 500 entrées max (whichever first) — purge au démarrage du Worker |
+| `quotes` | Supprimer les entrées dont `synced_at < now - 10 min` |
+| `positions` | Supprimer les entrées dont `synced_at < now - 5 min` (remplacées à chaque sync) |
+| `pnl_snapshots` | Supprimer les entrées dont `synced_at < now - 5 min` |
+| `devices` | Supprimer les entrées dont `synced_at < now - 1 min` |
+
+La purge est exécutée **après** chaque sync réussie — jamais avant. Purger avant les appels
+réseau crée un gap : si le Worker est tué pendant la sync, les tables sont vides. Utiliser
+des upserts (`OnConflictStrategy.REPLACE`) plutôt que DELETE + INSERT séquentiel.
+
+### Migration Room
+
+Activer `schemaDirectory` (déjà configuré) et appliquer la stratégie suivante :
+- **Développement** : `fallbackToDestructiveMigration()` acceptable — schéma instable
+- **Production (v1 → v1.x)** : migrations explicites via `addMigrations(MIGRATION_X_Y)`
+- Ne jamais utiliser `fallbackToDestructiveMigration()` en release (perte de données alerts)
+
+### WorkManager — contraintes et comportement VPN
+
+Le `WidgetUpdateWorker` doit déclarer `Constraints.NETWORK_CONNECTED` pour éviter les tentatives
+inutiles hors-ligne :
+
+```kotlin
+val constraints = Constraints.Builder()
+    .setRequiredNetworkType(NetworkType.CONNECTED)
+    .build()
+```
+
+Si le VPN est inactif au moment du Worker (VpnRequiredInterceptor bloque) : retourner
+`Result.success()` **sans mettre à jour Room** — le cache daté reste affiché.
+Ne jamais retourner `Result.failure()` pour absence de VPN (déclencherait les retries WorkManager
+en boucle). Utiliser `Result.retry()` uniquement pour les erreurs réseau transitoires (timeout,
+IOE) avec `BackoffPolicy.EXPONENTIAL`.
+
+```kotlin
+// Pattern obligatoire dans WidgetUpdateWorker.doWork()
+// Chaque bloc sync est indépendant — un échec portfolio ne bloque pas les alertes
+override suspend fun doWork(): Result {
+    if (vpnManager.state.value !is VpnState.Connected) {
+        return Result.success()  // VPN absent — garder le cache, ne pas retry
+    }
+
+    var anyRetryNeeded = false
+
+    // Sync indépendante par section — try/catch par bloc
+    try {
+        syncPortfolio()
+        purgeExpiredPositions()
+    } catch (e: IOException) { anyRetryNeeded = true }
+
+    try {
+        syncAlerts()
+        purgeExpiredAlerts()
+    } catch (e: IOException) { anyRetryNeeded = true }
+
+    try {
+        syncQuotes()
+        purgeExpiredQuotes()
+    } catch (e: IOException) { anyRetryNeeded = true }
+
+    return if (anyRetryNeeded) Result.retry() else Result.success()
+}
+```
+
+La vérification VPN en entrée de Worker (via `vpnManager.state`) évite de passer par les
+intercepteurs OkHttp pour un cas prévisible. `Result.retry()` uniquement si au moins une
+section a eu une erreur réseau transitoire.
+
 ### Données de marché — stratégie polling
 
 Pas de WebSocket — polling REST uniquement :
-- **Dashboard** : `GET /v1/market-data/quote/{symbol}` toutes les **30 secondes** (via `repeatOnLifecycle`)
+- **Dashboard** : `GET /v1/market-data/quote/{symbol}` toutes les **30 secondes** via `while(isActive)` dans `viewModelScope`
 - **Widgets** : rafraîchissement inclus dans le cycle WorkManager **5 min**
 
-Pas de table Room dédiée pour les cours — données non persistées (toujours fraîches ou absentes).
+La table Room `quotes` persiste le dernier cours connu (TTL 10 min) pour le `QuoteWidget`.
+L'écran Dashboard ne persiste pas les cours — il affiche uniquement les données live ou rien.
+
+**Gestion des exceptions dans le polling Dashboard** — trois cas distincts à traiter dans le ViewModel.
+
+`repeatOnLifecycle` est une extension de `Lifecycle` (Activity/Fragment) — **non utilisable
+dans un ViewModel**. Le polling se fait via `while(isActive)` dans `viewModelScope`. Côté UI,
+`collectAsStateWithLifecycle()` suspend automatiquement la collection quand l'app est en
+arrière-plan.
+
+```kotlin
+// Dans DashboardViewModel — pattern correct
+init {
+    viewModelScope.launch {
+        while (isActive) {
+            getQuoteUseCase(symbol)
+                .onSuccess { _quoteState.value = QuoteUiState.Success(it) }
+                .onFailure { e ->
+                    when (e) {
+                        is VpnNotConnectedException ->
+                            // VPN coupé — garder la valeur précédente, pas d'erreur bloquante
+                            _quoteState.update { prev ->
+                                if (prev is QuoteUiState.Success) QuoteUiState.Stale(prev.data)
+                                else prev
+                            }
+                        is SocketTimeoutException, is IOException ->
+                            Unit  // transitoire — garder l'état précédent
+                        else ->
+                            _quoteState.value = QuoteUiState.Error(e.localizedMessage ?: "Erreur")
+                    }
+                }
+            delay(30_000)
+        }
+    }
+}
+
+// Dans le Composable — collectAsStateWithLifecycle() gère le lifecycle
+val quoteState by viewModel.quoteState.collectAsStateWithLifecycle()
+```
 
 ### Alertes — source de données (FCM → Room)
 
@@ -252,6 +402,13 @@ HttpLoggingInterceptor    → debug uniquement, tokens [REDACTED]
 
 Le middleware CSRF du VPS **ne fait pas d'exemption** sur les requêtes Bearer — le `CsrfInterceptor` est obligatoire pour tous les `POST/PUT/DELETE/PATCH`.
 
+**Deux contraintes d'implémentation critiques pour `CsrfInterceptor` :**
+
+1. **Pas d'`AuthApi` en paramètre** — injecter un `OkHttpClient` "bare" (sans interceptors) pour
+   le `GET /csrf-token`, évite la dépendance circulaire `OkHttpClient → CsrfInterceptor → AuthApi → OkHttpClient`.
+2. **Mutex obligatoire** — utiliser un `kotlinx.coroutines.sync.Mutex` pour que le fetch du token
+   CSRF ne soit lancé qu'une seule fois en cas de requêtes parallèles (même pattern que `TokenAuthenticator`).
+
 ---
 
 ## 4. SÉCURITÉ — RÈGLES SPÉCIFIQUES
@@ -264,8 +421,17 @@ OkHttpClient.Builder()
     .certificatePinner(
         CertificatePinner.Builder()
             .add("vps.example.com", "sha256/<EMPREINTE_DU_CERT_VPS>")
+            .add("vps.example.com", "sha256/<EMPREINTE_BACKUP>")  // backup pin obligatoire
             .build()
     )
+```
+
+**Backup pin obligatoire.** Un seul pin = app cassée si le cert VPS est renouvelé avant la
+mise à jour de l'app. Le backup pin doit être le hash du prochain certificat prévu **ou** du
+certificat intermédiaire CA. Le `local.properties` doit donc exposer les deux :
+```properties
+CERT_PIN_SHA256=sha256/<empreinte_courante>
+CERT_PIN_SHA256_BACKUP=sha256/<empreinte_backup>
 ```
 
 ### Stockage sécurisé
@@ -280,21 +446,92 @@ val key = MasterKey.Builder(context)
 getSharedPreferences("prefs", MODE_PRIVATE).edit().putString("token", jwt)
 ```
 
-### Verrou biométrique — comportement (Option B1 : validité Keystore 5 min)
+**Corruption EncryptedDataStore — handling obligatoire.** Sur certains devices (Samsung, Xiaomi),
+le Keystore peut être invalidé au reboot, rendant les données chiffrées illisibles. Toute
+lecture depuis `EncryptedDataStore` doit être wrappée :
 
-- Clé Keystore créée avec `setUserAuthenticationValidityDurationSeconds(300)`
-- **Déclencheur** : inactivité UI (pas de toucher écran) pendant 5 min — pas un timer absolu
+```kotlin
+suspend fun readSecurely(key: String): String? {
+    return try {
+        dataStore.data.first()[stringPreferencesKey(key)]
+    } catch (e: IOException) {
+        // Fichier corrompu ou illisible
+        null
+    } catch (e: GeneralSecurityException) {
+        // Keystore invalidé (reboot, suppression biométrie, reset device)
+        null
+    }
+}
+```
+
+Si le token retourné est `null` suite à cette exception : logout forcé vers `LoginScreen`.
+Ne jamais laisser l'app dans un état indéterminé avec des clés nulles.
+
+### Verrou biométrique — comportement (Option B1 : deux mécanismes distincts)
+
+`setUserAuthenticationValidityDurationSeconds(300)` et "inactivité de 5 min" sont deux choses
+différentes. L'implémentation combine les deux :
+
+| Mécanisme | Rôle |
+|-----------|------|
+| Clé Keystore avec `setUserAuthenticationValidityDurationSeconds(300)` | Invalide la clé crypto 5 min **après la dernière auth biométrique** — géré par Android |
+| Timer d'inactivité dans `MainActivity` | Déclenche l'overlay et redemande la biométrie après 5 min **sans interaction écran** |
+
+Le timer d'inactivité est géré dans `MainActivity` :
+```kotlin
+// Réinitialiser à chaque dispatchTouchEvent
+override fun dispatchTouchEvent(ev: MotionEvent?): Boolean {
+    resetInactivityTimer()
+    return super.dispatchTouchEvent(ev)
+}
+private fun resetInactivityTimer() {
+    inactivityJob?.cancel()
+    inactivityJob = lifecycleScope.launch {
+        delay(INACTIVITY_TIMEOUT_MS) // 5 * 60 * 1000
+        showBiometricLock()
+    }
+}
+```
+
+**Révocation biométrie** : si l'utilisateur supprime ses empreintes, la clé Keystore est
+invalidée. Toujours intercepter `KeyPermanentlyInvalidatedException` lors de l'utilisation de
+la clé et régénérer la clé + demander une nouvelle authentification :
+```kotlin
+try {
+    cipher.init(Cipher.ENCRYPT_MODE, keystoreKey)
+} catch (e: KeyPermanentlyInvalidatedException) {
+    keystoreManager.regenerateKey()
+    promptBiometricReEnrollment()
+}
+```
+
 - En cas de verrou : overlay opaque sur l'écran, données non visibles
-- L'authentification biométrique réussie déverrouille pour 5 min supplémentaires
+- L'authentification biométrique réussie déverrouille pour 5 min supplémentaires (reset les deux mécanismes)
 - `WireGuardVpnService` reste actif pendant le verrou (service foreground indépendant)
 - **Widgets** : n'ont pas de verrou biométrique — ils lisent des données Room en cache via WorkManager
   (le cache Room est mis à jour en arrière-plan par `WidgetUpdateWorker`, pas par l'écran principal)
+- **Décision consciente** : les widgets affichent les montants absolus (P&L en €, positions en valeur).
+  Ce choix est intentionnel — les widgets sont sur un écran d'accueil déjà protégé par le verrou OS.
+  À réévaluer si l'app est déployée sur des devices partagés.
+
+### Root detection — note sur les limites
+
+`RootBeer` assure une détection côté client, bypassable avec Magisk/Zygisk.
+- **Si l'app est distribuée via le Play Store** : ajouter Play Integrity API pour une attestation
+  côté serveur (non bypassable côté client). Le VPS peut rejeter les sessions dont l'attestation
+  échoue.
+- **Si l'app est distribuée en sideload** (usage interne, VPN-only) : Play Integrity API n'est
+  pas disponible. RootBeer reste le seul mécanisme — à combiner avec les contrôles VPN/CSRF
+  qui réduisent la surface d'attaque même sur un device rooté.
 
 ### Accès device LAN
 
 ```kotlin
 // Toujours valider avant connexion
+// Rejeter tout ce qui n'est pas une IP littérale — InetAddress.getByName() sur une IP string
+// ne fait pas de DNS lookup ; le Patterns.IP_ADDRESS guard bloque les hostnames (DNS rebinding).
 fun isLocalNetwork(ip: String): Boolean {
+    if (!Patterns.IP_ADDRESS.matcher(ip).matches()) return false
     val addr = InetAddress.getByName(ip)
     return addr.isSiteLocalAddress || addr.isLinkLocalAddress || addr.isLoopbackAddress
 }
@@ -322,7 +559,7 @@ fun isLocalNetwork(ip: String): Boolean {
 | Couleurs | Toujours `MaterialTheme.colorScheme.*` ou `LocalExtendedColors.current.*` |
 | Pas de couleur hardcodée | Interdire `Color(0xFF...)` dans les Composables |
 | Police Inter | Configurée dans `TradingTypography` — s'applique automatiquement |
-| Valeurs monétaires | `FontFamily.Monospace` + `fontFeatureSettings = "tnum"`, aligné à droite |
+| Valeurs monétaires | `jetBrainsMonoFamily` + `fontFeatureSettings = "tnum"`, aligné à droite |
 | P&L positif/négatif | `LocalExtendedColors.current.pnlPositive/pnlNegative` selon signe `BigDecimal` |
 | Spacing | `Spacing.lg` (16dp) par défaut — via `Spacing.*` (jamais de `.dp` hardcodé) |
 | Dark mode | Tester chaque composant en light et dark avant de le merger |
@@ -346,10 +583,54 @@ Référence complète : `docs/design-system.md`
 ```
 
 Structure :
-- `test/` — UseCases, ViewModels (Mockk + Turbine pour StateFlow)
-- `androidTest/` — UI tests Compose (ComposeTestRule), Room DAOs
+- `test/` — UseCases, ViewModels (Mockk + Turbine pour StateFlow), intercepteurs OkHttp (MockWebServer), Repositories
+- `androidTest/` — UI tests Compose (ComposeTestRule), Room DAOs, WidgetUpdateWorker (TestListenableWorkerBuilder)
 
-Objectif couverture : ≥ 80% sur `domain/usecase/` et `ui/screens/` ViewModels.
+Objectif couverture : ≥ 80% sur `domain/usecase/`, `ui/screens/` ViewModels **et** `data/repository/`.
+
+### Pattern standard ViewModel test (à appliquer uniformément)
+
+```kotlin
+@OptIn(ExperimentalCoroutinesApi::class)
+class DashboardViewModelTest {
+    @get:Rule val mainDispatcherRule = MainDispatcherRule()  // remplace Dispatchers.Main
+
+    private val useCase = mockk<GetQuoteUseCase>()
+    private lateinit var viewModel: DashboardViewModel
+
+    @Before fun setUp() {
+        viewModel = DashboardViewModel(useCase)
+    }
+
+    @Test fun `uiState emits Success on valid quote`() = runTest {
+        coEvery { useCase(any()) } returns Result.success(fakeQuote)
+        viewModel.uiState.test {
+            assertIs<QuoteUiState.Success>(awaitItem())
+        }
+    }
+}
+```
+
+`MainDispatcherRule` utilise `UnconfinedTestDispatcher` — permet aux coroutines de s'exécuter
+immédiatement sans `advanceUntilIdle()` dans la majorité des cas.
+
+### Screenshot tests (Paparazzi / Roborazzi)
+
+Pour les composants où les couleurs et l'alignement sont critiques (P&L, valeurs monétaires,
+badges de statut), les screenshot tests détectent les régressions visuelles automatiquement.
+
+```kotlin
+// Exemple Paparazzi — ajouter en androidTest ou test selon la lib choisie
+@Test fun `PositionCard renders positive PnL correctly`() {
+    paparazzi.snapshot {
+        TradingPlatformTheme {
+            PositionCard(position = fakePositionWithPositivePnl)
+        }
+    }
+}
+```
+
+Tester en light **et** dark (deux snapshots par composant critique).
 
 ---
 
@@ -374,7 +655,8 @@ Objectif couverture : ≥ 80% sur `domain/usecase/` et `ui/screens/` ViewModels.
 VPS_BASE_URL=https://10.42.0.1:8013
 WG_VPS_ENDPOINT=vps.example.com:51820
 WG_VPS_PUBKEY=<clé_publique_wg_du_vps>
-CERT_PIN_SHA256=sha256/<empreinte>
+CERT_PIN_SHA256=sha256/<empreinte_courante>
+CERT_PIN_SHA256_BACKUP=sha256/<empreinte_backup>
 KEYSTORE_PATH=../keystore/release.jks
 KEYSTORE_PASSWORD=...
 KEY_ALIAS=...
@@ -404,6 +686,22 @@ App → poll GET http://radxa_ip:8099/status jusqu'à "paired"
   (le VPN garantit qu'on est sur le bon réseau avant de contacter le LAN)
 - Timeout 120s sur l'opération complète (durée de vie de la session VPS)
 
+**Validation des QR scannés :**
+- QR non reconnu (ni VPS ni Radxa) → `PairingStep.Error("QR non reconnu, réessayez", retryable=true)` + vibration
+- `ParseVpsQrUseCase` et `ScanDeviceQrUseCase` retournent `Result.failure(UnrecognizedQrException)` sur format invalide
+- Structure QR Radxa à valider strictement (pas seulement le scheme) :
+  ```kotlin
+  // Valider que le scheme est pairing://radxa, les params id/pub/ip/port présents,
+  // ip correspond à Patterns.IP_ADDRESS, port == 8099
+  fun parseRadxaQr(raw: String): Result<DevicePairingInfo> {
+      val uri = Uri.parse(raw)
+      if (uri.scheme != "pairing" || uri.host != "radxa") return Result.failure(UnrecognizedQrException)
+      val ip = uri.getQueryParameter("ip") ?: return Result.failure(MalformedQrException("ip"))
+      if (!Patterns.IP_ADDRESS.matcher(ip).matches()) return Result.failure(MalformedQrException("ip format"))
+      // ... valider id, pub (44 chars base64), port
+  }
+  ```
+
 ### QR codes
 
 **QR VPS** : affiché sur `(app)/admin/edge-devices/` via `GET /v1/pairing/{session_id}/qr`
@@ -423,29 +721,130 @@ L'app scanne les deux QR dans n'importe quel ordre, puis connecte les infos.
 > - `wg_pubkey` dans le QR Radxa est la clé publique **complète** (44 chars base64). La mention "tronquée" ne s'applique qu'à l'affichage sur l'e-ink, pas aux données QR.
 > - La connexion vers `radxa_ip:8099` est **HTTP non chiffré** (LAN uniquement). Le `session_pin` transite en clair sur ce tronçon — risque accepté (LAN requis, TTL 120s, 3 tentatives VPS).
 
+### Repository LAN (obligatoire — violation d'archi sinon)
+
+Les UseCases ne peuvent pas faire d'appels réseau directement. Les appels vers `radxa_ip:8099`
+passent par `PairingRepository` avec un OkHttpClient dédié (distinct du client VPS) :
+
+```
+domain/repository/
+└── PairingRepository    — interface : sendPin(...): Result<Unit>, pollStatus(...): Flow<PairingStatus>
+
+data/repository/
+└── PairingRepositoryImpl — OkHttpClient bare (pas de CSRF/Auth interceptors — c'est du LAN)
+                            Valide isLocalNetwork() avant chaque appel
+```
+
+Le `PairingRepository` utilise un `OkHttpClient` **séparé** sans les interceptors VPS
+(pas de CsrfInterceptor, pas d'AuthInterceptor). Le VPN vérifie déjà l'accès réseau au niveau OS.
+
 ### UseCases à créer
 
 ```
 domain/usecase/pairing/
 ├── ParseVpsQrUseCase            — parse QR VPS → PairingSession(session_id, session_pin, device_wg_ip)
 ├── ScanDeviceQrUseCase          — parse QR Radxa → DevicePairingInfo(device_id, wg_pubkey, local_ip)
-├── SendPinToDeviceUseCase       — POST http://radxa_ip:8099/pin avec {session_id, session_pin}
-└── ConfirmPairingUseCase        — poll GET http://radxa_ip:8099/status jusqu'à "paired" | "failed" (timeout 120s)
+├── SendPinToDeviceUseCase       — délègue à PairingRepository.sendPin() — pas d'appel réseau direct
+└── ConfirmPairingUseCase        — poll toutes les 2s via withTimeout(120_000) — retourne dès "paired" ou "failed"
 ```
+
+**Intervalle de polling : 2 secondes.** Ne pas laisser au développeur le choix — une boucle
+sans délai consomme batterie et surcharge la Radxa. `delay(2_000)` entre chaque GET status.
+
+**Invalidation PIN côté VPS :** le VPS invalide le `session_pin` après un usage réussi (usage
+unique, TTL 120s). L'app ne doit pas retenter `SendPinToDeviceUseCase` après un succès de
+`ConfirmPairingUseCase`.
+
+### PairingViewModel — state machine (sealed class obligatoire)
+
+Les 4 screens partagent un seul `PairingViewModel`. Les deux QR sont scannables dans n'importe
+quel ordre — le state machine doit le gérer explicitement :
+
+```kotlin
+sealed interface PairingStep {
+    data object Idle : PairingStep
+    // QR VPS scanné, en attente du QR Radxa
+    data class VpsScanned(val session: PairingSession) : PairingStep
+    // QR Radxa scanné, en attente du QR VPS
+    data class DeviceScanned(val device: DevicePairingInfo) : PairingStep
+    // Les deux QR sont scannés — prêt à envoyer le PIN
+    data class BothScanned(val session: PairingSession, val device: DevicePairingInfo) : PairingStep
+    data object SendingPin : PairingStep
+    data object WaitingConfirmation : PairingStep
+    data object Success : PairingStep
+    data class Error(val message: String, val retryable: Boolean) : PairingStep
+}
+```
+
+Si l'utilisateur quitte le flux (back button), le ViewModel est effacé et la session est
+abandonnée côté VPS à l'expiration du TTL 120s. Pas de reprise de session en cours.
 
 ### Screens à créer
 
 ```
 ui/screens/pairing/
-├── ScanVpsQrScreen      — caméra → parse QR VPS
-├── ScanDeviceQrScreen   — caméra → parse QR Radxa
+├── ScanVpsQrScreen       — caméra → parse QR VPS
+├── ScanDeviceQrScreen    — caméra → parse QR Radxa
 ├── PairingProgressScreen — progression temps réel (3 étapes animées)
-└── PairingDoneScreen    — succès ✓ / échec avec retry
+└── PairingDoneScreen     — succès ✓ / échec avec retry
 ```
 
 ---
 
-## 9. RÉFÉRENCES
+## 9. QUALITÉ TRANSVERSALE
+
+### Accessibilité
+
+Toutes les valeurs P&L, montants et badges doivent avoir un `contentDescription` lisible par
+TalkBack — la valeur numérique seule est ambiguë pour un lecteur d'écran :
+
+```kotlin
+Text(
+    text = formatAmount(position.unrealizedPnl),  // "+1 250,00 €"
+    modifier = Modifier.semantics {
+        contentDescription = "Gain non réalisé : ${formatAmountVerbose(position.unrealizedPnl)}"
+    }
+)
+// Badges : "Statut : Ouvert" plutôt que l'icône seule
+```
+
+### Crash reporting
+
+Firebase est déjà dans les dépendances (FCM). Ajouter Crashlytics :
+```toml
+# libs.versions.toml
+firebase-crashlytics = { group = "com.google.firebase", name = "firebase-crashlytics-ktx" }  # version via BOM
+```
+```kotlin
+// app/build.gradle.kts plugins
+alias(libs.plugins.firebase.crashlytics)
+```
+Les crashes derrière VPN sont impossibles à diagnostiquer sans telemetry.
+
+### Notifications FCM — deep linking
+
+Cliquer sur une notification FCM doit ouvrir `AlertListScreen` directement. Implémenter dans
+`FirebaseMessagingService.onMessageReceived()` :
+
+```kotlin
+val intent = Intent(context, MainActivity::class.java).apply {
+    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+    putExtra("navigate_to", "alerts")  // ou deep link URI
+}
+val pendingIntent = PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_IMMUTABLE)
+// Attacher au NotificationCompat.Builder
+```
+
+`MainActivity` lit l'extra au démarrage et navigue vers `AlertListScreen` via `NavController`.
+
+### Compatibilité API — stratégie de version check
+
+Si le VPS déploie un breaking change, les anciennes apps cassent silencieusement. Prévoir :
+- Header `X-App-Version: {versionCode}` sur toutes les requêtes (via `AuthInterceptor`)
+- Le VPS peut retourner `426 Upgrade Required` si la version est trop ancienne
+- L'app affiche un dialog "Mise à jour requise" non dismissable sur `426`
+
+## 10. RÉFÉRENCES
 
 | Sujet | Fichier / Doc |
 |-------|---------------|
@@ -462,7 +861,7 @@ ui/screens/pairing/
 
 ---
 
-## 10. BUILD — MANIFEST ET DÉPENDANCES
+## 11. BUILD — MANIFEST ET DÉPENDANCES
 
 ### Permissions (AndroidManifest.xml)
 
@@ -501,6 +900,18 @@ ui/screens/pairing/
         android:value="VPN tunnel WireGuard — toutes les requêtes API passent par ce tunnel" />
 </service>
 <!-- Widgets Glance : déclarer chaque AppWidgetProvider ici (1 <receiver> par widget) -->
+<!-- QuoteWidget nécessite une activité de configuration (ticker configurable par widget) -->
+<activity
+    android:name=".widget.QuoteWidgetConfigureActivity"
+    android:exported="true">
+    <intent-filter>
+        <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+    </intent-filter>
+</activity>
+<!-- QuoteWidgetConfigureActivity : persister le ticker choisi par instance via
+     SharedPreferences keyed sur appWidgetId (pas GlanceStateDefinition — plus simple
+     pour une valeur scalaire configurée une seule fois) :
+     prefs.edit().putString("ticker_$appWidgetId", symbol).apply() -->
 <!-- WorkManager : ne pas déclarer manuellement, géré par la lib -->
 ```
 
@@ -521,6 +932,52 @@ Android au build time). Ce fichier se limite au blocage cleartext.
 </network-security-config>
 ```
 
+### ProGuard — règles minimales obligatoires (`proguard-rules.pro`)
+
+```proguard
+# Retrofit — garder toutes les interfaces et @SerializedName / @Json
+-keepattributes Signature, InnerClasses, EnclosingMethod
+-keepattributes RuntimeVisibleAnnotations, RuntimeVisibleParameterAnnotations
+-keepclassmembers,allowshrinking,allowobfuscation interface * {
+    @retrofit2.http.* <methods>;
+}
+-dontwarn org.codehaus.mojo.animal_sniffer.IgnoreJRERequirement
+-dontwarn javax.annotation.**
+-dontwarn kotlin.Unit
+
+# Moshi — garder les data classes annotées @JsonClass
+-keep @com.squareup.moshi.JsonClass class * { *; }
+-keepclassmembers class * {
+    @com.squareup.moshi.Json <fields>;
+}
+
+# Room — garder les entités et DAOs
+-keep class * extends androidx.room.RoomDatabase
+-keep @androidx.room.Entity class * { *; }
+-keep @androidx.room.Dao interface * { *; }
+
+# Glance widgets — garder les GlanceAppWidget et GlanceAppWidgetReceiver
+-keep class * extends androidx.glance.appwidget.GlanceAppWidget
+-keep class * extends androidx.glance.appwidget.GlanceAppWidgetReceiver
+
+# WireGuard — garder les classes JNI et tunnel
+-keep class com.wireguard.** { *; }
+
+# RootBeer — garder les détections natives
+-keep class com.scottyab.rootbeer.** { *; }
+
+# Kotlin — garder les métadonnées pour la réflexion
+-keepattributes *Annotation*
+-keep class kotlin.Metadata { *; }
+
+# Timber — supprimer les logs debug en release
+-assumenosideeffects class timber.log.Timber {
+    public static *** d(...);
+    public static *** v(...);
+    public static *** i(...);
+}
+```
+
 ### Dépendances — voir `docs/gradle-setup.md`
 
 > ⚠ Libs en alpha — **ne pas upgrader sans tester** :
@@ -529,7 +986,7 @@ Android au build time). Ce fichier se limite au blocage cleartext.
 
 ---
 
-## 11. SESSION ET PERSISTANCE
+## 12. SESSION ET PERSISTANCE
 
 ### Principe général
 
@@ -544,15 +1001,21 @@ Il est persisté via un `CookieJar` OkHttp qui écrit dans `EncryptedDataStore` 
 
 ```kotlin
 class EncryptedCookieJar(private val dataStore: EncryptedDataStore) : CookieJar {
+
+    // Paths exacts autorisés — ne pas utiliser .contains("auth") qui matcherait n'importe quel
+    // endpoint futur contenant "auth" dans son path.
+    private val AUTH_PATHS = setOf("/v1/auth/login", "/v1/auth/refresh")
+    private val REFRESH_PATH = "/v1/auth/refresh"
+
     override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
-        // Persister uniquement les cookies de /v1/auth/* dans EncryptedDataStore
-        if (url.pathSegments.contains("auth")) {
-            cookies.forEach { dataStore.save("cookie_${it.name}", it.toString()) }
+        if (url.encodedPath in AUTH_PATHS) {
+            // Filtrer sur le nom exact — ne pas persister les cookies analytics/tracking futurs
+            cookies.filter { it.name == "refresh_token" }
+                   .forEach { dataStore.save("cookie_${it.name}", it.toString()) }
         }
     }
     override fun loadForRequest(url: HttpUrl): List<Cookie> {
-        // Restaurer pour /v1/auth/refresh uniquement
-        return if (url.pathSegments.contains("refresh")) dataStore.loadCookies() else emptyList()
+        return if (url.encodedPath == REFRESH_PATH) dataStore.loadCookies() else emptyList()
     }
 }
 ```
@@ -562,24 +1025,56 @@ class EncryptedCookieJar(private val dataStore: EncryptedDataStore) : CookieJar 
 Le VPS requiert un token CSRF pour tous les `POST/PUT/DELETE/PATCH` (pas d'exemption Bearer).
 
 ```kotlin
-class CsrfInterceptor(private val authApi: AuthApi) : Interceptor {
-    @Volatile private var csrfToken: String? = null
+// NE PAS injecter AuthApi — dépendance circulaire (AuthApi est construit avec cet OkHttpClient).
+// Utiliser un OkHttpClient "bare" dédié sans interceptors pour le fetch du token CSRF.
+// Le bareHttpClient doit avoir des timeouts courts — sans ça, un VPS lent bloque un thread OkHttp.
+class CsrfInterceptor(
+    private val bareHttpClient: OkHttpClient,  // @Named("bare") — connectTimeout 5s, readTimeout 5s
+    private val baseUrl: String
+) : Interceptor {
+    private val mutex = Mutex()
+    // Toujours lire csrfToken à l'intérieur du lock — évite le double-check fragile hors lock
+    private var csrfToken: String? = null
 
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
         if (request.method in listOf("POST", "PUT", "DELETE", "PATCH")) {
-            val token = csrfToken ?: fetchCsrfToken()  // GET /csrf-token
-            return chain.proceed(request.newBuilder()
-                .header("X-CSRF-Token", token)
-                .build())
+            val token = runBlocking { mutex.withLock { csrfToken ?: fetchCsrfToken() } }
+            val response = chain.proceed(request.newBuilder().header("X-CSRF-Token", token).build())
+            if (response.code == 403) {
+                // Token CSRF invalide — invalider le cache et retry une fois
+                response.close()
+                val newToken = runBlocking { mutex.withLock { csrfToken = null; fetchCsrfToken() } }
+                return chain.proceed(request.newBuilder().header("X-CSRF-Token", newToken).build())
+            }
+            return response
         }
         return chain.proceed(request)
     }
+
+    private fun fetchCsrfToken(): String {
+        val req = Request.Builder().url("$baseUrl/csrf-token").get().build()
+        return bareHttpClient.newCall(req).execute().use { it.body?.string() ?: "" }
+            .also { csrfToken = it }
+    }
 }
+
+// Configuration du bareHttpClient dans NetworkModule :
+// OkHttpClient.Builder()
+//     .connectTimeout(5, TimeUnit.SECONDS)
+//     .readTimeout(5, TimeUnit.SECONDS)
+//     .build()
 ```
 
 - Le token CSRF est mis en cache en mémoire (durée de vie = session)
-- Sur réponse `403` CSRF invalide : refetch et retry une fois
+- Sur réponse `403` CSRF invalide : invalider le cache, refetch et retry une fois
+- Le `Mutex` garantit qu'un seul fetch est en vol simultanément (même pattern que `TokenAuthenticator`)
+
+**Risque `runBlocking` sous charge :** sur le thread pool OkHttp, `runBlocking` pendant le
+fetch CSRF peut saturer les threads si plusieurs requêtes parallèles attendent simultanément.
+**Alternative recommandée :** pre-fetcher le token CSRF immédiatement après le login réussi
+(dans `LoginUseCase` ou `TokenAuthenticator.authenticate()`) pour qu'il soit disponible en
+cache avant la première vraie requête. Réduit le risque de contention à zéro dans le cas nominal.
 
 ### Token refresh transparent — TokenAuthenticator
 
@@ -591,14 +1086,67 @@ class CsrfInterceptor(private val authApi: AuthApi) : Interceptor {
         → Échec 401 AUTH_1003 : logout forcé → LoginScreen
 ```
 
-Grace period 5s pour requêtes concurrentes (un seul refresh en vol via `Mutex`).
+**Mécanisme de refresh concurrent (Mutex + Deferred) :**
+Si plusieurs requêtes reçoivent un `401 AUTH_1002` simultanément, une seule doit déclencher
+le refresh — les autres doivent attendre et réutiliser le nouveau token.
 
-### Découverte du portfolio_id
+`TokenAuthenticator` est un `Authenticator` OkHttp (pas un Composable ni un ViewModel) — il
+n'a pas de scope intrinsèque. Injecter un `CoroutineScope` applicatif via Hilt :
 
-Après login, avant d'afficher le Dashboard :
-1. `POST /v1/auth/login` → `user.id`, `user.is_admin`, `tokens.access_token`
-2. `GET /v1/portfolios` → liste des portfolios → stocker `portfolioId` dans `EncryptedDataStore`
-3. Si `user.totp_enabled == true` → naviguer vers `TotpScreen` avant l'étape 2
+```kotlin
+// Dans NetworkModule.kt
+@Provides @Singleton
+fun provideApplicationScope(): CoroutineScope =
+    CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+// TokenAuthenticator reçoit ce scope par injection
+class TokenAuthenticator @Inject constructor(
+    private val applicationScope: CoroutineScope,  // @Singleton — survit aux requêtes
+    private val dataStore: EncryptedDataStore,
+    private val authApi: AuthApi,
+    private val logoutHandler: LogoutHandler,
+) : Authenticator {
+    private val mutex = Mutex()
+    private var refreshDeferred: Deferred<String?>? = null
+
+    override fun authenticate(route: Route?, response: Response): Request? {
+        val newToken = runBlocking {
+            mutex.withLock {
+                // Si un refresh est déjà en vol, réutiliser son résultat
+                refreshDeferred?.await() ?: run {
+                    val deferred = applicationScope.async { doRefresh() }
+                    refreshDeferred = deferred
+                    val token = deferred.await()
+                    refreshDeferred = null
+                    token
+                }
+            }
+        } ?: return null  // refresh échoué → logout géré dans doRefresh()
+        return response.request.newBuilder()
+            .header("Authorization", "Bearer $newToken").build()
+    }
+}
+```
+Pas de `delay(5000)` — les threads en attente bloquent sur le `Deferred`, pas sur un timer.
+
+### Découverte du portfolio_id — flow post-login
+
+```
+POST /v1/auth/login
+    ├─ Succès → stocker access_token, user.id, user.is_admin dans EncryptedDataStore
+    │
+    ├─ Si user.totp_enabled == true
+    │       → naviguer vers TotpScreen (avec session_token)
+    │       → POST /v1/auth/2fa/verify
+    │       └─ Succès → continuer ci-dessous
+    │
+    └─ GET /v1/portfolios → stocker portfolios[0].id dans EncryptedDataStore (clé auth_portfolio_id)
+            └─ Naviguer vers Dashboard
+```
+
+**Invariant :** chaque utilisateur a exactement un portfolio. `portfolios[0]` est toujours correct.
+- `portfolios.isEmpty()` → logout forcé (état incohérent côté serveur)
+- `portfolios.size > 1` → logger `[PORTFOLIO_MULTI] count=N`, prendre `portfolios[0]` sans UI de sélection
 
 Le `portfolioId` est réutilisé pour tous les appels portfolio sans re-fetch.
 
