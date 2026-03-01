@@ -18,12 +18,12 @@ val localProperties = Properties().apply {
 
 android {
     namespace = "com.tradingplatform.app"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.tradingplatform.app"
         minSdk = 26
-        targetSdk = 34
+        targetSdk = 36
         versionCode = 1
         versionName = "1.0.0"
 
@@ -72,17 +72,32 @@ android {
         isCoreLibraryDesugaringEnabled = true
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
     }
 
     room {
         schemaDirectory("$projectDir/schemas")
     }
+
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+            all {
+                it.maxHeapSize = "2g"
+            }
+        }
+    }
+}
+
+kotlin {
+    jvmToolchain(17)
 }
 
 dependencies {
-    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
 
     // Compose BOM
     implementation(platform(libs.compose.bom))
@@ -164,7 +179,11 @@ dependencies {
     testImplementation(libs.turbine)
     testImplementation(libs.coroutines.test)
     testImplementation(libs.work.testing)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.test.core)
     testImplementation(libs.okhttp.mockwebserver)
+    testImplementation("org.json:json:20240303")
+    testImplementation(kotlin("test"))
     androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.compose.ui.test)
     debugImplementation(libs.compose.ui.test.manifest)

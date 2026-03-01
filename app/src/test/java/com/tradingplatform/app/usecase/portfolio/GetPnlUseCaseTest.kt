@@ -35,9 +35,9 @@ class GetPnlUseCaseTest {
 
     @Test
     fun `returns PnlSummary on success`() = runTest {
-        coEvery { repository.getPnl(1, PnlPeriod.DAY) } returns Result.success(fakePnl)
+        coEvery { repository.getPnl("1", PnlPeriod.DAY) } returns Result.success(fakePnl)
 
-        val result = useCase(1)
+        val result = useCase("1")
 
         assertTrue(result.isSuccess)
         assertEquals(BigDecimal("1500.00"), result.getOrThrow().totalPnl)
@@ -45,27 +45,27 @@ class GetPnlUseCaseTest {
 
     @Test
     fun `defaults to DAY period`() = runTest {
-        coEvery { repository.getPnl(1, PnlPeriod.DAY) } returns Result.success(fakePnl)
+        coEvery { repository.getPnl("1", PnlPeriod.DAY) } returns Result.success(fakePnl)
 
-        useCase(1)
+        useCase("1")
 
-        coVerify { repository.getPnl(1, PnlPeriod.DAY) }
+        coVerify { repository.getPnl("1", PnlPeriod.DAY) }
     }
 
     @Test
     fun `passes explicit period to repository`() = runTest {
-        coEvery { repository.getPnl(1, PnlPeriod.MONTH) } returns Result.success(fakePnl)
+        coEvery { repository.getPnl("1", PnlPeriod.MONTH) } returns Result.success(fakePnl)
 
-        useCase(1, PnlPeriod.MONTH)
+        useCase("1", PnlPeriod.MONTH)
 
-        coVerify { repository.getPnl(1, PnlPeriod.MONTH) }
+        coVerify { repository.getPnl("1", PnlPeriod.MONTH) }
     }
 
     @Test
     fun `returns failure on repository error`() = runTest {
         coEvery { repository.getPnl(any(), any()) } returns Result.failure(RuntimeException("Timeout"))
 
-        val result = useCase(1)
+        val result = useCase("1")
 
         assertTrue(result.isFailure)
     }

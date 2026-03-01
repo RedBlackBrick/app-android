@@ -7,13 +7,19 @@ import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
+import org.json.JSONObject
 import timber.log.Timber
+import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Named
 import javax.inject.Singleton
 
 /**
  * Injecte le token CSRF sur tous les POST/PUT/DELETE/PATCH.
+ *
+ * Le VPS utilise le pattern double-submit cookie :
+ * - Header X-CSRF-Token ET cookie csrf_token doivent être présents et identiques.
+ * - GET /csrf-token retourne un JSON { "csrf_token": "..." } + Set-Cookie csrf_token=...
  *
  * Contraintes critiques :
  * 1. Pas d'AuthApi en paramètre — dépendance circulaire (AuthApi → OkHttpClient → CsrfInterceptor → AuthApi)
@@ -48,6 +54,7 @@ class CsrfInterceptor @Inject constructor(
         val response = chain.proceed(
             request.newBuilder()
                 .header("X-CSRF-Token", token)
+                .header("Cookie", "csrf_token=$token")
                 .build()
         )
 
@@ -63,6 +70,7 @@ class CsrfInterceptor @Inject constructor(
             return chain.proceed(
                 request.newBuilder()
                     .header("X-CSRF-Token", newToken)
+                    .header("Cookie", "csrf_token=$newToken")
                     .build()
             )
         }
@@ -76,10 +84,30 @@ class CsrfInterceptor @Inject constructor(
             .url("$baseUrl/csrf-token")
             .get()
             .build()
-        return bareHttpClient.newCall(req).execute().use { resp ->
-            resp.body?.string() ?: ""
-        }.also { token ->
-            csrfToken = token
+        val token = try {
+            bareHttpClient.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    Timber.e("CsrfInterceptor: fetch failed (HTTP ${resp.code})")
+                    null
+                } else {
+                    val body = resp.body?.string()
+                    if (body.isNullOrBlank()) {
+                        null
+                    } else {
+                        // Le endpoint retourne {"csrf_token":"...","header_name":"...","cookie_name":"..."}
+                        JSONObject(body).getString("csrf_token")
+                    }
+                }
+            }
+        } catch (e: IOException) {
+            Timber.e(e, "CsrfInterceptor: fetch failed (network error)")
+            null
         }
+        if (token == null) {
+            Timber.e("CsrfInterceptor: unable to obtain CSRF token")
+            throw IOException("Failed to fetch CSRF token")
+        }
+        csrfToken = token
+        return token
     }
 }

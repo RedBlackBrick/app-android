@@ -8,7 +8,7 @@ class GetTransactionsUseCase @Inject constructor(
     private val repository: PortfolioRepository,
 ) {
     suspend operator fun invoke(
-        portfolioId: Int,
+        portfolioId: String,
         limit: Int = 50,
         offset: Int = 0,
         symbol: String? = null,

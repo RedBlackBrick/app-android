@@ -52,7 +52,7 @@ class PnlWidget : GlanceAppWidget() {
         val pnlDao = ep.pnlDao()
 
         // Lecture depuis Room — pas d'appel réseau depuis un widget
-        val portfolioId = dataStore.readInt(DataStoreKeys.PORTFOLIO_ID)
+        val portfolioId = dataStore.readString(DataStoreKeys.PORTFOLIO_ID)
         val pnlSnapshot = pnlDao.getLatestByPeriod("day")
 
         provideContent {

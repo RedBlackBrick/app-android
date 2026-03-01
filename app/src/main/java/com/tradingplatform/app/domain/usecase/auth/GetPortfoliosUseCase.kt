@@ -19,10 +19,10 @@ class GetPortfoliosUseCase @Inject constructor(
                 }
                 portfolios.size > 1 -> {
                     Timber.w("[PORTFOLIO_MULTI] count=${portfolios.size} — using portfolios[0]")
-                    dataStore.writeInt(DataStoreKeys.PORTFOLIO_ID, portfolios[0].id)
+                    dataStore.writeString(DataStoreKeys.PORTFOLIO_ID, portfolios[0].id)
                 }
                 else -> {
-                    dataStore.writeInt(DataStoreKeys.PORTFOLIO_ID, portfolios[0].id)
+                    dataStore.writeString(DataStoreKeys.PORTFOLIO_ID, portfolios[0].id)
                 }
             }
         }

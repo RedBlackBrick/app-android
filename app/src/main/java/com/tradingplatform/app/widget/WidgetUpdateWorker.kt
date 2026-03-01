@@ -73,7 +73,7 @@ class WidgetUpdateWorker @AssistedInject constructor(
             return Result.success()
         }
 
-        val portfolioId = dataStore.readInt(DataStoreKeys.PORTFOLIO_ID)
+        val portfolioId = dataStore.readString(DataStoreKeys.PORTFOLIO_ID)
         if (portfolioId == null) {
             Timber.d("WidgetUpdateWorker — portfolioId not found in DataStore, skipping sync")
             return Result.success()
@@ -133,7 +133,7 @@ class WidgetUpdateWorker @AssistedInject constructor(
      * @throws IOException en cas d'erreur réseau transitoire
      * @throws VpnNotConnectedException si le VPN est coupé pendant la sync
      */
-    private suspend fun syncPortfolio(portfolioId: Int) {
+    private suspend fun syncPortfolio(portfolioId: String) {
         val now = System.currentTimeMillis()
 
         // Sync positions (OPEN uniquement pour les widgets)

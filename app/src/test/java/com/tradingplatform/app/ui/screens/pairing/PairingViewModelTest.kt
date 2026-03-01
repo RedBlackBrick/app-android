@@ -16,7 +16,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertIs
+import kotlin.test.assertIs
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -262,7 +262,7 @@ class PairingViewModelTest {
         coEvery { scanDeviceQrUseCase(any()) } returns Result.success(fakeDevice)
         coEvery { sendPinToDeviceUseCase(any(), any(), any(), any()) } returns Result.success(Unit)
         coEvery { confirmPairingUseCase(any(), any(), any()) } returns
-            Result.failure(kotlinx.coroutines.TimeoutCancellationException("Timeout"))
+            Result.failure(Exception("Pairing timeout"))
 
         viewModel.step.test {
             assertIs<PairingStep.Idle>(awaitItem())

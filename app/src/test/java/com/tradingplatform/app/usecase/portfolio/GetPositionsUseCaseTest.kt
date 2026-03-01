@@ -38,9 +38,9 @@ class GetPositionsUseCaseTest {
 
     @Test
     fun `returns positions on success`() = runTest {
-        coEvery { repository.getPositions(1, PositionStatus.OPEN) } returns Result.success(listOf(fakePosition))
+        coEvery { repository.getPositions("1", PositionStatus.OPEN) } returns Result.success(listOf(fakePosition))
 
-        val result = useCase(1)
+        val result = useCase("1")
 
         assertTrue(result.isSuccess)
         assertTrue(result.getOrThrow().isNotEmpty())
@@ -51,27 +51,27 @@ class GetPositionsUseCaseTest {
     fun `returns failure on repository error`() = runTest {
         coEvery { repository.getPositions(any(), any()) } returns Result.failure(RuntimeException("Network error"))
 
-        val result = useCase(1)
+        val result = useCase("1")
 
         assertTrue(result.isFailure)
     }
 
     @Test
     fun `defaults to OPEN status`() = runTest {
-        coEvery { repository.getPositions(1, PositionStatus.OPEN) } returns Result.success(listOf(fakePosition))
+        coEvery { repository.getPositions("1", PositionStatus.OPEN) } returns Result.success(listOf(fakePosition))
 
-        useCase(1) // no explicit status
+        useCase("1") // no explicit status
 
-        coVerify { repository.getPositions(1, PositionStatus.OPEN) }
+        coVerify { repository.getPositions("1", PositionStatus.OPEN) }
     }
 
     @Test
     fun `passes explicit status to repository`() = runTest {
-        coEvery { repository.getPositions(1, PositionStatus.CLOSED) } returns Result.success(emptyList())
+        coEvery { repository.getPositions("1", PositionStatus.CLOSED) } returns Result.success(emptyList())
 
-        val result = useCase(1, PositionStatus.CLOSED)
+        val result = useCase("1", PositionStatus.CLOSED)
 
         assertTrue(result.isSuccess)
-        coVerify { repository.getPositions(1, PositionStatus.CLOSED) }
+        coVerify { repository.getPositions("1", PositionStatus.CLOSED) }
     }
 }

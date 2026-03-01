@@ -5,7 +5,7 @@ import com.squareup.moshi.JsonClass
 
 @JsonClass(generateAdapter = true)
 data class PortfolioDto(
-    @Json(name = "id") val id: Int,
+    @Json(name = "id") val id: String,
     @Json(name = "name") val name: String,
     @Json(name = "currency") val currency: String,
 )

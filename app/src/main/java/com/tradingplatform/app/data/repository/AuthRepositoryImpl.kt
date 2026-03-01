@@ -136,7 +136,7 @@ class AuthRepositoryImpl @Inject constructor(
         }
 
         // Persister le portfolioId pour réutilisation sans re-fetch
-        dataStore.writeInt(DataStoreKeys.PORTFOLIO_ID, portfolios[0].id)
+        dataStore.writeString(DataStoreKeys.PORTFOLIO_ID, portfolios[0].id)
 
         portfolios
     }

@@ -12,7 +12,7 @@ import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertIs
+import kotlin.test.assertIs
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule

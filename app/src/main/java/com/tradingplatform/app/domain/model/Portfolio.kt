@@ -1,7 +1,7 @@
 package com.tradingplatform.app.domain.model
 
 data class Portfolio(
-    val id: Int,
+    val id: String,
     val name: String,
     val currency: String,
 )

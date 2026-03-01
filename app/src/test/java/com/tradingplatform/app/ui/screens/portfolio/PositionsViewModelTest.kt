@@ -48,7 +48,7 @@ class PositionsViewModelTest {
 
     @Before
     fun setUp() {
-        coEvery { getPortfolioIdUseCase() } returns 1
+        coEvery { getPortfolioIdUseCase() } returns "1"
         coEvery { getPositionsUseCase(any(), any()) } returns Result.success(fakePositions)
     }
 
@@ -167,18 +167,18 @@ class PositionsViewModelTest {
 
     @Test
     fun `uses portfolioId from dataStore`() = runTest {
-        coEvery { getPortfolioIdUseCase() } returns 7
+        coEvery { getPortfolioIdUseCase() } returns "7"
         viewModel = createViewModel()
 
-        coVerify { getPositionsUseCase(7, any()) }
+        coVerify { getPositionsUseCase("7", any()) }
     }
 
     @Test
-    fun `defaults to portfolioId 0 when dataStore returns null`() = runTest {
-        coEvery { getPortfolioIdUseCase() } returns 0
+    fun `defaults to empty portfolioId when dataStore returns null`() = runTest {
+        coEvery { getPortfolioIdUseCase() } returns ""
         viewModel = createViewModel()
 
-        coVerify { getPositionsUseCase(0, any()) }
+        coVerify { getPositionsUseCase("", any()) }
     }
 
     // ── Turbine StateFlow test ────────────────────────────────────────────────

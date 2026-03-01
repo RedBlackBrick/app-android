@@ -9,7 +9,7 @@ class GetPnlUseCase @Inject constructor(
     private val repository: PortfolioRepository,
 ) {
     suspend operator fun invoke(
-        portfolioId: Int,
+        portfolioId: String,
         period: PnlPeriod = PnlPeriod.DAY,
     ): Result<PnlSummary> =
         repository.getPnl(portfolioId, period)

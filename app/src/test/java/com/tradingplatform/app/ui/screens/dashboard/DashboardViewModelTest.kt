@@ -71,7 +71,7 @@ class DashboardViewModelTest {
 
     @Before
     fun setUp() {
-        coEvery { getPortfolioIdUseCase() } returns 1
+        coEvery { getPortfolioIdUseCase() } returns "1"
         coEvery { getPortfolioNavUseCase(any()) } returns Result.success(fakeNav)
         coEvery { getPnlUseCase(any(), any()) } returns Result.success(fakePnl)
         coEvery { getQuoteUseCase(any()) } returns Result.success(fakeQuote)
@@ -89,7 +89,7 @@ class DashboardViewModelTest {
     @Test
     fun `portfolioId is read from dataStore on init`() = runTest {
         viewModel = createViewModel()
-        assertEquals(1, viewModel.uiState.value.portfolioId)
+        assertEquals("1", viewModel.uiState.value.portfolioId)
     }
 
     // ── NavUiState ────────────────────────────────────────────────────────────

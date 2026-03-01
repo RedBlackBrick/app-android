@@ -28,7 +28,7 @@ class PositionsViewModel @Inject constructor(
     private val _uiState = MutableStateFlow<PositionsUiState>(PositionsUiState.Loading)
     val uiState: StateFlow<PositionsUiState> = _uiState.asStateFlow()
 
-    private var portfolioId: Int = 0
+    private var portfolioId: String = ""
 
     init {
         viewModelScope.launch {

@@ -13,6 +13,6 @@ import javax.inject.Inject
 class GetPortfolioIdUseCase @Inject constructor(
     private val dataStore: EncryptedDataStore,
 ) {
-    suspend operator fun invoke(): Int =
-        dataStore.readInt(DataStoreKeys.PORTFOLIO_ID) ?: 0
+    suspend operator fun invoke(): String =
+        dataStore.readString(DataStoreKeys.PORTFOLIO_ID) ?: ""
 }

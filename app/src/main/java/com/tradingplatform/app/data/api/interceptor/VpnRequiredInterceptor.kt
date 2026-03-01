@@ -18,10 +18,14 @@ import javax.inject.Singleton
 class VpnRequiredInterceptor @Inject constructor(
     private val vpnManager: WireGuardManager,
 ) : Interceptor {
+
+    // Visible for testing — allows tests to disable the debug bypass
+    var bypassInDebug: Boolean = BuildConfig.DEBUG
+
     override fun intercept(chain: Interceptor.Chain): Response {
         // En debug : bypass VPN pour permettre les tests sur backend local (make dev).
         // Le BuildConfig.DEBUG est false en release — aucun impact production.
-        if (BuildConfig.DEBUG) return chain.proceed(chain.request())
+        if (bypassInDebug) return chain.proceed(chain.request())
         if (vpnManager.state.value !is VpnState.Connected) {
             throw VpnNotConnectedException()
         }

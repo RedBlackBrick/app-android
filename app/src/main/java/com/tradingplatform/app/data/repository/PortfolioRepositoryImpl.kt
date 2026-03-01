@@ -28,7 +28,7 @@ class PortfolioRepositoryImpl @Inject constructor(
     // TTL PnL snapshots : 5 min
     private val PNL_TTL_MS = 5 * 60 * 1000L
 
-    override suspend fun getPositions(portfolioId: Int, status: PositionStatus): Result<List<Position>> =
+    override suspend fun getPositions(portfolioId: String, status: PositionStatus): Result<List<Position>> =
         runCatching {
             val response = portfolioApi.getPositions(portfolioId, status.toApiString())
             if (!response.isSuccessful) {
@@ -44,7 +44,7 @@ class PortfolioRepositoryImpl @Inject constructor(
             positions
         }
 
-    override suspend fun getPnl(portfolioId: Int, period: PnlPeriod): Result<PnlSummary> =
+    override suspend fun getPnl(portfolioId: String, period: PnlPeriod): Result<PnlSummary> =
         runCatching {
             val response = portfolioApi.getPnl(portfolioId, period.toApiString())
             if (!response.isSuccessful) {
@@ -60,7 +60,7 @@ class PortfolioRepositoryImpl @Inject constructor(
             pnl
         }
 
-    override suspend fun getNav(portfolioId: Int): Result<NavSummary> = runCatching {
+    override suspend fun getNav(portfolioId: String): Result<NavSummary> = runCatching {
         val response = portfolioApi.getNav(portfolioId)
         if (!response.isSuccessful) {
             error("Get NAV failed: HTTP ${response.code()}")
@@ -69,7 +69,7 @@ class PortfolioRepositoryImpl @Inject constructor(
     }
 
     override suspend fun getTransactions(
-        portfolioId: Int,
+        portfolioId: String,
         limit: Int,
         offset: Int,
         symbol: String?,

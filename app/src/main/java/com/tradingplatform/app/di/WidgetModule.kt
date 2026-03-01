@@ -28,7 +28,7 @@ import dagger.hilt.components.SingletonComponent
  * override suspend fun provideGlance(context: Context, id: GlanceId) {
  *     val ep = EntryPointAccessors
  *         .fromApplication(context.applicationContext, WidgetEntryPoint::class.java)
- *     val portfolioId = ep.encryptedDataStore().readInt(DataStoreKeys.PORTFOLIO_ID) ?: 0
+ *     val portfolioId = ep.encryptedDataStore().readString(DataStoreKeys.PORTFOLIO_ID) ?: ""
  *     val pnl = ep.pnlDao().getLatestByPeriod("day")
  * }
  * ```

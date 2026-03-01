@@ -58,9 +58,11 @@ class TokenAuthenticator @Inject constructor(
                 } else {
                     val deferred = applicationScope.async { doRefresh() }
                     refreshDeferred = deferred
-                    val token = deferred.await()
-                    refreshDeferred = null
-                    token
+                    try {
+                        deferred.await()
+                    } finally {
+                        refreshDeferred = null
+                    }
                 }
             }
         } ?: return null  // refresh échoué → ne pas retry

@@ -61,7 +61,7 @@ class PositionDetailViewModelTest {
 
     @Before
     fun setUp() {
-        coEvery { getPortfolioIdUseCase() } returns 1
+        coEvery { getPortfolioIdUseCase() } returns "1"
         coEvery { getPositionsUseCase(any(), any()) } returns Result.success(listOf(fakePosition))
         coEvery { getTransactionsUseCase(any(), any(), any(), any()) } returns
             Result.success(listOf(fakeTransaction))
@@ -186,17 +186,17 @@ class PositionDetailViewModelTest {
 
     @Test
     fun `uses portfolioId from use case`() = runTest {
-        coEvery { getPortfolioIdUseCase() } returns 7
+        coEvery { getPortfolioIdUseCase() } returns "7"
         val viewModel = createViewModel()
 
-        coVerify { getPositionsUseCase(7, any()) }
+        coVerify { getPositionsUseCase("7", any()) }
     }
 
     @Test
-    fun `defaults to portfolioId 0 when use case returns 0`() = runTest {
-        coEvery { getPortfolioIdUseCase() } returns 0
+    fun `defaults to empty portfolioId when use case returns empty`() = runTest {
+        coEvery { getPortfolioIdUseCase() } returns ""
         val viewModel = createViewModel()
 
-        coVerify { getPositionsUseCase(0, any()) }
+        coVerify { getPositionsUseCase("", any()) }
     }
 }

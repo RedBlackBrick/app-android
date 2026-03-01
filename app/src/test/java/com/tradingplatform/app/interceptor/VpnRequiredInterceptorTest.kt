@@ -32,12 +32,18 @@ class VpnRequiredInterceptorTest {
         mockServer.shutdown()
     }
 
+    private fun buildInterceptor(): VpnRequiredInterceptor {
+        return VpnRequiredInterceptor(vpnManager).also {
+            it.bypassInDebug = false // disable debug bypass for testing
+        }
+    }
+
     @Test
     fun `throws VpnNotConnectedException when VPN disconnected`() {
         vpnState.value = VpnState.Disconnected
 
         val client = OkHttpClient.Builder()
-            .addInterceptor(VpnRequiredInterceptor(vpnManager))
+            .addInterceptor(buildInterceptor())
             .build()
 
         mockServer.enqueue(MockResponse().setResponseCode(200))
@@ -54,7 +60,7 @@ class VpnRequiredInterceptorTest {
         vpnState.value = VpnState.Connected()
 
         val client = OkHttpClient.Builder()
-            .addInterceptor(VpnRequiredInterceptor(vpnManager))
+            .addInterceptor(buildInterceptor())
             .build()
 
         mockServer.enqueue(MockResponse().setResponseCode(200))

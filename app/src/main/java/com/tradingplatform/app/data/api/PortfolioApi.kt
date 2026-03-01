@@ -12,24 +12,24 @@ import retrofit2.http.Query
 interface PortfolioApi {
     @GET("v1/portfolios/{portfolio_id}/positions")
     suspend fun getPositions(
-        @Path("portfolio_id") portfolioId: Int,
+        @Path("portfolio_id") portfolioId: String,
         @Query("status") status: String = "open",
     ): Response<PositionListResponseDto>
 
     @GET("v1/portfolios/{portfolio_id}/pnl")
     suspend fun getPnl(
-        @Path("portfolio_id") portfolioId: Int,
+        @Path("portfolio_id") portfolioId: String,
         @Query("period") period: String = "day",
     ): Response<PnlResponseDto>
 
     @GET("v1/portfolios/{portfolio_id}/nav")
     suspend fun getNav(
-        @Path("portfolio_id") portfolioId: Int,
+        @Path("portfolio_id") portfolioId: String,
     ): Response<NavResponseDto>
 
     @GET("v1/portfolios/{portfolio_id}/transactions")
     suspend fun getTransactions(
-        @Path("portfolio_id") portfolioId: Int,
+        @Path("portfolio_id") portfolioId: String,
         @Query("limit") limit: Int = 50,
         @Query("offset") offset: Int = 0,
         @Query("symbol") symbol: String? = null,

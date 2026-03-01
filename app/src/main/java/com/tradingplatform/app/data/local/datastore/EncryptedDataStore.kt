@@ -9,29 +9,25 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.io.IOException
 import java.security.GeneralSecurityException
-import javax.inject.Inject
-import javax.inject.Singleton
 
 // Clés de référence (CLAUDE.md §12)
 object DataStoreKeys {
     val ACCESS_TOKEN = stringPreferencesKey("auth_access_token")
     val USER_ID = longPreferencesKey("auth_user_id")
     val IS_ADMIN = booleanPreferencesKey("auth_is_admin")
-    val PORTFOLIO_ID = intPreferencesKey("auth_portfolio_id")
+    val PORTFOLIO_ID = stringPreferencesKey("auth_portfolio_id")
     val WG_PRIVATE_KEY = stringPreferencesKey("wg_private_key")
     val WG_CONFIG = stringPreferencesKey("wg_config")
     // Cookies : clé dynamique "cookie_${name}"
 }
 
-@Singleton
-class EncryptedDataStore @Inject constructor(
-    @ApplicationContext private val context: Context,
+class EncryptedDataStore(
+    private val context: Context,
 ) {
     private val sharedPreferences: SharedPreferences by lazy {
         try {

@@ -9,7 +9,7 @@ class GetPositionsUseCase @Inject constructor(
     private val repository: PortfolioRepository,
 ) {
     suspend operator fun invoke(
-        portfolioId: Int,
+        portfolioId: String,
         status: PositionStatus = PositionStatus.OPEN,
     ): Result<List<Position>> =
         repository.getPositions(portfolioId, status)

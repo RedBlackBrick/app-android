@@ -29,6 +29,8 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 import java.math.BigDecimal
 import java.time.Instant
 
@@ -38,6 +40,7 @@ import java.time.Instant
  * Utilise TestListenableWorkerBuilder pour tester le Worker sans WorkManager réel.
  * Les dépendances sont mockées avec Mockk.
  */
+@RunWith(RobolectricTestRunner::class)
 class WidgetUpdateWorkerTest {
 
     private val vpnManager = mockk<WireGuardManager>()
@@ -89,7 +92,7 @@ class WidgetUpdateWorkerTest {
     @Before
     fun setUp() {
         // Defaults
-        coEvery { dataStore.readInt(DataStoreKeys.PORTFOLIO_ID) } returns 1
+        coEvery { dataStore.readString(DataStoreKeys.PORTFOLIO_ID) } returns "1"
         coEvery { getPositionsUseCase(any()) } returns Result.success(listOf(fakePosition))
         coEvery { getPnlUseCase(any(), any()) } returns Result.success(fakePnl)
         coEvery { quoteDao.getAllSymbols() } returns listOf("AAPL")
@@ -172,7 +175,7 @@ class WidgetUpdateWorkerTest {
     @Test
     fun `doWork returns success when portfolioId is not found in DataStore`() = runTest {
         every { vpnManager.state } returns MutableStateFlow(VpnState.Connected())
-        coEvery { dataStore.readInt(DataStoreKeys.PORTFOLIO_ID) } returns null
+        coEvery { dataStore.readString(DataStoreKeys.PORTFOLIO_ID) } returns null
 
         val result = buildWorker().doWork()
 
@@ -189,8 +192,8 @@ class WidgetUpdateWorkerTest {
         val result = buildWorker().doWork()
 
         assertEquals(ListenableWorker.Result.success(), result)
-        coVerify(exactly = 1) { getPositionsUseCase(1) }
-        coVerify(exactly = 1) { getPnlUseCase(1, PnlPeriod.DAY) }
+        coVerify(exactly = 1) { getPositionsUseCase("1") }
+        coVerify(exactly = 1) { getPnlUseCase("1", PnlPeriod.DAY) }
         coVerify(exactly = 1) { getQuoteUseCase("AAPL") }
     }
 

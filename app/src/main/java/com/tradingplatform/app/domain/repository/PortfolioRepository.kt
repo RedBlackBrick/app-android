@@ -8,11 +8,11 @@ import com.tradingplatform.app.domain.model.PositionStatus
 import com.tradingplatform.app.domain.model.Transaction
 
 interface PortfolioRepository {
-    suspend fun getPositions(portfolioId: Int, status: PositionStatus): Result<List<Position>>
-    suspend fun getPnl(portfolioId: Int, period: PnlPeriod): Result<PnlSummary>
-    suspend fun getNav(portfolioId: Int): Result<NavSummary>
+    suspend fun getPositions(portfolioId: String, status: PositionStatus): Result<List<Position>>
+    suspend fun getPnl(portfolioId: String, period: PnlPeriod): Result<PnlSummary>
+    suspend fun getNav(portfolioId: String): Result<NavSummary>
     suspend fun getTransactions(
-        portfolioId: Int,
+        portfolioId: String,
         limit: Int = 50,
         offset: Int = 0,
         symbol: String? = null,

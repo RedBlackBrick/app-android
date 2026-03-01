@@ -7,6 +7,6 @@ import javax.inject.Inject
 class GetPortfolioNavUseCase @Inject constructor(
     private val repository: PortfolioRepository,
 ) {
-    suspend operator fun invoke(portfolioId: Int): Result<NavSummary> =
+    suspend operator fun invoke(portfolioId: String): Result<NavSummary> =
         repository.getNav(portfolioId)
 }

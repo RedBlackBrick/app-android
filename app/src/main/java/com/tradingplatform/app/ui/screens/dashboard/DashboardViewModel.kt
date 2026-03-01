@@ -53,7 +53,7 @@ data class DashboardUiState(
     val navSummary: NavUiState = NavUiState.Loading,
     val pnlSummary: PnlUiState = PnlUiState.Loading,
     val quote: QuoteUiState = QuoteUiState.Loading,
-    val portfolioId: Int = 0,
+    val portfolioId: String = "",
     val selectedPeriod: PnlPeriod = PnlPeriod.DAY,
 )
 
@@ -110,7 +110,7 @@ class DashboardViewModel @Inject constructor(
 
     // ── Private fetch helpers ─────────────────────────────────────────────────
 
-    private suspend fun fetchNav(portfolioId: Int) {
+    private suspend fun fetchNav(portfolioId: String) {
         _uiState.update { it.copy(navSummary = NavUiState.Loading) }
         getPortfolioNavUseCase(portfolioId)
             .onSuccess { nav ->
@@ -123,7 +123,7 @@ class DashboardViewModel @Inject constructor(
             }
     }
 
-    private suspend fun fetchPnl(portfolioId: Int, period: PnlPeriod) {
+    private suspend fun fetchPnl(portfolioId: String, period: PnlPeriod) {
         _uiState.update { it.copy(pnlSummary = PnlUiState.Loading) }
         getPnlUseCase(portfolioId, period)
             .onSuccess { pnl ->

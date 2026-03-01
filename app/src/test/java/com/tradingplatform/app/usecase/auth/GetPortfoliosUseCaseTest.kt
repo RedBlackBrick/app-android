@@ -18,7 +18,7 @@ class GetPortfoliosUseCaseTest {
     private val dataStore = mockk<EncryptedDataStore>(relaxed = true)
     private lateinit var useCase: GetPortfoliosUseCase
 
-    private val fakePortfolio = Portfolio(id = 42, name = "Main Portfolio", currency = "EUR")
+    private val fakePortfolio = Portfolio(id = "42", name = "Main Portfolio", currency = "EUR")
 
     @Before
     fun setUp() {
@@ -32,19 +32,19 @@ class GetPortfoliosUseCaseTest {
         val result = useCase()
 
         assertTrue(result.isSuccess)
-        coVerify { dataStore.writeInt(DataStoreKeys.PORTFOLIO_ID, 42) }
+        coVerify { dataStore.writeString(DataStoreKeys.PORTFOLIO_ID, "42") }
     }
 
     @Test
     fun `multiple portfolios stores first and returns list`() = runTest {
-        val second = Portfolio(id = 99, name = "Secondary", currency = "USD")
+        val second = Portfolio(id = "99", name = "Secondary", currency = "USD")
         coEvery { authRepository.getPortfolios() } returns Result.success(listOf(fakePortfolio, second))
 
         val result = useCase()
 
         assertTrue(result.isSuccess)
         // Must use portfolios[0] when multiple
-        coVerify { dataStore.writeInt(DataStoreKeys.PORTFOLIO_ID, 42) }
+        coVerify { dataStore.writeString(DataStoreKeys.PORTFOLIO_ID, "42") }
     }
 
     @Test
@@ -54,7 +54,7 @@ class GetPortfoliosUseCaseTest {
         val result = useCase()
 
         assertTrue(result.isSuccess)
-        coVerify(exactly = 0) { dataStore.writeInt(any(), any()) }
+        coVerify(exactly = 0) { dataStore.writeString(any(), any()) }
     }
 
     @Test

@@ -55,7 +55,7 @@ class PositionsWidget : GlanceAppWidget() {
         val positionDao = ep.positionDao()
 
         // Lecture depuis Room — pas d'appel réseau depuis un widget
-        val portfolioId = dataStore.readInt(DataStoreKeys.PORTFOLIO_ID)
+        val portfolioId = dataStore.readString(DataStoreKeys.PORTFOLIO_ID)
         val positions = positionDao.getAll().take(5)  // Top 5
 
         provideContent {

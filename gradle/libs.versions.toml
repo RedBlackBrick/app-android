@@ -2,6 +2,7 @@
 kotlin              = "2.2.20"
 agp                 = "9.0.1"
 ksp                 = "2.3.6"
+desugar-jdk-libs    = "2.1.5"
 
 compose-bom         = "2026.02.01"
 activity-compose    = "1.10.0"
@@ -28,8 +29,8 @@ coroutines          = "1.10.2"
 camerax             = "1.4.1"
 mlkit-barcode       = "17.3.0"
 
-rootbeer            = "0.1.0"
-wireguard           = "1.0.20230706"
+rootbeer            = "0.1.1"
+wireguard           = "1.0.20250531"
 
 firebase-bom        = "33.7.0"
 owasp-depcheck      = "10.0.4"
@@ -41,6 +42,8 @@ turbine             = "1.2.0"
 mockk               = "1.13.13"
 junit               = "4.13.2"
 compose-test-bom    = "2026.02.01"
+robolectric         = "4.14.1"
+test-core           = "1.6.1"
 
 [libraries]
 # ── Compose ──────────────────────────────────────────────────────────────────
@@ -109,6 +112,9 @@ firebase-bom                = { group = "com.google.firebase", name = "firebase-
 firebase-messaging          = { group = "com.google.firebase", name = "firebase-messaging-ktx" }       # version via BOM
 firebase-crashlytics        = { group = "com.google.firebase", name = "firebase-crashlytics-ktx" }    # version via BOM
 
+# ── Desugaring ────────────────────────────────────────────────────────────────
+desugar-jdk-libs            = { group = "com.android.tools", name = "desugar_jdk_libs", version.ref = "desugar-jdk-libs" }
+
 # ── WireGuard ─────────────────────────────────────────────────────────────────
 # Bibliothèque officielle WireGuard (BoringTun userspace + GoBackend)
 wireguard-android           = { group = "com.wireguard.android", name = "tunnel", version.ref = "wireguard" }
@@ -126,6 +132,9 @@ compose-ui-test             = { group = "androidx.compose.ui", name = "ui-test-j
 compose-ui-test-manifest    = { group = "androidx.compose.ui", name = "ui-test-manifest" }
 # WorkManager testing — TestListenableWorkerBuilder pour WidgetUpdateWorker
 work-testing                = { group = "androidx.work", name = "work-testing", version.ref = "workmanager" }
+# Robolectric — Android unit tests sur JVM (requis pour ApplicationProvider, Context)
+robolectric                 = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
+test-core                   = { group = "androidx.test", name = "core", version.ref = "test-core" }
 # MockWebServer — tests intercepteurs OkHttp (CsrfInterceptor, TokenAuthenticator, VpnRequiredInterceptor)
 okhttp-mockwebserver        = { group = "com.squareup.okhttp3", name = "mockwebserver", version.ref = "okhttp" }
 # LeakCanary — debug uniquement (détection fuites mémoire ViewModels, services, coroutines)
