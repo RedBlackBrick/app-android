@@ -1,0 +1,98 @@
+package com.tradingplatform.app.ui.components
+
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextAlign
+import com.tradingplatform.app.ui.theme.LocalExtendedColors
+import com.tradingplatform.app.ui.theme.jetBrainsMonoFamily
+import java.math.BigDecimal
+import java.text.DecimalFormatSymbols
+import java.text.NumberFormat
+import java.util.Locale
+
+/**
+ * Affiche une valeur P&L avec couleur dynamique selon le signe.
+ *
+ * - Positif : [LocalExtendedColors.current.pnlPositive] (emerald)
+ * - Négatif : [LocalExtendedColors.current.pnlNegative] (rose)
+ * - Zéro    : [MaterialTheme.colorScheme.onSurface]
+ *
+ * Police JetBrains Mono avec tabular numbers (tnum), alignée à droite.
+ * TalkBack : "Gain non réalisé : +1 250,00 €" ou "Perte : -300,00 €"
+ *
+ * Usage :
+ * ```kotlin
+ * PnlText(value = position.unrealizedPnl)
+ * PnlText(value = position.realizedPnl, style = MaterialTheme.typography.titleMedium)
+ * ```
+ */
+@Composable
+fun PnlText(
+    value: BigDecimal,
+    currencySymbol: String = "€",
+    style: TextStyle = MaterialTheme.typography.bodyLarge,
+    modifier: Modifier = Modifier,
+) {
+    val extendedColors = LocalExtendedColors.current
+    val color = when {
+        value > BigDecimal.ZERO -> extendedColors.pnlPositive
+        value < BigDecimal.ZERO -> extendedColors.pnlNegative
+        else -> MaterialTheme.colorScheme.onSurface
+    }
+
+    val formatted = formatPnlAmount(value, currencySymbol)
+    val verboseDescription = buildPnlDescription(value, currencySymbol)
+
+    Text(
+        text = formatted,
+        style = style.copy(
+            fontFamily = jetBrainsMonoFamily,
+            fontFeatureSettings = "tnum",
+            textAlign = TextAlign.End,
+        ),
+        color = color,
+        textAlign = TextAlign.End,
+        modifier = modifier.semantics {
+            contentDescription = verboseDescription
+        },
+    )
+}
+
+// ── Helpers de formatage ──────────────────────────────────────────────────────
+
+/**
+ * Formate une valeur P&L avec signe, groupement des milliers, 2 décimales et symbole monétaire.
+ * Exemple : "+1 250,00 €", "-300,00 €", "0,00 €"
+ */
+internal fun formatPnlAmount(value: BigDecimal, currencySymbol: String): String {
+    val format = NumberFormat.getNumberInstance(Locale.FRENCH).apply {
+        minimumFractionDigits = 2
+        maximumFractionDigits = 2
+    }
+    val prefix = when {
+        value > BigDecimal.ZERO -> "+"
+        else -> ""
+    }
+    return "$prefix${format.format(value)} $currencySymbol"
+}
+
+/**
+ * Génère une description accessible pour TalkBack.
+ * Positif : "Gain non réalisé : +1 250,00 €"
+ * Négatif : "Perte : -300,00 €"
+ * Zéro : "Gain/Perte : 0,00 €"
+ */
+private fun buildPnlDescription(value: BigDecimal, currencySymbol: String): String {
+    val formatted = formatPnlAmount(value, currencySymbol)
+    val label = when {
+        value > BigDecimal.ZERO -> "Gain"
+        value < BigDecimal.ZERO -> "Perte"
+        else -> "Gain/Perte"
+    }
+    return "$label : $formatted"
+}
