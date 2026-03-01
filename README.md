@@ -5,40 +5,36 @@ de la plateforme de trading algorithmique.
 
 ---
 
-## Objectifs
-
-### Fonctionnalités principales
+## Statut de l'implémentation
 
 | Fonctionnalité | Statut | Description |
 |----------------|--------|-------------|
-| Authentification sécurisée | À implémenter | Login JWT + biométrie (empreinte/face) |
-| Tunnel WireGuard intégré | À implémenter | VpnService Android — pas d'app externe requise |
-| Dashboard investissements | À implémenter | P&L, positions ouvertes, signaux récents |
-| Gestion des options | À implémenter | Réglages stratégies, seuils de risque |
-| Pairing device Radxa | À implémenter | Scan QR code + confirmation PIN visuelle |
-| Accès direct device (LAN) | À implémenter | Connexion locale uniquement, jamais à distance |
-| Widgets écran d'accueil | À implémenter | Voir section Widgets ci-dessous |
-| Notifications push (FCM) | **Futur** | Voir `fcm/IMPLEMENTATION_NOTES.md` |
+| Authentification sécurisée | ✅ Implémenté | Login JWT + TOTP 2FA + biométrie (5 min inactivité) |
+| Tunnel WireGuard intégré | ✅ Implémenté | VpnService Android foreground — pas d'app externe |
+| Dashboard investissements | ✅ Implémenté | P&L, positions ouvertes, cours live (polling 30s) |
+| Pairing device Radxa | ✅ Implémenté | Scan QR VPS + QR Radxa (ordre libre) + PIN LAN |
+| Accès direct device (LAN) | ✅ Implémenté | isLocalNetwork() guard RFC-1918, HTTP LAN uniquement |
+| Widgets écran d'accueil | ✅ Implémenté | 5 widgets Glance, WorkManager 15 min, cache Room |
+| Notifications push (FCM) | ✅ Implémenté | FCM → Room → AlertListScreen (deep link) |
+| Gestion stratégies / seuils | ⏳ Futur | Non couvert dans cette version |
 
 ---
 
 ## Sécurité — Principes non négociables
 
 1. **VPN obligatoire** — toute communication avec le VPS passe par le tunnel WireGuard intégré.
-   L'intercepteur HTTP bloque les appels si le tunnel n'est pas actif.
+   `VpnRequiredInterceptor` bloque les appels si le tunnel n'est pas actif.
 2. **Certificate pinning** — les certificats du VPS sont épinglés via OkHttp `CertificatePinner`
-   (SHA-256, depuis `local.properties`). Une réponse d'un tiers est rejetée même sur HTTPS.
+   (SHA-256 principal + backup, depuis `local.properties`). Une réponse d'un tiers est rejetée.
 3. **Stockage chiffré** — JWT, clés WireGuard et credentials stockés dans `EncryptedDataStore`
-   (AES-256-GCM, clé dans Android Keystore, jamais exportable).
-4. **Biométrie** — déverrouillage de l'app requis après 5 minutes d'inactivité.
-   La clé de déchiffrement du DataStore est protégée par `BiometricPrompt`.
-5. **Accès device LAN uniquement** — la connexion directe à une carte Radxa n'est autorisée
-   que si `local_ip` est dans le même sous-réseau (`192.168.x.x` / `10.x.x.x`).
-   Aucune route distante pour les devices.
-6. **Pas de logs sensibles** — tokens, clés privées et données de positions ne sont jamais
-   écrits dans Logcat. `BuildConfig.DEBUG` garde les logs activés uniquement en debug.
-7. **Root detection** — l'app refuse de démarrer sur un appareil rooté (RootBeer lib).
-8. **Obfuscation** — ProGuard/R8 activé en release avec règles strictes.
+   (AES-256-GCM, clé dans Android Keystore, jamais exportable). Corruption gérée (Keystore invalidé).
+4. **Biométrie** — déverrouillage requis après 5 minutes d'inactivité (`dispatchTouchEvent` timer).
+   `KeyPermanentlyInvalidatedException` → régénération clé + re-enrôlement.
+5. **Accès device LAN uniquement** — connexion Radxa autorisée uniquement si IP est RFC-1918
+   (`isLocalNetwork()` — Patterns.IP_ADDRESS guard + isSiteLocalAddress/isLinkLocalAddress).
+6. **Pas de logs sensibles** — tokens, clés privées, session_pin : `[REDACTED]` même en debug.
+7. **Root detection** — warning au démarrage si device rooté (RootBeer).
+8. **Obfuscation** — ProGuard/R8 activé en release (Timber.d() strippé via `-assumenosideeffects`).
 
 ---
 
@@ -52,25 +48,46 @@ Clean Architecture en 3 couches + couches transversales :
 │  Jetpack Compose screens + ViewModels (MVVM)    │
 │  Glance widgets + WorkManager updates            │
 └───────────────────┬─────────────────────────────┘
-                    │ StateFlow / UiState
+                    │ StateFlow<UiState>
 ┌───────────────────▼─────────────────────────────┐
 │                 Domain Layer                     │
 │  UseCases — logique métier pure, testable        │
 │  Domain models (séparés des modèles API/DB)      │
 └───────────────────┬─────────────────────────────┘
-                    │ Repository interfaces
+                    │ Repository interfaces + Result<T>
 ┌───────────────────▼─────────────────────────────┐
 │                  Data Layer                      │
-│  Repositories (implémentations)                  │
-│  API (Retrofit + OkHttp + WireGuard interceptor) │
-│  Local (Room cache + EncryptedDataStore)         │
+│  Repositories (runCatching{} — jamais de throw)  │
+│  API (Retrofit + OkHttp — chaîne intercepteurs)  │
+│  Local (Room cache TTL + EncryptedDataStore)     │
 └─────────────────────────────────────────────────┘
 
 Transversaux :
-  vpn/     — WireGuardVpnService (VpnService Android)
-  security/ — BiometricManager, RootDetector, CertPinning
-  di/       — Hilt modules
-  widget/   — Glance AppWidgets
+  vpn/      — WireGuardManager (@Singleton) + WireGuardVpnService (foreground)
+  security/ — KeystoreManager, BiometricManager, RootDetector, CertificatePinner, NetworkUtils
+  di/       — Hilt modules (App, Security, Vpn, Network, Database, Repository, Widget)
+  widget/   — 5 Glance AppWidgets + WidgetUpdateWorker @HiltWorker
+  fcm/      — TradingFirebaseMessagingService + FcmTokenManager
+```
+
+### Chaîne intercepteurs OkHttp (ordre strict)
+
+```
+CsrfInterceptor        → GET /csrf-token (bareHttpClient, Mutex, cache mémoire)
+VpnRequiredInterceptor → bloque si VpnState ≠ Connected
+AuthInterceptor        → Bearer token + X-App-Version header
+TokenAuthenticator     → 401 AUTH_1002 → refresh (Mutex + Deferred, concurrence safe)
+HttpLoggingInterceptor → debug uniquement, tokens [REDACTED]
+```
+
+### Pattern UiState (obligatoire dans tous les ViewModels)
+
+```kotlin
+sealed interface XxxUiState {
+    data object Loading : XxxUiState
+    data class Success(val data: T) : XxxUiState
+    data class Error(val message: String) : XxxUiState
+}
 ```
 
 ---
@@ -79,106 +96,139 @@ Transversaux :
 
 ```
 LoginScreen
-    ├── [totp_enabled] → TotpScreen → GET /v1/portfolios → Dashboard
-    └── [auth OK + VPN up] → GET /v1/portfolios → DashboardScreen (bottom nav)
-        ├── Portfolio tab
+    ├── [totp_enabled] → TotpScreen
+    │       └── [2FA OK] → GET /v1/portfolios → Dashboard
+    └── [auth OK] → GET /v1/portfolios → DashboardScreen
+        ├── Dashboard tab        — P&L summary + cours live
+        ├── Positions tab
         │   ├── PositionsScreen
         │   └── PositionDetailScreen
-        ├── Devices tab (admin uniquement — is_admin == true)
+        ├── Devices tab          — admin uniquement (is_admin == true)
         │   ├── DeviceListScreen
-        │   │   └── DeviceDetailScreen (LAN only)
-        │   └── Pairing flow (ScanVpsQrScreen → ScanDeviceQrScreen → PairingProgressScreen → PairingDoneScreen)
+        │   ├── DeviceDetailScreen
+        │   └── Pairing flow
+        │       ScanVpsQrScreen → ScanDeviceQrScreen → PairingProgressScreen → PairingDoneScreen
         ├── Alerts tab
-        │   └── AlertListScreen
+        │   └── AlertListScreen  — FCM → Room (offline-first)
         └── Settings tab
             ├── VpnSettingsScreen
-            ├── SecuritySettingsScreen
-            └── AboutScreen
+            └── SecuritySettingsScreen
 ```
 
 ---
 
-## Widgets écran d'accueil (propositions à valider)
+## Widgets écran d'accueil
 
-Structure prévue pour accueillir plusieurs widgets indépendants (Glance API, Android 12+) :
+5 widgets indépendants (Glance API), rafraîchis par `WidgetUpdateWorker` (WorkManager 15 min) :
 
-| Widget | Taille | Données | Rafraîchissement |
-|--------|--------|---------|-----------------|
-| **P&L du jour** | 2x1 | Gain/perte journalier en € et % | 5 min (WorkManager) |
-| **Positions ouvertes** | 2x2 | Liste scrollable des N premières positions | 5 min |
-| **Alertes récentes** | 2x1 | Derniers signaux ou alertes de risque | 5 min |
-| **État système** | 2x1 | Health VPS + devices Radxa actifs (admin) | 5 min |
-| **Cours rapide** | 1x1 | Un seul ticker configurable | 5 min |
+| Widget | Données | Cache Room (TTL) |
+|--------|---------|-----------------|
+| **P&L du jour** (`PnlWidget`) | Gain/perte total en € et % | 5 min |
+| **Positions** (`PositionsWidget`) | Top 5 positions ouvertes | 5 min |
+| **Alertes** (`AlertsWidget`) | Dernières alertes + badge non lu | permanent (30j/500 max) |
+| **État système** (`SystemStatusWidget`) | Health VPS + devices (admin only) | 1 min |
+| **Cours rapide** (`QuoteWidget`) | Ticker configurable par instance | 10 min |
 
-> Les widgets lisent Room (cache local) via WorkManager — aucun appel API direct depuis le widget.
-> Si le cache est trop ancien : "Données indisponibles — ouvrez l'app".
+- Tous les widgets affichent `synced_at` (ex : "Données du 14:32") — jamais de cours muet
+- `SystemStatusWidget` désactivé dans le picker si `is_admin == false` (`PackageManager`)
+- `QuoteWidget` : ticker persisté en `SharedPreferences` keyed par `appWidgetId`
+- WorkManager : `Result.success()` si VPN absent (cache daté conservé), `Result.retry()` si erreur réseau
 
 ---
 
 ## Connexion device Radxa (LAN)
 
-Quand l'utilisateur navigue vers un device dans la liste :
-1. L'app vérifie que `device.local_ip` est dans un sous-réseau privé RFC 1918
-2. Elle tente `GET http://<local_ip>:8099/status` avec timeout 2s
-3. Si joignable → accès direct (dashboard web lighttpd embarqué, stats, logs)
-4. Si non joignable → message "Device hors réseau local"
+Flux de pairing :
+1. Scan QR VPS (`pairing://` + `session_id` + `session_pin`) via l'interface admin web
+2. Scan QR Radxa (e-ink) : `pairing://radxa?id=…&pub=…&ip=…&port=8099`
+3. Validation `isLocalNetwork(ip)` — rejet si IP non-RFC-1918
+4. `POST http://radxa_ip:8099/pin {session_id, session_pin}` — HTTP LAN uniquement (TTL 120s)
+5. Poll `GET /status` toutes les 2s — terminé quand `paired` ou timeout 120s
 
-Aucune route via le VPS pour accéder à un device. Pas de port forwarding.
-
----
-
-## Implémentations futures
-
-### Notifications push (FCM)
-- Dossier dédié : `fcm/`
-- Le service `notification` du VPS devra envoyer vers l'API FCM
-- L'app s'enregistre et transmet son token FCM au VPS à la connexion
-- Types d'alertes : SL/TP déclenché, signal fort, device offline, erreur critique
-- Voir `fcm/IMPLEMENTATION_NOTES.md` pour le plan détaillé
+La connexion LAN utilise un `OkHttpClient` dédié sans les intercepteurs VPS (pas de CSRF, pas d'Auth).
 
 ---
 
 ## Stack technique
 
-| Composant | Technologie | Version cible |
-|-----------|-------------|---------------|
-| Langage | Kotlin | 2.0+ |
-| UI | Jetpack Compose | BOM 2025.x |
-| Widgets | Glance API | 1.1+ |
-| DI | Hilt | 2.51+ |
-| Navigation | Navigation Compose | 2.8+ |
-| Réseau | Retrofit + OkHttp | 4.12+ / 5.x |
-| DB locale | Room | 2.7+ |
-| Stockage sécurisé | EncryptedDataStore | 1.1+ |
-| VPN | VpnService Android + WireGuard tunnel | API 26+ |
-| Biométrie | BiometricPrompt | AndroidX Biometric |
-| Background | WorkManager | 2.9+ |
-| Build | Gradle KTS + Version Catalog | 8.x |
-| Min SDK | Android 8.0 (API 26) | — |
-| Target SDK | Android 15 (API 35) | — |
+| Composant | Technologie | Version |
+|-----------|-------------|---------|
+| Langage | Kotlin | 2.2.20 |
+| UI | Jetpack Compose | BOM 2026.02.01 |
+| Widgets | Glance API | 1.1.1 |
+| DI | Hilt | 2.58 |
+| Navigation | Navigation Compose | 2.8.5 |
+| Réseau | Retrofit + OkHttp | 2.11.0 / 4.12.0 |
+| Sérialisation | Moshi (codegen, pas de réflexion) | 1.15.1 |
+| DB locale | Room | 2.7.0 |
+| Stockage sécurisé | EncryptedDataStore (security-crypto-ktx) | 1.1.0-alpha06 ⚠ |
+| Biométrie | BiometricPrompt (biometric-ktx) | 1.2.0-alpha05 ⚠ |
+| VPN | wireguard-android (BoringTun/GoBackend) | 1.0.20230706 |
+| Background | WorkManager | 2.10.0 |
+| Push | Firebase FCM | BOM 33.7.0 |
+| Crashlytics | Firebase Crashlytics | BOM 33.7.0 |
+| Sécurité | RootBeer | 0.1.0 |
+| Logging | Timber (strippé en release) | 5.0.1 |
+| Build | AGP 9.0.1 + Gradle 9.2.1 | — |
+| Min SDK | Android 8.0 | API 26 |
+| Target SDK | Android 15 | API 35 |
+
+> ⚠ Libs en alpha — ne pas upgrader sans tester (EncryptedDataStore, BiometricPrompt)
+
+---
+
+## Tests
+
+| Scope | Outil | Fichiers |
+|-------|-------|---------|
+| UseCases (domain) | Mockk + Turbine | `usecase/**/*Test.kt` |
+| Intercepteurs OkHttp | MockWebServer | `interceptor/**/*Test.kt` |
+| ViewModels | Mockk + Turbine + MainDispatcherRule | `ui/screens/**/*Test.kt` |
+| WidgetUpdateWorker | ApplicationProvider (JVM) | `widget/WidgetUpdateWorkerTest.kt` |
+
+```bash
+# Tests unitaires
+./gradlew test
+
+# Couverture (objectif ≥ 80% sur domain/ + ui/screens/ ViewModels + data/repository/)
+./gradlew jacocoTestReport
+
+# Tests instrumentation (émulateur requis — Room DAOs, Compose UI)
+./gradlew connectedAndroidTest
+```
 
 ---
 
 ## Démarrage rapide (dev)
 
 ```bash
-# Ouvrir dans Android Studio (Ladybug ou plus récent)
-# ou builder en CLI :
-cd app-android
+# Copier et remplir les variables de configuration
+cp local.properties.example local.properties
+# Éditer local.properties avec vos valeurs VPS/WireGuard/keystore
+
+# Build debug
 ./gradlew assembleDebug
 
-# Tests unitaires
-./gradlew test
+# Lint
+./gradlew lint
 
-# Tests instrumentation
-./gradlew connectedAndroidTest
+# Audit vulnérabilités dépendances
+./gradlew dependencyCheckAnalyze
 ```
 
-Variables à configurer dans `app/src/main/res/xml/network_security_config.xml` :
-- Empreinte SHA-256 du certificat VPS
-- Domaine/IP du VPS
+Clés requises dans `local.properties` :
 
-Variables à configurer dans `app/src/debug/kotlin/.../BuildConfig` (via `local.properties`) :
-- `VPS_BASE_URL` (ex: `https://10.42.0.1:8013`)
-- `WG_VPS_ENDPOINT` (ex: `vps.example.com:51820`)
-- `WG_VPS_PUBKEY`
+```properties
+VPS_BASE_URL=https://10.42.0.1:8013
+WG_VPS_ENDPOINT=vps.example.com:51820
+WG_VPS_PUBKEY=<clé_publique_wg_du_vps>
+CERT_PIN_SHA256=sha256/<empreinte_courante>
+CERT_PIN_SHA256_BACKUP=sha256/<empreinte_backup>
+# Keystore release (optionnel en dev)
+KEYSTORE_PATH=../keystore/release.jks
+KEYSTORE_PASSWORD=...
+KEY_ALIAS=...
+KEY_PASSWORD=...
+```
+
+Fichier `google-services.json` requis dans `app/` pour FCM + Crashlytics (non commité).
