@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Cleartext permis globalement : nécessaire pour POST http://radxa_ip:8099/pin
+         (pairing LAN). Les IPs Radxa sont RFC-1918 dynamiques, non listables statiquement.
+         Risque atténué : VpnRequiredInterceptor exige le tunnel actif, isLocalNetwork()
+         valide l'IP avant envoi. Décision architecture §C = Option 1. -->
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

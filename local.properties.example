@@ -1,0 +1,21 @@
+# Copier ce fichier en local.properties et remplir les valeurs
+# Ne jamais commiter local.properties
+
+# URL du VPS (via tunnel WireGuard)
+VPS_BASE_URL=https://10.42.0.1:8013
+
+# Endpoint WireGuard du VPS
+WG_VPS_ENDPOINT=vps.example.com:51820
+
+# Clé publique WireGuard du VPS
+WG_VPS_PUBKEY=<base64_public_key>
+
+# Certificate pinning SHA-256
+CERT_PIN_SHA256=sha256/<empreinte_courante>
+CERT_PIN_SHA256_BACKUP=sha256/<empreinte_backup>
+
+# Signing (release uniquement)
+KEYSTORE_PATH=../keystore/release.jks
+KEYSTORE_PASSWORD=
+KEY_ALIAS=
+KEY_PASSWORD=
