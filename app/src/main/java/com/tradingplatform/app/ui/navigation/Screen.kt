@@ -1,0 +1,47 @@
+package com.tradingplatform.app.ui.navigation
+
+import android.net.Uri
+
+/**
+ * Sealed class representing all navigation destinations in the app.
+ *
+ * Each destination has a [route] string used by the NavHost. Destinations with
+ * path arguments provide a [createRoute] factory function.
+ */
+sealed class Screen(val route: String) {
+
+    data object Login : Screen("login")
+
+    data object Totp : Screen("totp/{sessionToken}") {
+        fun createRoute(sessionToken: String): String = "totp/${Uri.encode(sessionToken)}"
+    }
+
+    data object Dashboard : Screen("dashboard")
+
+    data object Positions : Screen("positions")
+
+    data object PositionDetail : Screen("position/{positionId}") {
+        fun createRoute(positionId: Int): String = "position/$positionId"
+    }
+
+    /** Admin only — conditionally displayed based on is_admin flag. */
+    data object Devices : Screen("devices")
+
+    data object DeviceDetail : Screen("device/{deviceId}") {
+        fun createRoute(deviceId: String): String = "device/${Uri.encode(deviceId)}"
+    }
+
+    data object ScanVpsQr : Screen("pairing/scan-vps")
+
+    data object ScanDeviceQr : Screen("pairing/scan-device")
+
+    data object PairingProgress : Screen("pairing/progress")
+
+    data object PairingDone : Screen("pairing/done")
+
+    data object Alerts : Screen("alerts")
+
+    data object VpnSettings : Screen("settings/vpn")
+
+    data object SecuritySettings : Screen("settings/security")
+}
