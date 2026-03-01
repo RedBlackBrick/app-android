@@ -14,6 +14,9 @@ class CertificatePinnerProvider @Inject constructor() {
      * Les valeurs proviennent de BuildConfig (local.properties → BuildConfig).
      */
     fun buildCertificatePinner(hostname: String): CertificatePinner {
+        // En debug : pas de pinning pour permettre les tests sur backend local HTTP.
+        // BuildConfig.DEBUG est false en release — aucun impact production.
+        if (BuildConfig.DEBUG) return CertificatePinner.Builder().build()
         return CertificatePinner.Builder()
             .add(hostname, BuildConfig.CERT_PIN_SHA256)
             .add(hostname, BuildConfig.CERT_PIN_SHA256_BACKUP)

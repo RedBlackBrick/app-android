@@ -1,5 +1,6 @@
 package com.tradingplatform.app.data.api.interceptor
 
+import com.tradingplatform.app.BuildConfig
 import com.tradingplatform.app.vpn.VpnNotConnectedException
 import com.tradingplatform.app.vpn.VpnState
 import com.tradingplatform.app.vpn.WireGuardManager
@@ -18,6 +19,9 @@ class VpnRequiredInterceptor @Inject constructor(
     private val vpnManager: WireGuardManager,
 ) : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
+        // En debug : bypass VPN pour permettre les tests sur backend local (make dev).
+        // Le BuildConfig.DEBUG est false en release — aucun impact production.
+        if (BuildConfig.DEBUG) return chain.proceed(chain.request())
         if (vpnManager.state.value !is VpnState.Connected) {
             throw VpnNotConnectedException()
         }
