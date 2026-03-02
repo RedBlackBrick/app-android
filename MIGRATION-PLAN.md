@@ -1075,6 +1075,63 @@ Ce bloc est remplace par la construction du JSON chiffre (voir C6).
 
 ---
 
+## H. Mode Developpement Local (DEV_MODE)
+
+### H1. Modifier `app/build.gradle.kts`
+
+Ajouter dans le bloc `buildTypes` :
+
+```kotlin
+debug {
+    buildConfigField("boolean", "DEV_MODE", project.findProperty("DEV_MODE")?.toString() ?: "false")
+}
+release {
+    buildConfigField("boolean", "DEV_MODE", "false")
+}
+```
+
+### H2. Modifier `VpnRequiredInterceptor`
+
+**Fichier** : `vpn/VpnRequiredInterceptor.kt` (ou `data/api/interceptors/`)
+
+Ajouter au debut de `intercept()` :
+
+```kotlin
+if (BuildConfig.DEV_MODE) return chain.proceed(chain.request())
+```
+
+### H3. Modifier `CertificatePinnerProvider`
+
+**Fichier** : `security/CertificatePinner.kt`
+
+Modifier pour retourner `null` en DEV_MODE :
+
+```kotlin
+fun buildCertificatePinner(): CertificatePinner? {
+    if (BuildConfig.DEV_MODE) return null
+    // ... construction normale
+}
+```
+
+Adapter `NetworkModule.kt` pour gerer le `null` :
+
+```kotlin
+val builder = OkHttpClient.Builder()
+certificatePinnerProvider.buildCertificatePinner()?.let { builder.certificatePinner(it) }
+```
+
+### H4. Modifier `local.properties.example`
+
+Ajouter :
+
+```properties
+# --- Dev Mode (direct LAN, no WireGuard) ---
+# DEV_MODE=true
+# VPS_BASE_URL=http://192.168.1.X:8013
+```
+
+---
+
 ## Ordre d'execution recommande
 
 | Phase | Taches | Dependances |

@@ -326,7 +326,70 @@ Demarrage App
 
 ---
 
-## 11. Resume des composants
+## 11. Mode Developpement Local (DEV_MODE)
+
+### Principe
+
+En mode debug, l'App peut se connecter directement a une instance trading-platform tournant sur le PC de developpement, sans tunnel WireGuard.
+
+### Configuration
+
+```properties
+# local.properties
+VPS_BASE_URL=http://192.168.1.X:8013
+DEV_MODE=true
+```
+
+`DEV_MODE` est injecte dans `BuildConfig` via `build.gradle.kts` :
+
+```kotlin
+buildTypes {
+    debug {
+        buildConfigField("boolean", "DEV_MODE", project.findProperty("DEV_MODE")?.toString() ?: "false")
+    }
+    release {
+        buildConfigField("boolean", "DEV_MODE", "false")  // jamais en release
+    }
+}
+```
+
+### Effets
+
+| Composant | Production | DEV_MODE=true |
+|-----------|-----------|---------------|
+| `VpnRequiredInterceptor` | Bloque si VPN off | Skip le check |
+| `CertificatePinner` | SHA-256 actif | Desactive (HTTP local) |
+| `VPS_BASE_URL` | `https://10.42.0.1:8013` | `http://192.168.1.X:8013` |
+
+### Implementation
+
+`VpnRequiredInterceptor` :
+
+```kotlin
+override fun intercept(chain: Interceptor.Chain): Response {
+    if (BuildConfig.DEV_MODE) return chain.proceed(chain.request())
+    // ... check VPN normal
+}
+```
+
+`CertificatePinnerProvider` :
+
+```kotlin
+fun buildCertificatePinner(): CertificatePinner? {
+    if (BuildConfig.DEV_MODE) return null
+    // ... pinning normal
+}
+```
+
+### Contraintes
+
+- `DEV_MODE` est toujours `false` dans le build variant `release` — impossible a activer accidentellement en production.
+- L'authentification JWT/CSRF reste active — seul le transport reseau change.
+- Le pairing LAN fonctionne normalement en DEV_MODE (le Radxa est deja accessible en LAN).
+
+---
+
+## 12. Resume des composants
 
 ### Nouveaux fichiers
 
