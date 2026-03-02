@@ -41,6 +41,9 @@ sealed class Screen(val route: String) {
 
     data object Alerts : Screen("alerts")
 
+    /** Centralized settings hub. */
+    data object Settings : Screen("settings")
+
     data object VpnSettings : Screen("settings/vpn")
 
     data object SecuritySettings : Screen("settings/security")

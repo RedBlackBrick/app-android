@@ -11,10 +11,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -55,7 +57,7 @@ import com.tradingplatform.app.vpn.VpnState
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VpnSettingsScreen(
-    onNavigateToSecurity: () -> Unit = {},
+    onNavigateBack: () -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: VpnSettingsViewModel = hiltViewModel(),
 ) {
@@ -63,7 +65,17 @@ fun VpnSettingsScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("Connexion VPN") })
+            TopAppBar(
+                title = { Text("Connexion VPN") },
+                navigationIcon = {
+                    androidx.compose.material3.IconButton(onClick = onNavigateBack) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Retour",
+                        )
+                    }
+                },
+            )
         },
         modifier = modifier,
     ) { innerPadding ->
@@ -89,28 +101,6 @@ fun VpnSettingsScreen(
 
             // ── Informational note ────────────────────────────────────────────
             VpnInfoNote()
-
-            Spacer(modifier = Modifier.height(Spacing.sm))
-
-            // ── Security section ──────────────────────────────────────────────
-            Text(
-                text = "Sécurité",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            OutlinedButton(
-                onClick = onNavigateToSecurity,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .semantics { contentDescription = "Accéder aux paramètres de sécurité" },
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Lock,
-                    contentDescription = null,
-                    modifier = Modifier.padding(end = Spacing.sm),
-                )
-                Text("Paramètres de sécurité")
-            }
         }
     }
 }

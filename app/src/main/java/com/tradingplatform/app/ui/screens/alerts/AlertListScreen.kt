@@ -4,17 +4,21 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -32,6 +36,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -40,9 +45,11 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tradingplatform.app.domain.model.Alert
 import com.tradingplatform.app.domain.model.AlertType
-import com.tradingplatform.app.ui.components.ErrorBanner
-import com.tradingplatform.app.ui.components.LoadingOverlay
+import com.tradingplatform.app.ui.components.EmptyAlertsIllustration
+import com.tradingplatform.app.ui.components.EmptyState
+import com.tradingplatform.app.ui.components.SkeletonAlertCard
 import com.tradingplatform.app.ui.components.StatusBadge
+import com.tradingplatform.app.ui.components.rememberHapticFeedback
 import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.Spacing
 import java.time.Instant
@@ -53,10 +60,11 @@ import java.time.temporal.ChronoUnit
 /**
  * Ecran de liste des alertes FCM persistées en local (Room).
  *
- * Les alertes sont observées en temps réel via [GetAlertsUseCase] (Flow Room).
- * Taper sur une alerte non lue la marque comme lue via [AlertsViewModel.markAsRead].
- * Swipe-to-dismiss marque également l'alerte comme lue.
- * Accessible via TalkBack : badges de type et indicateur "non lu" ont des contentDescription.
+ * Improvements:
+ * - Skeleton loading instead of opaque LoadingOverlay
+ * - Illustrated empty state
+ * - Colored left border on unread alerts by type
+ * - Haptic feedback on swipe-to-mark-read
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -81,7 +89,15 @@ fun AlertListScreen(
         ) {
             when (val state = uiState) {
                 is AlertsUiState.Loading -> {
-                    // Empty content during loading — LoadingOverlay shown on top
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(Spacing.lg),
+                        verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+                    ) {
+                        items(6) {
+                            SkeletonAlertCard()
+                        }
+                    }
                 }
 
                 is AlertsUiState.Success -> {
@@ -93,16 +109,19 @@ fun AlertListScreen(
                 }
 
                 is AlertsUiState.Error -> {
-                    ErrorBanner(
-                        message = state.message,
-                        modifier = Modifier.align(Alignment.BottomCenter),
-                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(Spacing.lg),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        EmptyState(
+                            illustration = { EmptyAlertsIllustration() },
+                            title = "Erreur de chargement",
+                            message = state.message,
+                        )
+                    }
                 }
-            }
-
-            // LoadingOverlay on top of all content
-            if (uiState is AlertsUiState.Loading) {
-                LoadingOverlay()
             }
         }
     }
@@ -122,7 +141,6 @@ private fun AlertListContent(
         contentPadding = PaddingValues(Spacing.lg),
         verticalArrangement = Arrangement.spacedBy(Spacing.sm),
     ) {
-        // Unread count badge
         if (unreadCount > 0) {
             item {
                 UnreadCountBanner(
@@ -134,16 +152,16 @@ private fun AlertListContent(
 
         if (alerts.isEmpty()) {
             item {
-                Column(
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = Spacing.xxxl),
-                    horizontalAlignment = Alignment.CenterHorizontally,
+                    contentAlignment = Alignment.Center,
                 ) {
-                    Text(
-                        text = "Aucune alerte",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    EmptyState(
+                        illustration = { EmptyAlertsIllustration() },
+                        title = "Aucune alerte",
+                        message = "Votre système fonctionne normalement. Les alertes apparaîtront ici.",
                     )
                 }
             }
@@ -197,16 +215,16 @@ private fun SwipeToMarkReadAlert(
     modifier: Modifier = Modifier,
 ) {
     val dismissState = rememberSwipeToDismissBoxState()
+    val haptic = rememberHapticFeedback()
 
-    // React to a completed swipe — mark the alert as read
     LaunchedEffect(dismissState.currentValue) {
         if (dismissState.currentValue == SwipeToDismissBoxValue.StartToEnd ||
             dismissState.currentValue == SwipeToDismissBoxValue.EndToStart
         ) {
             if (!alert.read) {
+                haptic.confirm()
                 onMarkAsRead(alert.id)
             }
-            // Reset state so the item stays visible (we only mark as read, not delete)
             dismissState.reset()
         }
     }
@@ -215,7 +233,6 @@ private fun SwipeToMarkReadAlert(
         state = dismissState,
         modifier = modifier,
         backgroundContent = {
-            // Swipe background — tinted with info color
             val extendedColors = LocalExtendedColors.current
             Box(
                 modifier = Modifier
@@ -252,12 +269,13 @@ private fun AlertCard(
 ) {
     val extendedColors = LocalExtendedColors.current
 
-    // Card background: slightly elevated if unread
     val cardColor = if (!alert.read) {
         extendedColors.cardSurfaceElevated
     } else {
         extendedColors.cardSurface
     }
+
+    val accentColor = alertTypeColor(alert.type)
 
     val unreadA11yDescription = buildString {
         append("Alerte ")
@@ -283,68 +301,81 @@ private fun AlertCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(Spacing.lg),
-            verticalAlignment = Alignment.Top,
+                .height(IntrinsicSize.Min),
         ) {
-            // Unread indicator dot
+            // Colored left accent border for unread alerts
             if (!alert.read) {
                 Box(
                     modifier = Modifier
-                        .padding(top = Spacing.xs)
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(extendedColors.info)
-                        .semantics {
-                            contentDescription = "Alerte non lue"
-                        },
+                        .width(4.dp)
+                        .fillMaxHeight()
+                        .background(
+                            color = accentColor,
+                            shape = RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp),
+                        ),
                 )
-                Spacer(modifier = Modifier.width(Spacing.sm))
-            } else {
-                // Keep spacing consistent when no dot
-                Spacer(modifier = Modifier.width(8.dp + Spacing.sm))
             }
 
-            // Content column
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(Spacing.lg),
+                verticalAlignment = Alignment.Top,
             ) {
-                // Top row: title + type badge
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = alert.title,
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.weight(1f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                if (!alert.read) {
+                    Box(
+                        modifier = Modifier
+                            .padding(top = Spacing.xs)
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(accentColor)
+                            .semantics {
+                                contentDescription = "Alerte non lue"
+                            },
                     )
                     Spacer(modifier = Modifier.width(Spacing.sm))
-                    AlertTypeBadge(type = alert.type)
+                } else {
+                    Spacer(modifier = Modifier.width(8.dp + Spacing.sm))
                 }
 
-                // Body — truncated to 2 lines
-                Text(
-                    text = alert.body,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = alert.title,
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Spacer(modifier = Modifier.width(Spacing.sm))
+                        AlertTypeBadge(type = alert.type)
+                    }
 
-                // Timestamp
-                Text(
-                    text = formatTimestamp(alert.receivedAt),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.semantics {
-                        contentDescription = "Reçue ${formatTimestampVerbose(alert.receivedAt)}"
-                    },
-                )
+                    Text(
+                        text = alert.body,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+
+                    Text(
+                        text = formatTimestamp(alert.receivedAt),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.semantics {
+                            contentDescription = "Reçue ${formatTimestampVerbose(alert.receivedAt)}"
+                        },
+                    )
+                }
             }
         }
     }
@@ -374,17 +405,25 @@ private fun AlertTypeBadge(
     )
 }
 
+@Composable
+private fun alertTypeColor(type: AlertType): Color {
+    val extendedColors = LocalExtendedColors.current
+    return when (type) {
+        AlertType.PRICE_ALERT -> extendedColors.info
+        AlertType.TRADE_EXECUTED -> extendedColors.success
+        AlertType.DEVICE_OFFLINE -> extendedColors.statusOffline
+        AlertType.DEVICE_ONLINE -> extendedColors.statusOnline
+        AlertType.SYSTEM_ERROR -> MaterialTheme.colorScheme.error
+        AlertType.PORTFOLIO_UPDATE -> extendedColors.warning
+        AlertType.UNKNOWN -> extendedColors.info
+    }
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 private val TIME_FORMATTER: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 private val DATE_TIME_FORMATTER: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM HH:mm")
 
-/**
- * Returns a short human-readable timestamp:
- * - "Il y a X min" for events less than 60 minutes ago
- * - "HH:mm" for events today
- * - "dd/MM HH:mm" for older events
- */
 internal fun formatTimestamp(instant: Instant): String {
     val now = Instant.now()
     val minutesAgo = ChronoUnit.MINUTES.between(instant, now)
@@ -403,13 +442,11 @@ internal fun formatTimestamp(instant: Instant): String {
     }
 }
 
-/** Returns a verbose timestamp for TalkBack (e.g. "le 15/03 à 14:32"). */
 internal fun formatTimestampVerbose(instant: Instant): String {
     val zoned = instant.atZone(ZoneId.systemDefault())
     return "le ${DATE_TIME_FORMATTER.format(zoned)}"
 }
 
-/** Returns a human-readable label for an [AlertType] for TalkBack. */
 internal fun alertTypeLabel(type: AlertType): String = when (type) {
     AlertType.PRICE_ALERT -> "alerte de prix"
     AlertType.TRADE_EXECUTED -> "trade exécuté"

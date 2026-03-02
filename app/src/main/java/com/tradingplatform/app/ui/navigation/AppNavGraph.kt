@@ -1,7 +1,6 @@
 package com.tradingplatform.app.ui.navigation
 
 import android.app.Activity
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.padding
@@ -36,9 +35,9 @@ import com.tradingplatform.app.ui.screens.pairing.ScanVpsQrScreen
 import com.tradingplatform.app.ui.screens.portfolio.PositionDetailScreen
 import com.tradingplatform.app.ui.screens.portfolio.PositionsScreen
 import com.tradingplatform.app.ui.screens.settings.SecuritySettingsScreen
+import com.tradingplatform.app.ui.screens.settings.SettingsScreen
 import com.tradingplatform.app.ui.screens.settings.VpnSettingsScreen
 import com.tradingplatform.app.ui.screens.totp.TotpScreen
-import com.tradingplatform.app.ui.theme.Motion
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -123,6 +122,7 @@ fun AppNavGraph(
         Screen.Positions.route,
         Screen.Alerts.route,
         Screen.Devices.route,
+        Screen.Settings.route,
         Screen.VpnSettings.route,
         Screen.SecuritySettings.route,
     )
@@ -156,10 +156,10 @@ fun AppNavGraph(
             navController = navController,
             startDestination = startDestination,
             modifier = Modifier.padding(innerPadding),
-            enterTransition = { fadeIn(animationSpec = tween(Motion.EnterDuration)) },
-            exitTransition = { fadeOut(animationSpec = tween(Motion.ExitDuration)) },
-            popEnterTransition = { fadeIn(animationSpec = tween(Motion.EnterDuration)) },
-            popExitTransition = { fadeOut(animationSpec = tween(Motion.ExitDuration)) },
+            enterTransition = { NavTransitions.enterTransition(this) },
+            exitTransition = { NavTransitions.exitTransition(this) },
+            popEnterTransition = { NavTransitions.popEnterTransition(this) },
+            popExitTransition = { NavTransitions.popExitTransition(this) },
         ) {
 
             // ── Auth ──────────────────────────────────────────────────────────
@@ -347,16 +347,27 @@ fun AppNavGraph(
 
             // ── Settings ──────────────────────────────────────────────────────
 
-            composable(Screen.VpnSettings.route) {
-                VpnSettingsScreen(
+            composable(Screen.Settings.route) {
+                SettingsScreen(
+                    onNavigateToVpn = {
+                        navController.navigate(Screen.VpnSettings.route)
+                    },
                     onNavigateToSecurity = {
                         navController.navigate(Screen.SecuritySettings.route)
                     },
                 )
             }
 
+            composable(Screen.VpnSettings.route) {
+                VpnSettingsScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                )
+            }
+
             composable(Screen.SecuritySettings.route) {
-                SecuritySettingsScreen()
+                SecuritySettingsScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                )
             }
         }
     }

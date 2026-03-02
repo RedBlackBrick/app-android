@@ -1,7 +1,6 @@
 package com.tradingplatform.app.ui.screens.dashboard
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -18,11 +17,17 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
@@ -30,11 +35,13 @@ import androidx.compose.ui.semantics.semantics
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tradingplatform.app.domain.model.PnlPeriod
+import com.tradingplatform.app.ui.components.AnimatedPnlText
 import com.tradingplatform.app.ui.components.CacheTimestamp
-import com.tradingplatform.app.ui.components.ErrorBanner
-import com.tradingplatform.app.ui.components.LoadingOverlay
 import com.tradingplatform.app.ui.components.MoneyText
 import com.tradingplatform.app.ui.components.PnlText
+import com.tradingplatform.app.ui.components.SkeletonDashboardCard
+import com.tradingplatform.app.ui.components.SparklineChart
+import com.tradingplatform.app.ui.components.rememberHapticFeedback
 import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.Spacing
 import java.time.ZoneId
@@ -48,16 +55,40 @@ fun DashboardScreen(
     viewModel: DashboardViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val haptic = rememberHapticFeedback()
 
-    val isLoading = uiState.navSummary is NavUiState.Loading &&
+    val isInitialLoading = uiState.navSummary is NavUiState.Loading &&
         uiState.pnlSummary is PnlUiState.Loading
 
-    val isRefreshing = uiState.pnlSummary is PnlUiState.Loading || uiState.navSummary is NavUiState.Loading
+    val isRefreshing = !isInitialLoading && (
+        uiState.pnlSummary is PnlUiState.Loading || uiState.navSummary is NavUiState.Loading
+    )
+
+    // Snackbar for transient errors (replaces persistent ErrorBanner)
+    val snackbarHostState = remember { SnackbarHostState() }
+    val navError = (uiState.navSummary as? NavUiState.Error)?.message
+    val pnlError = (uiState.pnlSummary as? PnlUiState.Error)?.message
+    val quoteError = (uiState.quote as? QuoteUiState.Error)?.message
+    val errorMessage = navError ?: pnlError ?: quoteError
+
+    LaunchedEffect(errorMessage) {
+        if (errorMessage != null) {
+            val result = snackbarHostState.showSnackbar(
+                message = errorMessage,
+                actionLabel = "Réessayer",
+                duration = SnackbarDuration.Short,
+            )
+            if (result == SnackbarResult.ActionPerformed) {
+                viewModel.refresh()
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(title = { Text("Dashboard") })
         },
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         modifier = modifier,
     ) { innerPadding ->
         PullToRefreshBox(
@@ -67,30 +98,47 @@ fun DashboardScreen(
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
-            Box(modifier = Modifier.fillMaxSize()) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
-                        .padding(Spacing.lg),
-                    verticalArrangement = Arrangement.spacedBy(Spacing.lg),
-                ) {
-                    // ── NAV (Net Asset Value) ─────────────────────────────────────────
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(Spacing.lg),
+                verticalArrangement = Arrangement.spacedBy(Spacing.lg),
+            ) {
+                if (isInitialLoading) {
+                    // ── Skeleton loading ────────────────────────────────────────
+                    SkeletonDashboardCard()
+                    SkeletonDashboardCard()
+                    SkeletonDashboardCard()
+                } else {
+                    // ── NAV (Net Asset Value) ───────────────────────────────────
                     NavSection(navState = uiState.navSummary)
 
-                    // ── P&L period chips ──────────────────────────────────────────────
+                    // ── Sparkline chart ─────────────────────────────────────────
+                    val pnlData = (uiState.pnlSummary as? PnlUiState.Success)?.data
+                    if (pnlData != null && pnlData.sparklinePoints.isNotEmpty()) {
+                        SparklineChart(
+                            dataPoints = pnlData.sparklinePoints,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+
+                    // ── P&L period chips ────────────────────────────────────────
                     PnlPeriodChips(
                         selected = uiState.selectedPeriod,
-                        onSelect = viewModel::selectPeriod,
+                        onSelect = { period ->
+                            haptic.click()
+                            viewModel.selectPeriod(period)
+                        },
                     )
 
-                    // ── P&L summary ───────────────────────────────────────────────────
+                    // ── P&L summary ─────────────────────────────────────────────
                     PnlSection(pnlState = uiState.pnlSummary)
 
-                    // ── Quote ─────────────────────────────────────────────────────────
+                    // ── Quote ────────────────────────────────────────────────────
                     QuoteSection(quoteState = uiState.quote)
 
-                    // ── Navigation ────────────────────────────────────────────────────
+                    // ── Navigation ──────────────────────────────────────────────
                     Spacer(modifier = Modifier.height(Spacing.sm))
                     Button(
                         onClick = onNavigateToPositions,
@@ -98,27 +146,6 @@ fun DashboardScreen(
                     ) {
                         Text("Voir positions")
                     }
-                }
-
-                // ── Error banners ─────────────────────────────────────────────────
-                val navError = (uiState.navSummary as? NavUiState.Error)?.message
-                val pnlError = (uiState.pnlSummary as? PnlUiState.Error)?.message
-                val quoteError = (uiState.quote as? QuoteUiState.Error)?.message
-                val errorMessage = navError ?: pnlError ?: quoteError
-
-                if (errorMessage != null) {
-                    ErrorBanner(
-                        message = errorMessage,
-                        onRetry = { viewModel.refresh() },
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(Spacing.lg),
-                    )
-                }
-
-                // ── Loading overlay (initial only) ────────────────────────────────
-                if (isLoading) {
-                    LoadingOverlay()
                 }
             }
         }
@@ -243,8 +270,8 @@ private fun PnlSection(
                 }
                 is PnlUiState.Success -> {
                     val pnl = pnlState.data
-                    // Total P&L prominently displayed
-                    PnlText(
+                    // Total P&L prominently displayed with animation
+                    AnimatedPnlText(
                         value = pnl.totalPnl,
                         style = MaterialTheme.typography.titleLarge,
                         modifier = Modifier.fillMaxWidth(),
@@ -393,7 +420,7 @@ private fun QuoteContent(
                 decimals = 2,
                 style = MaterialTheme.typography.titleMedium,
             )
-            PnlText(
+            AnimatedPnlText(
                 value = quoteData.change,
                 style = MaterialTheme.typography.bodySmall,
             )
