@@ -79,7 +79,7 @@ fun BottomNavBar(
     )
 
     val settingsItem = BottomNavItem(
-        screen = Screen.VpnSettings,
+        screen = Screen.Settings,
         label = "Paramètres",
         icon = Icons.Filled.Settings,
     )
@@ -94,8 +94,12 @@ fun BottomNavBar(
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
-    // The settings section covers both settings sub-screens
-    val settingsRoutes = setOf(Screen.VpnSettings.route, Screen.SecuritySettings.route)
+    // The settings section covers the hub and all settings sub-screens
+    val settingsRoutes = setOf(
+        Screen.Settings.route,
+        Screen.VpnSettings.route,
+        Screen.SecuritySettings.route,
+    )
 
     NavigationBar(modifier = modifier) {
         items.forEach { item ->

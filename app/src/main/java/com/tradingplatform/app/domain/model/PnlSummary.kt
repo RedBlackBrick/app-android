@@ -10,4 +10,6 @@ data class PnlSummary(
     val tradesCount: Int,
     val winningTrades: Int,
     val losingTrades: Int,
+    /** Data points for sparkline chart visualization on the Dashboard. */
+    val sparklinePoints: List<BigDecimal> = emptyList(),
 )
