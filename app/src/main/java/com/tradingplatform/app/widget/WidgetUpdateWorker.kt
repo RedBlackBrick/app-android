@@ -81,15 +81,24 @@ class WidgetUpdateWorker @AssistedInject constructor(
 
         var anyRetryNeeded = false
 
-        // 2. Sync portfolio (positions + PnL) — indépendant des autres blocs
+        // 2. Sync positions — indépendant du PnL et des autres blocs
         try {
-            syncPortfolio(portfolioId)
+            syncPositions(portfolioId)
         } catch (e: IOException) {
-            Timber.w(e, "WidgetUpdateWorker — portfolio sync failed (IOException), will retry")
+            Timber.w(e, "WidgetUpdateWorker — positions sync failed (IOException), will retry")
             anyRetryNeeded = true
         } catch (e: VpnNotConnectedException) {
-            // VPN coupé pendant la sync — garder le cache, pas de retry
-            Timber.d("WidgetUpdateWorker — VPN disconnected during portfolio sync")
+            Timber.d("WidgetUpdateWorker — VPN disconnected during positions sync")
+        }
+
+        // 2b. Sync PnL — indépendant des positions et des autres blocs
+        try {
+            syncPnl(portfolioId)
+        } catch (e: IOException) {
+            Timber.w(e, "WidgetUpdateWorker — PnL sync failed (IOException), will retry")
+            anyRetryNeeded = true
+        } catch (e: VpnNotConnectedException) {
+            Timber.d("WidgetUpdateWorker — VPN disconnected during PnL sync")
         }
 
         // 3. Sync quotes — indépendant du portfolio
@@ -120,10 +129,10 @@ class WidgetUpdateWorker @AssistedInject constructor(
         return if (anyRetryNeeded) Result.retry() else Result.success()
     }
 
-    // ── Sync portfolio ─────────────────────────────────────────────────────────
+    // ── Sync positions ──────────────────────────────────────────────────────────
 
     /**
-     * Synchronise les positions et le PnL du portfolio.
+     * Synchronise les positions du portfolio.
      * Purge Room APRÈS sync réussie — jamais avant.
      *
      * Note : le Repository gère l'upsert via OnConflictStrategy.REPLACE.
@@ -133,10 +142,9 @@ class WidgetUpdateWorker @AssistedInject constructor(
      * @throws IOException en cas d'erreur réseau transitoire
      * @throws VpnNotConnectedException si le VPN est coupé pendant la sync
      */
-    private suspend fun syncPortfolio(portfolioId: String) {
+    private suspend fun syncPositions(portfolioId: String) {
         val now = System.currentTimeMillis()
 
-        // Sync positions (OPEN uniquement pour les widgets)
         getPositionsUseCase(portfolioId)
             .onSuccess { positions ->
                 Timber.d("WidgetUpdateWorker — positions synced: ${positions.size} items")
@@ -150,8 +158,20 @@ class WidgetUpdateWorker @AssistedInject constructor(
                     else -> Timber.w(e, "WidgetUpdateWorker — positions sync error (non-retryable): ${e.message}")
                 }
             }
+    }
 
-        // Sync PnL (période journalière pour les widgets)
+    // ── Sync PnL ────────────────────────────────────────────────────────────────
+
+    /**
+     * Synchronise le PnL du portfolio (période journalière pour les widgets).
+     * Purge Room APRÈS sync réussie — jamais avant.
+     *
+     * @throws IOException en cas d'erreur réseau transitoire
+     * @throws VpnNotConnectedException si le VPN est coupé pendant la sync
+     */
+    private suspend fun syncPnl(portfolioId: String) {
+        val now = System.currentTimeMillis()
+
         getPnlUseCase(portfolioId, PnlPeriod.DAY)
             .onSuccess {
                 Timber.d("WidgetUpdateWorker — PnL DAY synced")

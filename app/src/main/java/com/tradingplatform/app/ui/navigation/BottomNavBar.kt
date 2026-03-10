@@ -6,6 +6,8 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -52,6 +54,7 @@ data class BottomNavItem(
 fun BottomNavBar(
     navController: NavController,
     isAdmin: Boolean,
+    unreadAlertCount: Int = 0,
     modifier: Modifier = Modifier,
 ) {
     val baseItems = listOf(
@@ -98,6 +101,7 @@ fun BottomNavBar(
     val settingsRoutes = setOf(
         Screen.Settings.route,
         Screen.VpnSettings.route,
+        Screen.MyDevices.route,
         Screen.SecuritySettings.route,
     )
 
@@ -122,14 +126,36 @@ fun BottomNavBar(
                     }
                 },
                 icon = {
-                    Icon(
-                        imageVector = if (selected) item.selectedIcon else item.icon,
-                        contentDescription = null,
-                        tint = if (selected)
-                            MaterialTheme.colorScheme.primary
-                        else
-                            MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    if (item.screen == Screen.Alerts && unreadAlertCount > 0) {
+                        BadgedBox(
+                            badge = {
+                                Badge {
+                                    Text(
+                                        text = if (unreadAlertCount > 99) "99+" else "$unreadAlertCount",
+                                        style = MaterialTheme.typography.labelSmall,
+                                    )
+                                }
+                            },
+                        ) {
+                            Icon(
+                                imageVector = if (selected) item.selectedIcon else item.icon,
+                                contentDescription = null,
+                                tint = if (selected)
+                                    MaterialTheme.colorScheme.primary
+                                else
+                                    MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    } else {
+                        Icon(
+                            imageVector = if (selected) item.selectedIcon else item.icon,
+                            contentDescription = null,
+                            tint = if (selected)
+                                MaterialTheme.colorScheme.primary
+                            else
+                                MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 },
                 label = {
                     Text(
@@ -138,7 +164,11 @@ fun BottomNavBar(
                     )
                 },
                 modifier = Modifier.semantics {
-                    contentDescription = item.label
+                    contentDescription = if (item.screen == Screen.Alerts && unreadAlertCount > 0) {
+                        "${item.label} — $unreadAlertCount non lues"
+                    } else {
+                        item.label
+                    }
                 },
             )
         }

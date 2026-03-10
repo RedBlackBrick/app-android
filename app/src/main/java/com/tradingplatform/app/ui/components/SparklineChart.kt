@@ -1,10 +1,14 @@
 package com.tradingplatform.app.ui.components
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -13,10 +17,12 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import com.tradingplatform.app.ui.theme.LocalExtendedColors
+import com.tradingplatform.app.ui.theme.Motion
 import com.tradingplatform.app.ui.theme.Spacing
 import java.math.BigDecimal
 
@@ -47,6 +53,19 @@ fun SparklineChart(
     val a11yDescription = buildString {
         append(if (isPositiveTrend) "Tendance positive" else "Tendance négative")
         append(", ${dataPoints.size} points")
+        val min = dataPoints.minOf { it }
+        val max = dataPoints.maxOf { it }
+        append(", min $min, max $max")
+    }
+
+    // Draw-reveal animation: line draws from left to right
+    val animationProgress = remember { Animatable(0f) }
+    LaunchedEffect(dataPoints) {
+        animationProgress.snapTo(0f)
+        animationProgress.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(durationMillis = Motion.EnterDuration * 2),
+        )
     }
 
     Canvas(
@@ -89,34 +108,41 @@ fun SparklineChart(
             close()
         }
 
-        // Draw area fill with gradient
-        drawPath(
-            path = fillPath,
-            brush = Brush.verticalGradient(
-                colors = listOf(fillColor, transparent),
-                startY = 0f,
-                endY = canvasHeight,
-            ),
-        )
+        // Clip to animated progress for draw-reveal effect
+        val clipWidth = canvasWidth * animationProgress.value
 
-        // Draw line
-        drawPath(
-            path = linePath,
-            color = lineColor,
-            style = Stroke(
-                width = 2f,
-                cap = StrokeCap.Round,
-                join = StrokeJoin.Round,
-            ),
-        )
+        clipRect(right = clipWidth) {
+            // Draw area fill with gradient
+            drawPath(
+                path = fillPath,
+                brush = Brush.verticalGradient(
+                    colors = listOf(fillColor, transparent),
+                    startY = 0f,
+                    endY = canvasHeight,
+                ),
+            )
 
-        // Draw end-point dot
-        val lastX = xForIndex(dataPoints.size - 1)
-        val lastY = yForValue(dataPoints.last().toFloat())
-        drawCircle(
-            color = lineColor,
-            radius = 4f,
-            center = Offset(lastX, lastY),
-        )
+            // Draw line
+            drawPath(
+                path = linePath,
+                color = lineColor,
+                style = Stroke(
+                    width = 2f,
+                    cap = StrokeCap.Round,
+                    join = StrokeJoin.Round,
+                ),
+            )
+
+            // Draw end-point dot (only visible when fully animated)
+            if (animationProgress.value > 0.95f) {
+                val lastX = xForIndex(dataPoints.size - 1)
+                val lastY = yForValue(dataPoints.last().toFloat())
+                drawCircle(
+                    color = lineColor,
+                    radius = 4f,
+                    center = Offset(lastX, lastY),
+                )
+            }
+        }
     }
 }

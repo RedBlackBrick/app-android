@@ -24,6 +24,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.tradingplatform.app.ui.theme.IconSize
 import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.Spacing
 
@@ -88,7 +89,7 @@ fun EmptyPositionsIllustration(modifier: Modifier = Modifier) {
 
     Canvas(
         modifier = modifier
-            .size(80.dp)
+            .size(IconSize.xl)
             .semantics { contentDescription = "Aucune position" },
     ) {
         val w = size.width
@@ -140,7 +141,7 @@ fun EmptyAlertsIllustration(modifier: Modifier = Modifier) {
 
     Canvas(
         modifier = modifier
-            .size(80.dp)
+            .size(IconSize.xl)
             .semantics { contentDescription = "Aucune alerte" },
     ) {
         val w = size.width
@@ -189,7 +190,7 @@ fun EmptyDevicesIllustration(modifier: Modifier = Modifier) {
 
     Canvas(
         modifier = modifier
-            .size(80.dp)
+            .size(IconSize.xl)
             .semantics { contentDescription = "Aucun device" },
     ) {
         val w = size.width

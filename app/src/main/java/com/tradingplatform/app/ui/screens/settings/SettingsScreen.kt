@@ -12,6 +12,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.Card
@@ -29,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.Spacing
 
 /**
@@ -41,6 +43,7 @@ import com.tradingplatform.app.ui.theme.Spacing
 @Composable
 fun SettingsScreen(
     onNavigateToVpn: () -> Unit,
+    onNavigateToMyDevices: () -> Unit,
     onNavigateToSecurity: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -58,10 +61,11 @@ fun SettingsScreen(
                 .padding(Spacing.lg),
             verticalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
+            val extendedColors = LocalExtendedColors.current
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    containerColor = extendedColors.cardSurface,
                 ),
             ) {
                 Column {
@@ -72,7 +76,17 @@ fun SettingsScreen(
                         onClick = onNavigateToVpn,
                     )
                     HorizontalDivider(
-                        color = MaterialTheme.colorScheme.outline,
+                        color = extendedColors.divider,
+                        modifier = Modifier.padding(horizontal = Spacing.lg),
+                    )
+                    SettingsRow(
+                        icon = Icons.Default.Devices,
+                        title = "Mes appareils",
+                        subtitle = "Gérer les appareils connectés",
+                        onClick = onNavigateToMyDevices,
+                    )
+                    HorizontalDivider(
+                        color = extendedColors.divider,
                         modifier = Modifier.padding(horizontal = Spacing.lg),
                     )
                     SettingsRow(

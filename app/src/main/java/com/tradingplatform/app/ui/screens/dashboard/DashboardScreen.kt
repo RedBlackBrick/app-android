@@ -159,10 +159,11 @@ private fun NavSection(
     navState: NavUiState,
     modifier: Modifier = Modifier,
 ) {
+    val extendedColors = LocalExtendedColors.current
     Card(
         modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            containerColor = extendedColors.cardSurface,
         ),
     ) {
         Column(
@@ -245,10 +246,11 @@ private fun PnlSection(
     pnlState: PnlUiState,
     modifier: Modifier = Modifier,
 ) {
+    val extendedColors = LocalExtendedColors.current
     Card(
         modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            containerColor = extendedColors.cardSurface,
         ),
     ) {
         Column(
@@ -333,7 +335,7 @@ private fun QuoteSection(
     Card(
         modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            containerColor = extendedColors.cardSurface,
         ),
     ) {
         Column(

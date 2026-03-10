@@ -1,6 +1,7 @@
 package com.tradingplatform.app.di
 
 import android.content.Context
+import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
 import com.tradingplatform.app.vpn.WireGuardManager
 import dagger.Module
 import dagger.Provides
@@ -19,5 +20,6 @@ object VpnModule {
     fun provideWireGuardManager(
         @ApplicationContext context: Context,
         applicationScope: CoroutineScope,
-    ): WireGuardManager = WireGuardManager(context, applicationScope)
+        dataStore: EncryptedDataStore,
+    ): WireGuardManager = WireGuardManager(context, applicationScope, dataStore)
 }

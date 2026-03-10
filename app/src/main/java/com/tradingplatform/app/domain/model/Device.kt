@@ -7,5 +7,5 @@ data class Device(
     val name: String,
     val status: DeviceStatus,
     val wgIp: String,
-    val lastHeartbeat: Instant,
+    val lastHeartbeat: Instant?,
 )

@@ -10,6 +10,9 @@ import android.net.Uri
  */
 sealed class Screen(val route: String) {
 
+    /** Shown on first launch — guides the user through the WireGuard onboarding QR scan. */
+    data object Setup : Screen("setup")
+
     data object Login : Screen("login")
 
     data object Totp : Screen("totp/{sessionToken}") {
@@ -31,6 +34,10 @@ sealed class Screen(val route: String) {
         fun createRoute(deviceId: String): String = "device/${Uri.encode(deviceId)}"
     }
 
+    data object LocalMaintenance : Screen("local-maintenance/{deviceId}") {
+        fun createRoute(deviceId: String): String = "local-maintenance/${Uri.encode(deviceId)}"
+    }
+
     data object ScanVpsQr : Screen("pairing/scan-vps")
 
     data object ScanDeviceQr : Screen("pairing/scan-device")
@@ -45,6 +52,9 @@ sealed class Screen(val route: String) {
     data object Settings : Screen("settings")
 
     data object VpnSettings : Screen("settings/vpn")
+
+    /** User's own devices — accessible to all authenticated users. */
+    data object MyDevices : Screen("settings/my-devices")
 
     data object SecuritySettings : Screen("settings/security")
 }

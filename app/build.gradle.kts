@@ -55,9 +55,11 @@ android {
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.getByName("release")
+            buildConfigField("boolean", "DEV_MODE", "false")
         }
         debug {
             isMinifyEnabled = false
+            buildConfigField("boolean", "DEV_MODE", project.findProperty("DEV_MODE")?.toString() ?: "false")
         }
     }
 
@@ -105,6 +107,7 @@ dependencies {
     implementation(libs.compose.ui.tooling.preview)
     implementation(libs.compose.material3)
     implementation(libs.compose.material.icons)
+    implementation(libs.compose.material.icons.ext)
     implementation(libs.compose.activity)
     implementation(libs.compose.lifecycle.runtime)
     implementation(libs.compose.viewmodel)
@@ -165,6 +168,9 @@ dependencies {
 
     // Sécurité
     implementation(libs.rootbeer)
+
+    // Libsodium (chiffrement LAN)
+    implementation(libs.lazysodium.android)
 
     // Utilitaires
     implementation(libs.timber)

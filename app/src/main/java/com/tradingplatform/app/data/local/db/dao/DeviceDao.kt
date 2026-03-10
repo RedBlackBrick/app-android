@@ -23,4 +23,7 @@ interface DeviceDao {
 
     @Query("DELETE FROM devices WHERE synced_at < :cutoffMillis")
     suspend fun deleteOlderThan(cutoffMillis: Long)
+
+    @Query("DELETE FROM devices WHERE id = :deviceId")
+    suspend fun deleteByDeviceId(deviceId: String)
 }

@@ -29,6 +29,7 @@ import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -73,6 +74,7 @@ fun AlertListScreen(
     viewModel: AlertsViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -82,7 +84,9 @@ fun AlertListScreen(
         },
         modifier = modifier,
     ) { innerPadding ->
-        Box(
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = { viewModel.refresh() },
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding),
@@ -326,7 +330,7 @@ private fun AlertCard(
                     Box(
                         modifier = Modifier
                             .padding(top = Spacing.xs)
-                            .size(8.dp)
+                            .size(Spacing.sm)
                             .clip(CircleShape)
                             .background(accentColor)
                             .semantics {
@@ -394,6 +398,9 @@ private fun AlertTypeBadge(
         AlertType.TRADE_EXECUTED -> "Trade" to extendedColors.success
         AlertType.DEVICE_OFFLINE -> "Device OFF" to extendedColors.statusOffline
         AlertType.DEVICE_ONLINE -> "Device ON" to extendedColors.statusOnline
+        AlertType.DEVICE_UNPAIRED -> "Désappairé" to MaterialTheme.colorScheme.error
+        AlertType.SCRAPING_ERROR -> "Scraping" to extendedColors.warning
+        AlertType.OTA_COMPLETE -> "OTA" to extendedColors.success
         AlertType.SYSTEM_ERROR -> "Erreur" to MaterialTheme.colorScheme.error
         AlertType.PORTFOLIO_UPDATE -> "Portfolio" to extendedColors.warning
         AlertType.UNKNOWN -> "Info" to extendedColors.info
@@ -413,6 +420,9 @@ private fun alertTypeColor(type: AlertType): Color {
         AlertType.TRADE_EXECUTED -> extendedColors.success
         AlertType.DEVICE_OFFLINE -> extendedColors.statusOffline
         AlertType.DEVICE_ONLINE -> extendedColors.statusOnline
+        AlertType.DEVICE_UNPAIRED -> MaterialTheme.colorScheme.error
+        AlertType.SCRAPING_ERROR -> extendedColors.warning
+        AlertType.OTA_COMPLETE -> extendedColors.success
         AlertType.SYSTEM_ERROR -> MaterialTheme.colorScheme.error
         AlertType.PORTFOLIO_UPDATE -> extendedColors.warning
         AlertType.UNKNOWN -> extendedColors.info
@@ -452,6 +462,9 @@ internal fun alertTypeLabel(type: AlertType): String = when (type) {
     AlertType.TRADE_EXECUTED -> "trade exécuté"
     AlertType.DEVICE_OFFLINE -> "device hors ligne"
     AlertType.DEVICE_ONLINE -> "device en ligne"
+    AlertType.DEVICE_UNPAIRED -> "device désappairé"
+    AlertType.SCRAPING_ERROR -> "erreur de scraping"
+    AlertType.OTA_COMPLETE -> "mise à jour OTA terminée"
     AlertType.SYSTEM_ERROR -> "erreur système"
     AlertType.PORTFOLIO_UPDATE -> "mise à jour de portfolio"
     AlertType.UNKNOWN -> "information"

@@ -38,4 +38,12 @@ class DeviceRepositoryImpl @Inject constructor(
         deviceDao.getById(deviceId)?.toDomain()
             ?: error("Device $deviceId not found in cache")
     }
+
+    override suspend fun unpairDevice(deviceId: String): Result<Unit> = runCatching {
+        val response = deviceApi.unpairDevice(deviceId)
+        if (!response.isSuccessful) {
+            error("Unpair device failed: HTTP ${response.code()}")
+        }
+        deviceDao.deleteByDeviceId(deviceId)
+    }
 }

@@ -3,11 +3,14 @@ package com.tradingplatform.app.ui.navigation
 import android.app.Activity
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -22,11 +25,15 @@ import androidx.navigation.compose.navigation
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.tradingplatform.app.domain.usecase.auth.GetAuthContextUseCase
+import com.tradingplatform.app.vpn.VpnState
+import com.tradingplatform.app.vpn.WireGuardManager
+import com.tradingplatform.app.ui.components.VpnStatusBanner
 import com.tradingplatform.app.ui.screens.alerts.AlertListScreen
 import com.tradingplatform.app.ui.screens.auth.LoginScreen
 import com.tradingplatform.app.ui.screens.dashboard.DashboardScreen
 import com.tradingplatform.app.ui.screens.devices.DeviceDetailScreen
 import com.tradingplatform.app.ui.screens.devices.DeviceListScreen
+import com.tradingplatform.app.ui.screens.maintenance.LocalMaintenanceScreen
 import com.tradingplatform.app.ui.screens.pairing.PairingDoneScreen
 import com.tradingplatform.app.ui.screens.pairing.PairingProgressScreen
 import com.tradingplatform.app.ui.screens.pairing.PairingViewModel
@@ -34,9 +41,11 @@ import com.tradingplatform.app.ui.screens.pairing.ScanDeviceQrScreen
 import com.tradingplatform.app.ui.screens.pairing.ScanVpsQrScreen
 import com.tradingplatform.app.ui.screens.portfolio.PositionDetailScreen
 import com.tradingplatform.app.ui.screens.portfolio.PositionsScreen
+import com.tradingplatform.app.ui.screens.settings.MyDevicesScreen
 import com.tradingplatform.app.ui.screens.settings.SecuritySettingsScreen
 import com.tradingplatform.app.ui.screens.settings.SettingsScreen
 import com.tradingplatform.app.ui.screens.settings.VpnSettingsScreen
+import com.tradingplatform.app.ui.screens.setup.SetupScreen
 import com.tradingplatform.app.ui.screens.totp.TotpScreen
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -61,7 +70,11 @@ import javax.inject.Inject
 @HiltViewModel
 class AppNavViewModel @Inject constructor(
     private val getAuthContextUseCase: GetAuthContextUseCase,
+    wireGuardManager: WireGuardManager,
 ) : ViewModel() {
+
+    /** VPN connection state — exposed for VpnStatusBanner. */
+    val vpnState: StateFlow<VpnState> = wireGuardManager.state
 
     private val _isLoggedIn = MutableStateFlow<Boolean?>(null)
     val isLoggedIn: StateFlow<Boolean?> = _isLoggedIn.asStateFlow()
@@ -69,19 +82,41 @@ class AppNavViewModel @Inject constructor(
     private val _isAdmin = MutableStateFlow(false)
     val isAdmin: StateFlow<Boolean> = _isAdmin.asStateFlow()
 
+    /**
+     * Tri-state:
+     * - `null`  — datastore read in flight
+     * - `true`  — setup QR already scanned and VPN connected once → skip SetupScreen
+     * - `false` — first launch or setup not completed → show SetupScreen
+     */
+    private val _isSetupCompleted = MutableStateFlow<Boolean?>(null)
+    val isSetupCompleted: StateFlow<Boolean?> = _isSetupCompleted.asStateFlow()
+
     init {
         viewModelScope.launch {
             val context = getAuthContextUseCase()
             _isAdmin.value = context.isAdmin
             _isLoggedIn.value = context.isLoggedIn
-            Timber.d("AppNavViewModel: isLoggedIn=${context.isLoggedIn}, isAdmin=${context.isAdmin}")
+            _isSetupCompleted.value = context.setupCompleted
+            Timber.d(
+                "AppNavViewModel: isLoggedIn=${context.isLoggedIn}, " +
+                    "isAdmin=${context.isAdmin}, setupCompleted=${context.setupCompleted}"
+            )
         }
     }
 }
 
 // ── AppNavGraph ────────────────────────────────────────────────────────────────
 
-private const val PAIRING_GRAPH_ROUTE = "pairing_graph"
+private const val PAIRING_GRAPH_ROUTE = "pairing_graph/{source}"
+private const val PAIRING_SOURCE_DEVICES = "devices"
+private const val PAIRING_SOURCE_MY_DEVICES = "my-devices"
+
+private fun pairingGraphRoute(source: String) = "pairing_graph/$source"
+
+private fun pairingReturnRoute(source: String?) = when (source) {
+    PAIRING_SOURCE_MY_DEVICES -> Screen.MyDevices.route
+    else -> Screen.Devices.route
+}
 
 /**
  * Root navigation graph for the application.
@@ -106,11 +141,20 @@ fun AppNavGraph(
 ) {
     val isLoggedIn by appNavViewModel.isLoggedIn.collectAsStateWithLifecycle()
     val isAdmin by appNavViewModel.isAdmin.collectAsStateWithLifecycle()
+    val isSetupCompleted by appNavViewModel.isSetupCompleted.collectAsStateWithLifecycle()
+    val vpnState by appNavViewModel.vpnState.collectAsStateWithLifecycle()
 
-    // Wait until the datastore check completes before rendering anything
+    // Wait until all datastore checks complete before rendering anything.
+    // isLoggedIn and isSetupCompleted are set atomically in the same init coroutine,
+    // so checking isSetupCompleted alone is sufficient — but both are null initially.
     val loggedIn = isLoggedIn ?: return
+    val setupCompleted = isSetupCompleted ?: return
 
-    val startDestination = if (loggedIn) Screen.Dashboard.route else Screen.Login.route
+    val startDestination = when {
+        !setupCompleted -> Screen.Setup.route
+        loggedIn -> Screen.Dashboard.route
+        else -> Screen.Login.route
+    }
 
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -124,6 +168,7 @@ fun AppNavGraph(
         Screen.Devices.route,
         Screen.Settings.route,
         Screen.VpnSettings.route,
+        Screen.MyDevices.route,
         Screen.SecuritySettings.route,
     )
     val showBottomBar = currentRoute in bottomBarRoutes
@@ -152,15 +197,32 @@ fun AppNavGraph(
             }
         },
     ) { innerPadding ->
+        Column(modifier = Modifier.padding(innerPadding)) {
+            // Global VPN disconnect banner
+            val isVpnDisconnected = loggedIn && vpnState !is VpnState.Connected
+            VpnStatusBanner(isDisconnected = isVpnDisconnected)
+
         NavHost(
             navController = navController,
             startDestination = startDestination,
-            modifier = Modifier.padding(innerPadding),
+            modifier = Modifier.fillMaxSize(),
             enterTransition = { NavTransitions.enterTransition(this) },
             exitTransition = { NavTransitions.exitTransition(this) },
             popEnterTransition = { NavTransitions.popEnterTransition(this) },
             popExitTransition = { NavTransitions.popExitTransition(this) },
         ) {
+
+            // ── Onboarding setup (first launch only) ─────────────────────────
+
+            composable(Screen.Setup.route) {
+                SetupScreen(
+                    onSetupComplete = {
+                        navController.navigate(Screen.Login.route) {
+                            popUpTo(Screen.Setup.route) { inclusive = true }
+                        }
+                    },
+                )
+            }
 
             // ── Auth ──────────────────────────────────────────────────────────
 
@@ -249,7 +311,7 @@ fun AppNavGraph(
                         navController.navigate(Screen.DeviceDetail.createRoute(deviceId))
                     },
                     onNavigateToPairing = {
-                        navController.navigate(PAIRING_GRAPH_ROUTE)
+                        navController.navigate(pairingGraphRoute(PAIRING_SOURCE_DEVICES))
                     },
                 )
             }
@@ -264,6 +326,22 @@ fun AppNavGraph(
                 DeviceDetailScreen(
                     deviceId = deviceId,
                     onNavigateBack = { navController.popBackStack() },
+                    onNavigateToLocalMaintenance = {
+                        navController.navigate(Screen.LocalMaintenance.createRoute(deviceId))
+                    },
+                )
+            }
+
+            // ── Local maintenance (admin — device offline) ────────────────────
+
+            composable(
+                route = Screen.LocalMaintenance.route,
+                arguments = listOf(
+                    navArgument("deviceId") { type = NavType.StringType },
+                ),
+            ) {
+                LocalMaintenanceScreen(
+                    onNavigateBack = { navController.popBackStack() },
                 )
             }
 
@@ -273,10 +351,17 @@ fun AppNavGraph(
             navigation(
                 startDestination = Screen.ScanVpsQr.route,
                 route = PAIRING_GRAPH_ROUTE,
+                arguments = listOf(
+                    navArgument("source") { type = NavType.StringType },
+                ),
             ) {
                 composable(Screen.ScanVpsQr.route) { backStackEntry ->
-                    val pairingEntry = navController.getBackStackEntry(PAIRING_GRAPH_ROUTE)
+                    val pairingEntry = remember(navController) {
+                        navController.getBackStackEntry(PAIRING_GRAPH_ROUTE)
+                    }
                     val pairingViewModel: PairingViewModel = hiltViewModel(pairingEntry)
+                    val source = pairingEntry.arguments?.getString("source")
+                    val returnRoute = pairingReturnRoute(source)
                     ScanVpsQrScreen(
                         onNavigateToScanDevice = {
                             navController.navigate(Screen.ScanDeviceQr.route)
@@ -288,7 +373,7 @@ fun AppNavGraph(
                         },
                         onBack = {
                             navController.popBackStack(
-                                route = Screen.Devices.route,
+                                route = returnRoute,
                                 inclusive = false,
                             )
                         },
@@ -297,7 +382,9 @@ fun AppNavGraph(
                 }
 
                 composable(Screen.ScanDeviceQr.route) {
-                    val pairingEntry = navController.getBackStackEntry(PAIRING_GRAPH_ROUTE)
+                    val pairingEntry = remember(navController) {
+                        navController.getBackStackEntry(PAIRING_GRAPH_ROUTE)
+                    }
                     val pairingViewModel: PairingViewModel = hiltViewModel(pairingEntry)
                     ScanDeviceQrScreen(
                         onNavigateToProgress = {
@@ -311,7 +398,9 @@ fun AppNavGraph(
                 }
 
                 composable(Screen.PairingProgress.route) {
-                    val pairingEntry = navController.getBackStackEntry(PAIRING_GRAPH_ROUTE)
+                    val pairingEntry = remember(navController) {
+                        navController.getBackStackEntry(PAIRING_GRAPH_ROUTE)
+                    }
                     val pairingViewModel: PairingViewModel = hiltViewModel(pairingEntry)
                     PairingProgressScreen(
                         onPairingComplete = {
@@ -324,8 +413,12 @@ fun AppNavGraph(
                 }
 
                 composable(Screen.PairingDone.route) {
-                    val pairingEntry = navController.getBackStackEntry(PAIRING_GRAPH_ROUTE)
+                    val pairingEntry = remember(navController) {
+                        navController.getBackStackEntry(PAIRING_GRAPH_ROUTE)
+                    }
                     val pairingViewModel: PairingViewModel = hiltViewModel(pairingEntry)
+                    val source = pairingEntry.arguments?.getString("source")
+                    val returnRoute = pairingReturnRoute(source)
                     val step by pairingViewModel.step.collectAsStateWithLifecycle()
                     PairingDoneScreen(
                         step = step,
@@ -336,7 +429,7 @@ fun AppNavGraph(
                             }
                         },
                         onFinish = {
-                            navController.navigate(Screen.Devices.route) {
+                            navController.navigate(returnRoute) {
                                 popUpTo(PAIRING_GRAPH_ROUTE) { inclusive = true }
                             }
                         },
@@ -352,8 +445,20 @@ fun AppNavGraph(
                     onNavigateToVpn = {
                         navController.navigate(Screen.VpnSettings.route)
                     },
+                    onNavigateToMyDevices = {
+                        navController.navigate(Screen.MyDevices.route)
+                    },
                     onNavigateToSecurity = {
                         navController.navigate(Screen.SecuritySettings.route)
+                    },
+                )
+            }
+
+            composable(Screen.MyDevices.route) {
+                MyDevicesScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                    onNavigateToPairing = {
+                        navController.navigate(pairingGraphRoute(PAIRING_SOURCE_MY_DEVICES))
                     },
                 )
             }
@@ -370,5 +475,6 @@ fun AppNavGraph(
                 )
             }
         }
+        } // Column
     }
 }

@@ -14,6 +14,10 @@ WG_VPS_PUBKEY=<base64_public_key>
 CERT_PIN_SHA256=sha256/<empreinte_courante>
 CERT_PIN_SHA256_BACKUP=sha256/<empreinte_backup>
 
+# --- Dev Mode (direct LAN, no WireGuard) ---
+# DEV_MODE=true
+# VPS_BASE_URL=http://192.168.1.X:8013
+
 # Signing (release uniquement)
 KEYSTORE_PATH=../keystore/release.jks
 KEYSTORE_PASSWORD=

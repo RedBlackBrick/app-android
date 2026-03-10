@@ -39,3 +39,7 @@
     public static *** v(...);
     public static *** i(...);
 }
+
+# Lazysodium — garder les classes JNI et natif
+-keep class com.goterl.lazysodium.** { *; }
+-keep class com.sun.jna.** { *; }

@@ -4,4 +4,5 @@ data class PairingSession(
     val sessionId: String,
     val sessionPin: String,
     val deviceWgIp: String,
+    val localToken: String,
 )

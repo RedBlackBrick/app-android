@@ -46,6 +46,7 @@ import com.tradingplatform.app.ui.components.PnlText
 import com.tradingplatform.app.ui.components.SkeletonPositionCard
 import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.Spacing
+import com.tradingplatform.app.ui.theme.pnlColor
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -193,7 +194,7 @@ private fun PositionCard(
                     if (position.status == PositionStatus.OPEN) "ouverte" else "fermée"
             },
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            containerColor = LocalExtendedColors.current.cardSurface,
         ),
     ) {
         Row(
@@ -245,11 +246,7 @@ private fun PositionCard(
                     ),
                 )
                 // P&L percentage
-                val pnlColor = when {
-                    position.unrealizedPnlPercent > 0.0 -> LocalExtendedColors.current.pnlPositive
-                    position.unrealizedPnlPercent < 0.0 -> LocalExtendedColors.current.pnlNegative
-                    else -> MaterialTheme.colorScheme.onSurface
-                }
+                val pnlColor = pnlColor(position.unrealizedPnl)
                 Text(
                     text = "${if (position.unrealizedPnlPercent >= 0) "+" else ""}${"%.2f".format(position.unrealizedPnlPercent)}%",
                     style = MaterialTheme.typography.bodySmall.copy(

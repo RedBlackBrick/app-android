@@ -9,6 +9,8 @@ interface PairingRepository {
         devicePort: Int,
         sessionId: String,
         sessionPin: String,
+        localToken: String,
+        radxaWgPubkey: String,
     ): Result<Unit>
 
     fun pollStatus(

@@ -204,7 +204,7 @@
       },
       {
         "tableName": "devices",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `status` TEXT NOT NULL, `wg_ip` TEXT NOT NULL, `last_heartbeat` INTEGER NOT NULL, `synced_at` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `status` TEXT NOT NULL, `wg_ip` TEXT NOT NULL, `last_heartbeat` INTEGER, `synced_at` INTEGER NOT NULL, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
@@ -234,7 +234,7 @@
             "fieldPath": "lastHeartbeat",
             "columnName": "last_heartbeat",
             "affinity": "INTEGER",
-            "notNull": true
+            "notNull": false
           },
           {
             "fieldPath": "syncedAt",

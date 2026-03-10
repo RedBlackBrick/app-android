@@ -4,6 +4,7 @@ import app.cash.turbine.test
 import com.tradingplatform.app.domain.model.DevicePairingInfo
 import com.tradingplatform.app.domain.model.PairingSession
 import com.tradingplatform.app.domain.model.PairingStatus
+import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
 import com.tradingplatform.app.domain.usecase.pairing.ConfirmPairingUseCase
 import com.tradingplatform.app.domain.usecase.pairing.ParseVpsQrUseCase
 import com.tradingplatform.app.domain.usecase.pairing.ScanDeviceQrUseCase
@@ -32,6 +33,7 @@ class PairingViewModelTest {
     private val scanDeviceQrUseCase = mockk<ScanDeviceQrUseCase>()
     private val sendPinToDeviceUseCase = mockk<SendPinToDeviceUseCase>()
     private val confirmPairingUseCase = mockk<ConfirmPairingUseCase>()
+    private val dataStore = mockk<EncryptedDataStore>(relaxed = true)
 
     private lateinit var viewModel: PairingViewModel
 
@@ -39,6 +41,7 @@ class PairingViewModelTest {
         sessionId = "session-uuid-123",
         sessionPin = "472938", // never assert on this value in logs
         deviceWgIp = "10.42.0.5",
+        localToken = "tok-xyz",  // never assert on this value in logs
     )
 
     private val fakeDevice = DevicePairingInfo(
@@ -55,6 +58,7 @@ class PairingViewModelTest {
             scanDeviceQrUseCase = scanDeviceQrUseCase,
             sendPinToDeviceUseCase = sendPinToDeviceUseCase,
             confirmPairingUseCase = confirmPairingUseCase,
+            dataStore = dataStore,
         )
     }
 
@@ -184,7 +188,7 @@ class PairingViewModelTest {
     fun `startPairing transitions SendingPin then WaitingConfirmation then Success`() = runTest {
         coEvery { parseVpsQrUseCase(any()) } returns Result.success(fakeSession)
         coEvery { scanDeviceQrUseCase(any()) } returns Result.success(fakeDevice)
-        coEvery { sendPinToDeviceUseCase(any(), any(), any(), any()) } returns Result.success(Unit)
+        coEvery { sendPinToDeviceUseCase(any(), any(), any(), any(), any(), any()) } returns Result.success(Unit)
         coEvery { confirmPairingUseCase(any(), any(), any()) } returns Result.success(PairingStatus.PAIRED)
 
         viewModel.step.test {
@@ -208,7 +212,7 @@ class PairingViewModelTest {
     fun `startPairing transitions to Error when sendPin fails`() = runTest {
         coEvery { parseVpsQrUseCase(any()) } returns Result.success(fakeSession)
         coEvery { scanDeviceQrUseCase(any()) } returns Result.success(fakeDevice)
-        coEvery { sendPinToDeviceUseCase(any(), any(), any(), any()) } returns
+        coEvery { sendPinToDeviceUseCase(any(), any(), any(), any(), any(), any()) } returns
             Result.failure(RuntimeException("LAN unreachable"))
 
         viewModel.step.test {
@@ -234,7 +238,7 @@ class PairingViewModelTest {
     fun `startPairing transitions to Error when confirm returns FAILED`() = runTest {
         coEvery { parseVpsQrUseCase(any()) } returns Result.success(fakeSession)
         coEvery { scanDeviceQrUseCase(any()) } returns Result.success(fakeDevice)
-        coEvery { sendPinToDeviceUseCase(any(), any(), any(), any()) } returns Result.success(Unit)
+        coEvery { sendPinToDeviceUseCase(any(), any(), any(), any(), any(), any()) } returns Result.success(Unit)
         coEvery { confirmPairingUseCase(any(), any(), any()) } returns Result.success(PairingStatus.FAILED)
 
         viewModel.step.test {
@@ -260,7 +264,7 @@ class PairingViewModelTest {
     fun `startPairing transitions to Error on timeout`() = runTest {
         coEvery { parseVpsQrUseCase(any()) } returns Result.success(fakeSession)
         coEvery { scanDeviceQrUseCase(any()) } returns Result.success(fakeDevice)
-        coEvery { sendPinToDeviceUseCase(any(), any(), any(), any()) } returns Result.success(Unit)
+        coEvery { sendPinToDeviceUseCase(any(), any(), any(), any(), any(), any()) } returns Result.success(Unit)
         coEvery { confirmPairingUseCase(any(), any(), any()) } returns
             Result.failure(Exception("Pairing timeout"))
 

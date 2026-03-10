@@ -21,13 +21,15 @@ class SendPinToDeviceUseCaseTest {
 
     @Test
     fun `delegates to repository sendPin`() = runTest {
-        coEvery { repository.sendPin(any(), any(), any(), any()) } returns Result.success(Unit)
+        coEvery { repository.sendPin(any(), any(), any(), any(), any(), any()) } returns Result.success(Unit)
 
         val result = useCase(
             deviceIp = "192.168.1.42",
             devicePort = 8099,
             sessionId = "abc-123",
             sessionPin = "472938",
+            localToken = "tok-xyz",
+            radxaWgPubkey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
         )
 
         assertTrue(result.isSuccess)
@@ -37,25 +39,41 @@ class SendPinToDeviceUseCaseTest {
                 devicePort = 8099,
                 sessionId = "abc-123",
                 sessionPin = "472938",
+                localToken = "tok-xyz",
+                radxaWgPubkey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
             )
         }
     }
 
     @Test
     fun `returns failure when repository fails`() = runTest {
-        coEvery { repository.sendPin(any(), any(), any(), any()) } returns Result.failure(RuntimeException("Connection refused"))
+        coEvery { repository.sendPin(any(), any(), any(), any(), any(), any()) } returns Result.failure(RuntimeException("Connection refused"))
 
-        val result = useCase("192.168.1.42", 8099, "abc-123", "472938")
+        val result = useCase(
+            deviceIp = "192.168.1.42",
+            devicePort = 8099,
+            sessionId = "abc-123",
+            sessionPin = "472938",
+            localToken = "tok-xyz",
+            radxaWgPubkey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        )
 
         assertTrue(result.isFailure)
     }
 
     @Test
     fun `does not call repository more than once`() = runTest {
-        coEvery { repository.sendPin(any(), any(), any(), any()) } returns Result.success(Unit)
+        coEvery { repository.sendPin(any(), any(), any(), any(), any(), any()) } returns Result.success(Unit)
 
-        useCase("192.168.1.42", 8099, "abc-123", "472938")
+        useCase(
+            deviceIp = "192.168.1.42",
+            devicePort = 8099,
+            sessionId = "abc-123",
+            sessionPin = "472938",
+            localToken = "tok-xyz",
+            radxaWgPubkey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        )
 
-        coVerify(exactly = 1) { repository.sendPin(any(), any(), any(), any()) }
+        coVerify(exactly = 1) { repository.sendPin(any(), any(), any(), any(), any(), any()) }
     }
 }

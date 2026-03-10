@@ -1,5 +1,6 @@
 package com.tradingplatform.app.data.api
 
+import okhttp3.RequestBody
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.GET
@@ -19,7 +20,7 @@ interface PairingLanApi {
     @POST
     suspend fun sendPin(
         @Url url: String,    // "http://{radxa_ip}:8099/pin"
-        @Body body: Map<String, String>,
+        @Body body: RequestBody,   // application/octet-stream (bytes chiffrés libsodium)
     ): Response<Unit>
 
     @GET

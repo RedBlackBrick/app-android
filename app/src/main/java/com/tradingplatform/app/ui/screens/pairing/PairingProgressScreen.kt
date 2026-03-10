@@ -6,15 +6,26 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DeveloperBoard
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -29,6 +40,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.tradingplatform.app.domain.model.DevicePairingInfo
+import com.tradingplatform.app.ui.theme.IconSize
+import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.Spacing
 
 /**
@@ -49,6 +63,7 @@ fun PairingProgressScreen(
     viewModel: PairingViewModel = hiltViewModel(),
 ) {
     val step by viewModel.step.collectAsStateWithLifecycle()
+    val deviceInfo by viewModel.deviceInfo.collectAsStateWithLifecycle()
 
     // Auto-start pairing when this screen is first shown
     LaunchedEffect(Unit) {
@@ -79,6 +94,26 @@ fun PairingProgressScreen(
                 color = MaterialTheme.colorScheme.onSurface,
             )
 
+            Spacer(modifier = Modifier.height(Spacing.lg))
+
+            // Device context card
+            if (deviceInfo != null) {
+                DeviceContextCard(deviceInfo = deviceInfo!!)
+                Spacer(modifier = Modifier.height(Spacing.lg))
+            }
+
+            // Step indicators
+            val currentStepIndex = when (step) {
+                is PairingStep.BothScanned, is PairingStep.SendingPin -> 0
+                is PairingStep.WaitingConfirmation -> 1
+                is PairingStep.Success -> 2
+                else -> 0
+            }
+            StepIndicator(
+                steps = listOf("Envoi PIN", "Confirmation", "Termine"),
+                currentStep = currentStepIndex,
+            )
+
             Spacer(modifier = Modifier.height(Spacing.xxl))
 
             // Animated content transitions between the two progress steps
@@ -105,7 +140,7 @@ fun PairingProgressScreen(
                             // Terminal states (Success/Error) — will navigate away immediately
                             CircularProgressIndicator(
                                 modifier = Modifier
-                                    .size(48.dp)
+                                    .size(IconSize.lg)
                                     .semantics { contentDescription = "Chargement" },
                                 color = MaterialTheme.colorScheme.primary,
                             )
@@ -127,7 +162,7 @@ private fun SendingPinContent() {
     ) {
         CircularProgressIndicator(
             modifier = Modifier
-                .size(48.dp)
+                .size(IconSize.lg)
                 .semantics { contentDescription = "Envoi du PIN en cours" },
             color = MaterialTheme.colorScheme.primary,
         )
@@ -171,5 +206,109 @@ private fun WaitingConfirmationContent() {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+// ── Step indicator ────────────────────────────────────────────────────────────
+
+@Composable
+private fun StepIndicator(
+    steps: List<String>,
+    currentStep: Int,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        steps.forEachIndexed { index, label ->
+            val isActive = index <= currentStep
+            val dotColor = if (isActive) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant
+            }
+            val textColor = if (isActive) {
+                MaterialTheme.colorScheme.onSurface
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            }
+
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(12.dp)
+                        .background(dotColor, CircleShape),
+                )
+                Spacer(modifier = Modifier.height(Spacing.xs))
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = textColor,
+                )
+            }
+
+            if (index < steps.lastIndex) {
+                Box(
+                    modifier = Modifier
+                        .width(32.dp)
+                        .height(2.dp)
+                        .background(
+                            if (index < currentStep) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.surfaceVariant
+                            }
+                        ),
+                )
+            }
+        }
+    }
+}
+
+// ── Device context card ──────────────────────────────────────────────────────
+
+@Composable
+private fun DeviceContextCard(
+    deviceInfo: DevicePairingInfo,
+    modifier: Modifier = Modifier,
+) {
+    val extendedColors = LocalExtendedColors.current
+
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = extendedColors.cardSurface,
+        ),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(Spacing.md),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+        ) {
+            Icon(
+                imageVector = Icons.Default.DeveloperBoard,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(Spacing.xl),
+            )
+            Column {
+                Text(
+                    text = deviceInfo.deviceId,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = "${deviceInfo.localIp}:${deviceInfo.port}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
     }
 }

@@ -48,7 +48,6 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tradingplatform.app.domain.model.Device
@@ -59,6 +58,7 @@ import com.tradingplatform.app.ui.components.EmptyState
 import com.tradingplatform.app.ui.components.OfflineBadge
 import com.tradingplatform.app.ui.components.OnlineBadge
 import com.tradingplatform.app.ui.components.SkeletonDeviceCard
+import com.tradingplatform.app.ui.theme.IconSize
 import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.Spacing
 import java.time.ZoneId
@@ -299,7 +299,7 @@ private fun DeviceCard(
  * Small LED dot that pulses softly when online, static gray when offline.
  */
 @Composable
-private fun StatusLed(
+internal fun StatusLed(
     isOnline: Boolean,
     modifier: Modifier = Modifier,
 ) {
@@ -319,7 +319,7 @@ private fun StatusLed(
         )
         Box(
             modifier = modifier
-                .size(10.dp)
+                .size(IconSize.xs)
                 .alpha(alpha)
                 .clip(CircleShape)
                 .background(color),
@@ -327,7 +327,7 @@ private fun StatusLed(
     } else {
         Box(
             modifier = modifier
-                .size(10.dp)
+                .size(IconSize.xs)
                 .clip(CircleShape)
                 .background(color.copy(alpha = 0.4f)),
         )
@@ -337,7 +337,8 @@ private fun StatusLed(
 private val HEARTBEAT_FORMATTER: DateTimeFormatter =
     DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss")
 
-internal fun formatHeartbeat(instant: java.time.Instant): String {
+internal fun formatHeartbeat(instant: java.time.Instant?): String {
+    if (instant == null) return "—"
     val local = instant.atZone(ZoneId.systemDefault())
     return HEARTBEAT_FORMATTER.format(local)
 }

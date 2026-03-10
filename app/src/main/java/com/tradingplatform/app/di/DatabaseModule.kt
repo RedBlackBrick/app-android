@@ -8,6 +8,7 @@ import com.tradingplatform.app.data.local.db.dao.DeviceDao
 import com.tradingplatform.app.data.local.db.dao.PnlDao
 import com.tradingplatform.app.data.local.db.dao.PositionDao
 import com.tradingplatform.app.data.local.db.dao.QuoteDao
+import com.tradingplatform.app.BuildConfig
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -28,7 +29,13 @@ object DatabaseModule {
         AppDatabase::class.java,
         "trading_platform_db"
     )
-        .fallbackToDestructiveMigration(dropAllTables = true)  // dev uniquement — migrations explicites en production
+        .apply {
+            if (BuildConfig.DEBUG) {
+                fallbackToDestructiveMigration(dropAllTables = true)
+            }
+            // En release, pas de fallback → crash explicite si migration manquante
+            // Ajouter addMigrations(MIGRATION_X_Y) avant chaque bump de version schema
+        }
         .build()
 
     @Provides

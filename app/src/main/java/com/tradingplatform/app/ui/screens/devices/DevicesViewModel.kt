@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.tradingplatform.app.domain.model.Device
 import com.tradingplatform.app.domain.usecase.device.GetDevicesUseCase
 import com.tradingplatform.app.domain.usecase.device.GetDeviceStatusUseCase
+import com.tradingplatform.app.domain.usecase.device.UnpairDeviceUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -26,6 +27,16 @@ sealed interface DeviceDetailUiState {
     data object Loading : DeviceDetailUiState
     data class Success(val device: Device, val syncedAt: Long) : DeviceDetailUiState
     data class Error(val message: String) : DeviceDetailUiState
+}
+
+// ── UnpairState — état de l'opération de désappairage ─────────────────────────
+
+sealed interface UnpairState {
+    data object Idle : UnpairState
+    data object Confirming : UnpairState
+    data object InProgress : UnpairState
+    data object Success : UnpairState
+    data class Error(val message: String) : UnpairState
 }
 
 // ── DevicesViewModel — liste ──────────────────────────────────────────────────
@@ -81,10 +92,14 @@ class DevicesViewModel @Inject constructor(
 @HiltViewModel
 class DeviceDetailViewModel @Inject constructor(
     private val getDeviceStatusUseCase: GetDeviceStatusUseCase,
+    private val unpairDeviceUseCase: UnpairDeviceUseCase,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<DeviceDetailUiState>(DeviceDetailUiState.Loading)
     val uiState: StateFlow<DeviceDetailUiState> = _uiState.asStateFlow()
+
+    private val _unpairState = MutableStateFlow<UnpairState>(UnpairState.Idle)
+    val unpairState: StateFlow<UnpairState> = _unpairState.asStateFlow()
 
     fun loadDevice(deviceId: String) {
         viewModelScope.launch {
@@ -105,4 +120,31 @@ class DeviceDetailViewModel @Inject constructor(
     }
 
     fun refresh(deviceId: String) = loadDevice(deviceId)
+
+    fun requestUnpair() {
+        _unpairState.value = UnpairState.Confirming
+    }
+
+    fun cancelUnpair() {
+        _unpairState.value = UnpairState.Idle
+    }
+
+    fun confirmUnpair(deviceId: String) {
+        viewModelScope.launch {
+            _unpairState.value = UnpairState.InProgress
+            unpairDeviceUseCase(deviceId)
+                .onSuccess {
+                    _unpairState.value = UnpairState.Success
+                }
+                .onFailure { e ->
+                    _unpairState.value = UnpairState.Error(
+                        e.localizedMessage ?: "Erreur lors du désappairage"
+                    )
+                }
+        }
+    }
+
+    fun resetUnpairState() {
+        _unpairState.value = UnpairState.Idle
+    }
 }

@@ -5,4 +5,5 @@ import com.tradingplatform.app.domain.model.Device
 interface DeviceRepository {
     suspend fun getDevices(): Result<List<Device>>
     suspend fun getDeviceStatus(deviceId: String): Result<Device>
+    suspend fun unpairDevice(deviceId: String): Result<Unit>
 }

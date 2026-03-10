@@ -19,6 +19,8 @@ import com.tradingplatform.app.domain.model.PositionStatus
 import com.tradingplatform.app.domain.model.Quote
 import com.tradingplatform.app.domain.model.Transaction
 import com.tradingplatform.app.domain.model.User
+import com.tradingplatform.app.domain.model.VpnPeer
+import com.tradingplatform.app.domain.model.VpnPeerType
 import java.math.BigDecimal
 import java.time.Instant
 
@@ -53,11 +55,7 @@ fun PositionDto.toDomain(): Position = Position(
     currentPrice = currentPrice,
     unrealizedPnl = unrealizedPnl,
     unrealizedPnlPercent = unrealizedPnlPercent,
-    status = when (status.lowercase()) {
-        "open" -> PositionStatus.OPEN
-        "closed" -> PositionStatus.CLOSED
-        else -> PositionStatus.OPEN
-    },
+    status = status,
     openedAt = Instant.parse(openedAt),
 )
 
@@ -104,9 +102,24 @@ fun QuoteDto.toDomain(): Quote = Quote(
 fun DeviceDto.toDomain(): Device = Device(
     id = id,
     name = name,
-    status = DeviceStatus.fromApiString(status),
+    status = status,
     wgIp = wgIp,
-    lastHeartbeat = Instant.parse(lastHeartbeat),
+    lastHeartbeat = lastHeartbeat?.let { Instant.parse(it) },
+)
+
+fun VpnPeerDto.toDomain(): VpnPeer = VpnPeer(
+    id = id,
+    userId = userId,
+    label = label,
+    peerType = when (peerType.uppercase()) {
+        "ANDROID_APP" -> VpnPeerType.ANDROID_APP
+        "RADXA_BOARD" -> VpnPeerType.RADXA_BOARD
+        else -> VpnPeerType.WEB_CLIENT
+    },
+    wgTunnelIp = wgTunnelIp,
+    isActive = isActive,
+    pairedAt = Instant.parse(pairedAt),
+    lastHandshake = lastHandshake?.let { Instant.parse(it) },
 )
 
 // ── Entity → Domain ───────────────────────────────────────────────────────────
@@ -151,7 +164,7 @@ fun DeviceEntity.toDomain(): Device = Device(
     name = name,
     status = DeviceStatus.fromApiString(status),
     wgIp = wgIp,
-    lastHeartbeat = Instant.ofEpochMilli(lastHeartbeat),
+    lastHeartbeat = lastHeartbeat?.let { Instant.ofEpochMilli(it) },
 )
 
 fun QuoteEntity.toDomain(): Quote = Quote(
@@ -208,7 +221,7 @@ fun Device.toEntity(syncedAt: Long = System.currentTimeMillis()): DeviceEntity =
     name = name,
     status = status.name.lowercase(),
     wgIp = wgIp,
-    lastHeartbeat = lastHeartbeat.toEpochMilli(),
+    lastHeartbeat = lastHeartbeat?.toEpochMilli(),
     syncedAt = syncedAt,
 )
 

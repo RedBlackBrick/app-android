@@ -126,7 +126,7 @@ private fun LoginScreenContent(
             OutlinedTextField(
                 value = email,
                 onValueChange = { email = it },
-                label = { Text("Adresse e-mail") },
+                label = { Text("Adresse e-mail *") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Email,
@@ -147,7 +147,7 @@ private fun LoginScreenContent(
             OutlinedTextField(
                 value = password,
                 onValueChange = { password = it },
-                label = { Text("Mot de passe") },
+                label = { Text("Mot de passe *") },
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(
@@ -186,6 +186,15 @@ private fun LoginScreenContent(
                     style = MaterialTheme.typography.labelLarge,
                 )
             }
+
+            Spacer(modifier = Modifier.height(Spacing.sm))
+
+            Text(
+                text = "* Champs obligatoires",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.align(Alignment.Start),
+            )
 
             // Countdown verrouillage compte (429 / AUTH_1008)
             if (errorState?.retryAfterSeconds != null) {

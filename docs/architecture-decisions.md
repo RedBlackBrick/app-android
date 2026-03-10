@@ -76,3 +76,30 @@ Le VPS n'exempte pas les requêtes Bearer du CSRF.
 `CsrfInterceptor` obligatoire sur tous les `POST/PUT/DELETE/PATCH`.
 Chaîne : `CsrfInterceptor → VpnRequiredInterceptor → AuthInterceptor → TokenAuthenticator`.
 Voir `CLAUDE.md §3` et `§11`.
+
+## J — Chiffrement LAN libsodium (crypto_box_seal)
+
+Toute donnée sensible transitant en HTTP sur le LAN (session_pin, local_token, commandes
+maintenance) est chiffrée avec `crypto_box_seal(radxa_wg_pubkey)` via lazysodium-android.
+Le HTTP reste en clair mais les secrets sont illisibles pour le réseau. Le Radxa déchiffre
+avec sa `wg_private_key` via PyNaCl. Voir `security/SealedBoxHelper.kt`.
+
+Alternatives considérées :
+- **TLS/mTLS sur le Radxa** : rejeté — certificats complexes à gérer sur un device embarqué,
+  pas de CA disponible dans ce contexte.
+- **Symmetric key exchange** : rejeté — nécessite un secret partagé pré-existant,
+  problème du chicken-and-egg au pairing.
+- **crypto_box_seal (choisi)** : utilise la clé publique WireGuard déjà connue (QR e-ink),
+  zéro infrastructure additionnelle — la clé existe déjà dans le système.
+
+## K — Onboarding mobile via QR
+
+L'App scanne un QR affiché sur le panel web PC. Le QR contient la clé privée WireGuard, la
+clé publique serveur, l'endpoint, l'IP tunnel et le DNS. L'App stocke la clé privée dans le
+Keystore (via `EncryptedDataStore`), configure le tunnel (`WireGuardManager.configureFromSetupQr()`),
+puis enchaîne avec le login classique. La clé privée ne transite jamais par le réseau —
+uniquement par le canal visuel (écran PC → caméra mobile).
+
+Flux : `SetupScreen → scan QR → configureFromSetupQr() → VPN connect → LoginScreen`
+
+Voir `ui/screens/setup/SetupScreen.kt` et `domain/usecase/pairing/ParseSetupQrUseCase.kt`.

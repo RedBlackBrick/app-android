@@ -23,6 +23,12 @@ object DataStoreKeys {
     val PORTFOLIO_ID = stringPreferencesKey("auth_portfolio_id")
     val WG_PRIVATE_KEY = stringPreferencesKey("wg_private_key")
     val WG_CONFIG = stringPreferencesKey("wg_config")
+    // WireGuard onboarding — Phase 3
+    val WG_ENDPOINT = stringPreferencesKey("wg_endpoint")
+    val WG_SERVER_PUBKEY = stringPreferencesKey("wg_server_pubkey")
+    val WG_TUNNEL_IP = stringPreferencesKey("wg_tunnel_ip")
+    val WG_DNS = stringPreferencesKey("wg_dns")
+    val SETUP_COMPLETED = booleanPreferencesKey("setup_completed")
     // Cookies : clé dynamique "cookie_${name}"
 }
 
@@ -96,6 +102,49 @@ class EncryptedDataStore(
 
     suspend fun writeString(key: Preferences.Key<String>, value: String) = withContext(Dispatchers.IO) {
         sharedPreferences.edit().putString(key.name, value).apply()
+    }
+
+    /** Écriture avec une clé String brute (pour les clés dynamiques, ex: "device_wg_pubkey_{id}"). */
+    suspend fun writeString(key: String, value: String) = withContext(Dispatchers.IO) {
+        sharedPreferences.edit().putString(key, value).apply()
+    }
+
+    /** Lit une valeur String avec une clé String brute. */
+    suspend fun readString(key: String): String? = withContext(Dispatchers.IO) {
+        try {
+            sharedPreferences.getString(key, null)
+        } catch (e: IOException) {
+            Timber.e(e, "EncryptedDataStore read error — file corrupted")
+            null
+        } catch (e: GeneralSecurityException) {
+            Timber.e(e, "EncryptedDataStore Keystore invalidated (reboot/biometric reset)")
+            null
+        }
+    }
+
+    /**
+     * Persiste le local_token associé à un device (pour la roue de secours LAN).
+     * Le token n'est jamais loggé — [REDACTED].
+     * Clé : "local_token_{deviceId}"
+     */
+    suspend fun writeLocalToken(deviceId: String, token: String) = withContext(Dispatchers.IO) {
+        sharedPreferences.edit().putString("local_token_$deviceId", token).apply()
+    }
+
+    /**
+     * Lit le local_token associé à un device.
+     * Retourne null si absent ou en cas d'erreur Keystore.
+     */
+    suspend fun readLocalToken(deviceId: String): String? = withContext(Dispatchers.IO) {
+        try {
+            sharedPreferences.getString("local_token_$deviceId", null)
+        } catch (e: IOException) {
+            Timber.e(e, "EncryptedDataStore readLocalToken error — file corrupted")
+            null
+        } catch (e: GeneralSecurityException) {
+            Timber.e(e, "EncryptedDataStore readLocalToken — Keystore invalidated")
+            null
+        }
     }
 
     suspend fun writeLong(key: Preferences.Key<Long>, value: Long) = withContext(Dispatchers.IO) {

@@ -29,6 +29,7 @@ import androidx.glance.text.TextStyle
 import com.tradingplatform.app.MainActivity
 import com.tradingplatform.app.data.local.datastore.DataStoreKeys
 import com.tradingplatform.app.data.local.db.entity.DeviceEntity
+import com.tradingplatform.app.domain.model.DeviceStatus
 import com.tradingplatform.app.di.WidgetEntryPoint
 import dagger.hilt.android.EntryPointAccessors
 import java.text.SimpleDateFormat
@@ -140,7 +141,7 @@ private fun SystemStatusWidgetContent(
         }
 
         // Compteurs online/offline
-        val onlineDevices = devices.count { it.status.equals("online", ignoreCase = true) }
+        val onlineDevices = devices.count { DeviceStatus.fromApiString(it.status) == DeviceStatus.ONLINE }
         val offlineDevices = devices.size - onlineDevices
 
         // Couleurs status — cohérentes avec le design system (Emerald/Rose)
@@ -191,7 +192,7 @@ private fun SystemStatusWidgetContent(
         }
 
         // Dernier device avec activité récente
-        val latestDevice = devices.maxByOrNull { it.lastHeartbeat }
+        val latestDevice = devices.mapNotNull { d -> d.lastHeartbeat?.let { d to it } }.maxByOrNull { it.second }?.first
         if (latestDevice != null) {
             Spacer(modifier = GlanceModifier.height(2.dp))
             Text(

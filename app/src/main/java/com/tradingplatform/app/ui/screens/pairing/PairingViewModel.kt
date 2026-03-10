@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.tradingplatform.app.domain.model.DevicePairingInfo
 import com.tradingplatform.app.domain.model.PairingSession
 import com.tradingplatform.app.domain.model.PairingStatus
+import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
 import com.tradingplatform.app.domain.usecase.pairing.ConfirmPairingUseCase
 import com.tradingplatform.app.domain.usecase.pairing.ParseVpsQrUseCase
 import com.tradingplatform.app.domain.usecase.pairing.ScanDeviceQrUseCase
@@ -73,10 +74,15 @@ class PairingViewModel @Inject constructor(
     private val scanDeviceQrUseCase: ScanDeviceQrUseCase,
     private val sendPinToDeviceUseCase: SendPinToDeviceUseCase,
     private val confirmPairingUseCase: ConfirmPairingUseCase,
+    private val dataStore: EncryptedDataStore,
 ) : ViewModel() {
 
     private val _step = MutableStateFlow<PairingStep>(PairingStep.Idle)
     val step: StateFlow<PairingStep> = _step.asStateFlow()
+
+    /** Device info captured when BothScanned is reached — persists through the pairing flow. */
+    private val _deviceInfo = MutableStateFlow<DevicePairingInfo?>(null)
+    val deviceInfo: StateFlow<DevicePairingInfo?> = _deviceInfo.asStateFlow()
 
     // ── QR scan handlers ─────────────────────────────────────────────────────
 
@@ -92,10 +98,13 @@ class PairingViewModel @Inject constructor(
                     Timber.d("PairingViewModel: VPS QR parsed — sessionId=${session.sessionId} pin=[REDACTED]")
                     val current = _step.value
                     _step.value = when (current) {
-                        is PairingStep.DeviceScanned -> PairingStep.BothScanned(
-                            session = session,
-                            device = current.device,
-                        )
+                        is PairingStep.DeviceScanned -> {
+                            _deviceInfo.value = current.device
+                            PairingStep.BothScanned(
+                                session = session,
+                                device = current.device,
+                            )
+                        }
                         else -> PairingStep.VpsScanned(session = session)
                     }
                 }
@@ -120,10 +129,13 @@ class PairingViewModel @Inject constructor(
                     Timber.d("PairingViewModel: Device QR parsed — deviceId=${device.deviceId} ip=${device.localIp}")
                     val current = _step.value
                     _step.value = when (current) {
-                        is PairingStep.VpsScanned -> PairingStep.BothScanned(
-                            session = current.session,
-                            device = device,
-                        )
+                        is PairingStep.VpsScanned -> {
+                            _deviceInfo.value = device
+                            PairingStep.BothScanned(
+                                session = current.session,
+                                device = device,
+                            )
+                        }
                         else -> PairingStep.DeviceScanned(device = device)
                     }
                 }
@@ -159,12 +171,14 @@ class PairingViewModel @Inject constructor(
         viewModelScope.launch {
             _step.value = PairingStep.SendingPin
 
-            // Step 1 — send PIN to Radxa device over LAN
+            // Step 1 — send encrypted PIN to Radxa device over LAN
             sendPinToDeviceUseCase(
                 deviceIp = current.device.localIp,
                 devicePort = current.device.port,
                 sessionId = current.session.sessionId,
-                sessionPin = current.session.sessionPin, // never logged by the UseCase ([REDACTED])
+                sessionPin = current.session.sessionPin,   // never logged by the UseCase ([REDACTED])
+                localToken = current.session.localToken,   // never logged ([REDACTED])
+                radxaWgPubkey = current.device.wgPubkey,
             ).onFailure { e ->
                 Timber.d("PairingViewModel: SendPin failed — ${e.message}")
                 _step.value = PairingStep.Error(
@@ -183,10 +197,25 @@ class PairingViewModel @Inject constructor(
                 sessionId = current.session.sessionId,
             ).onSuccess { status ->
                 Timber.d("PairingViewModel: ConfirmPairing result — status=$status")
-                _step.value = if (status == PairingStatus.PAIRED) {
-                    PairingStep.Success
+                if (status == PairingStatus.PAIRED) {
+                    // Persister local_token pour la roue de secours LAN — [REDACTED] en log
+                    dataStore.writeLocalToken(
+                        deviceId = current.device.deviceId,
+                        token = current.session.localToken,
+                    )
+                    // Persister la wgPubkey du device pour le chiffrement futur
+                    dataStore.writeString(
+                        "device_wg_pubkey_${current.device.deviceId}",
+                        current.device.wgPubkey,
+                    )
+                    // Persister l'IP locale du device pour la roue de secours
+                    dataStore.writeString(
+                        "device_local_ip_${current.device.deviceId}",
+                        current.device.localIp,
+                    )
+                    _step.value = PairingStep.Success
                 } else {
-                    PairingStep.Error(
+                    _step.value = PairingStep.Error(
                         message = "Le device n'a pas pu être appairé",
                         retryable = false,
                     )
@@ -209,6 +238,7 @@ class PairingViewModel @Inject constructor(
      */
     fun retry() {
         _step.value = PairingStep.Idle
+        _deviceInfo.value = null
     }
 
     /**
@@ -217,5 +247,6 @@ class PairingViewModel @Inject constructor(
      */
     fun reset() {
         _step.value = PairingStep.Idle
+        _deviceInfo.value = null
     }
 }

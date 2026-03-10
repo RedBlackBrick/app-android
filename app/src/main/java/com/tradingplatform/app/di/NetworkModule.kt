@@ -1,10 +1,13 @@
 package com.tradingplatform.app.di
 
 import com.squareup.moshi.Moshi
+import com.squareup.moshi.adapters.EnumJsonAdapter
 import com.tradingplatform.app.BuildConfig
 import com.tradingplatform.app.data.api.AuthApi
 import com.tradingplatform.app.data.api.DeviceApi
+import com.tradingplatform.app.data.api.LocalMaintenanceApi
 import com.tradingplatform.app.data.api.MarketDataApi
+import com.tradingplatform.app.data.api.MyDevicesApi
 import com.tradingplatform.app.data.api.PairingLanApi
 import com.tradingplatform.app.data.api.PortfolioApi
 import com.tradingplatform.app.data.api.interceptor.AuthInterceptor
@@ -14,6 +17,8 @@ import com.tradingplatform.app.data.api.interceptor.TokenAuthenticator
 import com.tradingplatform.app.data.api.interceptor.VpnRequiredInterceptor
 import com.tradingplatform.app.data.model.BigDecimalAdapter
 import com.tradingplatform.app.data.model.InstantAdapter
+import com.tradingplatform.app.domain.model.DeviceStatus
+import com.tradingplatform.app.domain.model.PositionStatus
 import com.tradingplatform.app.security.CertificatePinnerProvider
 import dagger.Module
 import dagger.Provides
@@ -58,6 +63,10 @@ object NetworkModule {
     fun provideMoshi(): Moshi = Moshi.Builder()
         .add(BigDecimalAdapter())
         .add(InstantAdapter())
+        .add(PositionStatus::class.java, EnumJsonAdapter.create(PositionStatus::class.java)
+            .withUnknownFallback(PositionStatus.OPEN))
+        .add(DeviceStatus::class.java, EnumJsonAdapter.create(DeviceStatus::class.java)
+            .withUnknownFallback(DeviceStatus.OFFLINE))
         .build()
 
     // ── OkHttpClient @Named("bare") ────────────────────────────────────────────
@@ -70,11 +79,14 @@ object NetworkModule {
     @Named("bare")
     fun provideBareOkHttpClient(
         certPinnerProvider: CertificatePinnerProvider,
-    ): OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(5, TimeUnit.SECONDS)
-        .readTimeout(5, TimeUnit.SECONDS)
-        .certificatePinner(certPinnerProvider.buildCertificatePinner(VPS_HOSTNAME))
-        .build()
+    ): OkHttpClient {
+        val builder = OkHttpClient.Builder()
+            .connectTimeout(5, TimeUnit.SECONDS)
+            .readTimeout(5, TimeUnit.SECONDS)
+        certPinnerProvider.buildCertificatePinner(VPS_HOSTNAME)
+            ?.let { builder.certificatePinner(it) }
+        return builder.build()
+    }
 
     // ── OkHttpClient principal ─────────────────────────────────────────────────
     // Chaîne d'intercepteurs (ordre obligatoire CLAUDE.md §3) :
@@ -101,17 +113,18 @@ object NetworkModule {
             redactHeader("X-CSRF-Token")
         }
 
-        return OkHttpClient.Builder()
+        val builder = OkHttpClient.Builder()
             .addInterceptor(csrfInterceptor)
             .addInterceptor(vpnRequiredInterceptor)
             .addInterceptor(authInterceptor)
             .authenticator(tokenAuthenticator)
             .addInterceptor(loggingInterceptor)
             .cookieJar(encryptedCookieJar)
-            .certificatePinner(certPinnerProvider.buildCertificatePinner(VPS_HOSTNAME))
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
-            .build()
+        certPinnerProvider.buildCertificatePinner(VPS_HOSTNAME)
+            ?.let { builder.certificatePinner(it) }
+        return builder.build()
     }
 
     // ── OkHttpClient @Named("lan") ─────────────────────────────────────────────
@@ -183,7 +196,18 @@ object NetworkModule {
 
     @Provides
     @Singleton
+    fun provideMyDevicesApi(retrofit: Retrofit): MyDevicesApi =
+        retrofit.create(MyDevicesApi::class.java)
+
+    @Provides
+    @Singleton
     @Named("lan")
     fun providePairingLanApi(@Named("lan") lanRetrofit: Retrofit): PairingLanApi =
         lanRetrofit.create(PairingLanApi::class.java)
+
+    @Provides
+    @Singleton
+    @Named("lan")
+    fun provideLocalMaintenanceApi(@Named("lan") lanRetrofit: Retrofit): LocalMaintenanceApi =
+        lanRetrofit.create(LocalMaintenanceApi::class.java)
 }

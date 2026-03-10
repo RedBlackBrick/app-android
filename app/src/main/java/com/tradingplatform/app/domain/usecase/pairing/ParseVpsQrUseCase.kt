@@ -11,9 +11,9 @@ class MalformedQrException(field: String) : Exception("QR malformé — champ ma
 class ParseVpsQrUseCase @Inject constructor() {
     /**
      * Parse le QR VPS — format JSON :
-     * { "session_id": "uuid", "session_pin": "472938", "device_wg_ip": "10.42.0.5" }
+     * { "session_id": "uuid", "session_pin": "472938", "device_wg_ip": "10.42.0.5", "local_token": "..." }
      *
-     * Le session_pin n'est JAMAIS loggé — [REDACTED] si debug nécessaire.
+     * Le session_pin et le local_token ne sont JAMAIS loggés — [REDACTED] si debug nécessaire.
      */
     suspend operator fun invoke(raw: String): Result<PairingSession> = runCatching {
         val trimmed = raw.trim()
@@ -35,12 +35,15 @@ class ParseVpsQrUseCase @Inject constructor() {
             ?: throw MalformedQrException("session_pin")
         val deviceWgIp = obj.optString("device_wg_ip").takeIf { it.isNotEmpty() }
             ?: throw MalformedQrException("device_wg_ip")
+        val localToken = obj.optString("local_token").takeIf { it.isNotEmpty() }
+            ?: throw MalformedQrException("local_token")
 
-        // session_pin ne doit jamais être loggé — [REDACTED]
+        // session_pin et local_token ne doivent jamais être loggés — [REDACTED]
         PairingSession(
             sessionId = sessionId,
             sessionPin = sessionPin,
             deviceWgIp = deviceWgIp,
+            localToken = localToken,
         )
     }
 }

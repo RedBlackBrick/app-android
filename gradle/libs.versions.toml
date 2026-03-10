@@ -31,6 +31,7 @@ mlkit-barcode       = "17.3.0"
 
 rootbeer            = "0.1.1"
 wireguard           = "1.0.20250531"
+lazysodium          = "5.1.0"
 
 firebase-bom        = "33.7.0"
 owasp-depcheck      = "10.0.4"
@@ -53,6 +54,7 @@ compose-ui-tooling-preview  = { group = "androidx.compose.ui", name = "ui-toolin
 compose-ui-tooling          = { group = "androidx.compose.ui", name = "ui-tooling" }
 compose-material3           = { group = "androidx.compose.material3", name = "material3" }
 compose-material-icons      = { group = "androidx.compose.material", name = "material-icons-core" }
+compose-material-icons-ext  = { group = "androidx.compose.material", name = "material-icons-extended" }
 compose-activity            = { group = "androidx.activity", name = "activity-compose", version.ref = "activity-compose" }
 compose-lifecycle-runtime   = { group = "androidx.lifecycle", name = "lifecycle-runtime-compose", version.ref = "lifecycle" }
 compose-viewmodel           = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-compose", version.ref = "lifecycle" }
@@ -121,6 +123,7 @@ wireguard-android           = { group = "com.wireguard.android", name = "tunnel"
 
 # ── Sécurité ──────────────────────────────────────────────────────────────────
 rootbeer                    = { group = "com.scottyab", name = "rootbeer-lib", version.ref = "rootbeer" }
+lazysodium-android          = { group = "com.goterl", name = "lazysodium-android", version.ref = "lazysodium" }
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
 junit                       = { group = "junit", name = "junit", version.ref = "junit" }

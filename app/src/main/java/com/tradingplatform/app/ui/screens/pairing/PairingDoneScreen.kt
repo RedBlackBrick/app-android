@@ -26,6 +26,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.tradingplatform.app.ui.theme.IconSize
 import com.tradingplatform.app.ui.theme.Spacing
 
 /**
@@ -92,7 +93,7 @@ private fun SuccessContent(
         imageVector = Icons.Default.CheckCircle,
         contentDescription = "Pairing réussi",
         modifier = Modifier
-            .size(80.dp)
+            .size(IconSize.xl)
             .semantics { contentDescription = "Icône succès" },
         tint = MaterialTheme.colorScheme.primary,
     )
@@ -141,7 +142,7 @@ private fun ErrorContent(
         imageVector = Icons.Default.Warning,
         contentDescription = "Erreur de pairing",
         modifier = Modifier
-            .size(80.dp)
+            .size(IconSize.xl)
             .semantics { contentDescription = "Icône erreur" },
         tint = MaterialTheme.colorScheme.error,
     )

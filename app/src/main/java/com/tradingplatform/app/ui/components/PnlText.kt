@@ -8,8 +8,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
-import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.jetBrainsMonoFamily
+import com.tradingplatform.app.ui.theme.pnlColor
 import java.math.BigDecimal
 import java.text.DecimalFormatSymbols
 import java.text.NumberFormat
@@ -38,12 +38,7 @@ fun PnlText(
     style: TextStyle = MaterialTheme.typography.bodyLarge,
     modifier: Modifier = Modifier,
 ) {
-    val extendedColors = LocalExtendedColors.current
-    val color = when {
-        value > BigDecimal.ZERO -> extendedColors.pnlPositive
-        value < BigDecimal.ZERO -> extendedColors.pnlNegative
-        else -> MaterialTheme.colorScheme.onSurface
-    }
+    val color = pnlColor(value)
 
     val formatted = formatPnlAmount(value, currencySymbol)
     val verboseDescription = buildPnlDescription(value, currencySymbol)

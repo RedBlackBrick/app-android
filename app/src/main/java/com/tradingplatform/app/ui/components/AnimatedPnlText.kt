@@ -15,13 +15,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
-import com.tradingplatform.app.ui.theme.LocalExtendedColors
+import com.tradingplatform.app.ui.theme.Emerald200
 import com.tradingplatform.app.ui.theme.Motion
+import com.tradingplatform.app.ui.theme.pnlColor
+import com.tradingplatform.app.ui.theme.Rose100
 import com.tradingplatform.app.ui.theme.jetBrainsMonoFamily
 import kotlinx.coroutines.delay
 import java.math.BigDecimal
@@ -43,18 +44,12 @@ fun AnimatedPnlText(
     style: TextStyle = MaterialTheme.typography.bodyLarge,
     modifier: Modifier = Modifier,
 ) {
-    val extendedColors = LocalExtendedColors.current
-
-    val targetColor = when {
-        value > BigDecimal.ZERO -> extendedColors.pnlPositive
-        value < BigDecimal.ZERO -> extendedColors.pnlNegative
-        else -> MaterialTheme.colorScheme.onSurface
-    }
+    val targetColor = pnlColor(value)
 
     // Flash color: brighter version for the brief highlight
     val flashColor = when {
-        value > BigDecimal.ZERO -> Color.White
-        value < BigDecimal.ZERO -> Color.White
+        value > BigDecimal.ZERO -> Emerald200
+        value < BigDecimal.ZERO -> Rose100
         else -> MaterialTheme.colorScheme.onSurface
     }
 

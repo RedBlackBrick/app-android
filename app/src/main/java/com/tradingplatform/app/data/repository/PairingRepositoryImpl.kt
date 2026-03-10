@@ -1,12 +1,17 @@
 package com.tradingplatform.app.data.repository
 
+import android.util.Base64
 import com.tradingplatform.app.data.api.PairingLanApi
 import com.tradingplatform.app.domain.model.PairingStatus
 import com.tradingplatform.app.domain.repository.PairingRepository
+import com.tradingplatform.app.security.SealedBoxHelper
 import com.tradingplatform.app.security.isLocalNetwork
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONObject
 import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Named
@@ -15,35 +20,51 @@ import javax.inject.Singleton
 @Singleton
 class PairingRepositoryImpl @Inject constructor(
     @Named("lan") private val pairingApi: PairingLanApi,
+    private val sealedBoxHelper: SealedBoxHelper,
 ) : PairingRepository {
 
     /**
-     * Envoie le PIN de session à la Radxa via HTTP LAN (non chiffré — LAN uniquement, TTL 120s).
+     * Envoie le PIN de session à la Radxa via HTTP LAN (payload chiffré libsodium, TTL 120s).
      *
      * Règles critiques (CLAUDE.md §8) :
      * - Valide que l'IP est RFC-1918 avant tout appel réseau (anti-DNS-rebinding)
-     * - Le session_pin n'est JAMAIS loggé — [REDACTED] uniquement
+     * - Le session_pin et le local_token ne sont JAMAIS loggés — [REDACTED] uniquement
      * - Connexion HTTP uniquement (pas de certificate pinning — LAN local)
+     * - Le payload JSON est chiffré avec crypto_box_seal (clé publique Curve25519 du Radxa)
+     * - Le body envoyé est un octet-stream (bytes chiffrés, pas de JSON en clair)
      */
     override suspend fun sendPin(
         deviceIp: String,
         devicePort: Int,
         sessionId: String,
         sessionPin: String,
+        localToken: String,
+        radxaWgPubkey: String,
     ): Result<Unit> = runCatching {
         if (!isLocalNetwork(deviceIp)) {
             error("Refused: $deviceIp is not a local network address (RFC-1918 required)")
         }
 
-        Timber.d("PairingRepository: sending PIN to $deviceIp:$devicePort sessionId=$sessionId pin=[REDACTED]")
+        Timber.d("PairingRepository: sending encrypted PIN to $deviceIp:$devicePort sessionId=$sessionId pin=[REDACTED] token=[REDACTED]")
 
+        // Construire le JSON payload
+        val payloadJson = JSONObject().apply {
+            put("session_id", sessionId)
+            put("session_pin", sessionPin)
+            put("local_token", localToken)
+        }.toString()
+
+        // Décoder la clé publique WireGuard base64 → 32 bytes Curve25519
+        val pubkeyBytes = Base64.decode(radxaWgPubkey, Base64.NO_WRAP)
+
+        // Chiffrer avec crypto_box_seal
+        val encrypted = sealedBoxHelper.seal(payloadJson.toByteArray(Charsets.UTF_8), pubkeyBytes)
+
+        // Envoyer en octet-stream
         val url = "http://$deviceIp:$devicePort/pin"
-        val body = mapOf(
-            "session_id" to sessionId,
-            "session_pin" to sessionPin,
-        )
+        val requestBody = encrypted.toRequestBody("application/octet-stream".toMediaType())
 
-        val response = pairingApi.sendPin(url, body)
+        val response = pairingApi.sendPin(url, requestBody)
         if (!response.isSuccessful) {
             error("sendPin failed: HTTP ${response.code()}")
         }

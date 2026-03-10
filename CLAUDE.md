@@ -37,6 +37,7 @@ Instructions pour Claude Code lors du travail sur ce projet.
 | Annuler les jobs Coroutine dans `onCleared()` | Via `viewModelScope` (automatique) ou `cancel()` |
 | Tester les UseCases unitairement | Pas de dépendance Android dans les tests unitaires |
 | Vérifier le sous-réseau avant accès device LAN | Fonction `isLocalNetwork(ip: String): Boolean` |
+| Chiffrer les payloads LAN | Via `SealedBoxHelper.seal()` avant envoi HTTP au Radxa |
 | ProGuard activé en release | Fichier `proguard-rules.pro` maintenu |
 
 ---
@@ -49,7 +50,7 @@ Instructions pour Claude Code lors du travail sur ce projet.
 com.tradingplatform.app/
 ├── di/                    # Hilt modules (AppModule, NetworkModule, VpnModule, SecurityModule)
 ├── data/
-│   ├── api/               # Interfaces Retrofit (AuthApi, PortfolioApi, DeviceApi, PairingApi)
+│   ├── api/               # Interfaces Retrofit (AuthApi, PortfolioApi, DeviceApi, PairingApi, LocalMaintenanceApi)
 │   ├── repository/        # Implémentations des Repository interfaces du domaine
 │   ├── local/
 │   │   ├── db/            # Room : AppDatabase, DAOs, Entities
@@ -58,12 +59,14 @@ com.tradingplatform.app/
 ├── domain/
 │   ├── model/             # Domain models (purs Kotlin, sans annotations Android/Retrofit/Room)
 │   ├── repository/        # Interfaces Repository (définies dans domain, implémentées dans data)
+│   │                      # LocalMaintenanceRepository.kt inclus
 │   └── usecase/
 │       ├── auth/          # LoginUseCase, LogoutUseCase
 │       ├── portfolio/     # GetPortfolioUseCase, GetPositionsUseCase
 │       ├── device/        # GetDevicesUseCase, GetDeviceStatusUseCase
 │       ├── alerts/        # GetAlertsUseCase, MarkAlertReadUseCase
-│       └── pairing/       # ParseVpsQrUseCase, ScanDeviceQrUseCase, SendPinToDeviceUseCase, ConfirmPairingUseCase
+│       ├── maintenance/   # SendLocalCommandUseCase, GetLocalStatusUseCase
+│       └── pairing/       # ParseVpsQrUseCase, ScanDeviceQrUseCase, SendPinToDeviceUseCase, ConfirmPairingUseCase, ParseSetupQrUseCase
 ├── ui/
 │   ├── theme/             # Color.kt, Theme.kt, Type.kt (Material 3)
 │   ├── navigation/        # AppNavGraph.kt — navigation globale
@@ -76,6 +79,8 @@ com.tradingplatform.app/
 │       ├── pairing/       # ScanVpsQrScreen, ScanDeviceQrScreen, PairingProgressScreen, PairingDoneScreen + PairingViewModel
 │       ├── alerts/        # AlertListScreen + AlertsViewModel
 │       ├── totp/          # TotpScreen + TotpViewModel (2FA post-login)
+│       ├── setup/         # SetupScreen + SetupViewModel (onboarding QR mobile)
+│       ├── maintenance/   # LocalMaintenanceScreen + LocalMaintenanceViewModel
 │       └── settings/      # VpnSettingsScreen, SecuritySettingsScreen + ViewModels
 ├── vpn/
 │   ├── WireGuardVpnService.kt   # VpnService Android — gère le tunnel
@@ -86,7 +91,8 @@ com.tradingplatform.app/
 │   ├── BiometricManager.kt      # Abstraction BiometricPrompt
 │   ├── RootDetector.kt          # Détection root (RootBeer)
 │   ├── CertificatePinner.kt     # SHA-256 pins du certificat VPS
-│   └── KeystoreManager.kt       # Android Keystore : génération et récupération clés
+│   ├── KeystoreManager.kt       # Android Keystore : génération et récupération clés
+│   └── SealedBoxHelper.kt       # crypto_box_seal via lazysodium-android (chiffrement payloads LAN)
 └── widget/
     ├── PnlWidget.kt             # Glance widget P&L
     ├── PositionsWidget.kt       # Glance widget positions
@@ -389,6 +395,9 @@ viewModelScope.launch {
 - La clé privée WireGuard est générée une seule fois, stockée dans `EncryptedDataStore`,
   protégée par Android Keystore. Elle ne sort jamais de l'app.
 - La clé publique est partagée avec le VPS lors du pairing uniquement.
+- La méthode `configureFromSetupQr(data: SetupQrData)` permet de configurer et connecter le
+  tunnel à partir des données du QR d'onboarding. Elle stocke la clé privée et la config dans
+  `EncryptedDataStore` avant de connecter.
 
 ### Chaîne d'intercepteurs OkHttp (ordre obligatoire)
 
@@ -706,7 +715,7 @@ App → poll GET http://radxa_ip:8099/status jusqu'à "paired"
 
 **QR VPS** : affiché sur `(app)/admin/edge-devices/` via `GET /v1/pairing/{session_id}/qr`
 ```json
-{ "session_id": "uuid", "session_pin": "472938", "device_wg_ip": "10.42.0.5" }
+{ "session_id": "uuid", "session_pin": "472938", "device_wg_ip": "10.42.0.5", "local_token": "hex-256-bit" }
 ```
 
 **QR Radxa** : affiché sur l'écran e-ink du device
@@ -719,7 +728,7 @@ L'app scanne les deux QR dans n'importe quel ordre, puis connecte les infos.
 > **Notes d'implémentation :**
 > - `device_wg_ip` (du QR VPS) est affiché à l'utilisateur pour confirmation uniquement — il n'est envoyé ni à la Radxa ni au VPS par l'app.
 > - `wg_pubkey` dans le QR Radxa est la clé publique **complète** (44 chars base64). La mention "tronquée" ne s'applique qu'à l'affichage sur l'e-ink, pas aux données QR.
-> - La connexion vers `radxa_ip:8099` est **HTTP non chiffré** (LAN uniquement). Le `session_pin` transite en clair sur ce tronçon — risque accepté (LAN requis, TTL 120s, 3 tentatives VPS).
+> - La connexion vers `radxa_ip:8099` est HTTP. Le payload (session_pin, local_token) est chiffré avec `crypto_box_seal(radxa_wg_pubkey)` avant envoi — illisible sans la clé privée du Radxa.
 
 ### Repository LAN (obligatoire — violation d'archi sinon)
 
@@ -742,10 +751,11 @@ Le `PairingRepository` utilise un `OkHttpClient` **séparé** sans les intercept
 
 ```
 domain/usecase/pairing/
-├── ParseVpsQrUseCase            — parse QR VPS → PairingSession(session_id, session_pin, device_wg_ip)
+├── ParseVpsQrUseCase            — parse QR VPS → PairingSession(session_id, session_pin, device_wg_ip, local_token)
 ├── ScanDeviceQrUseCase          — parse QR Radxa → DevicePairingInfo(device_id, wg_pubkey, local_ip)
-├── SendPinToDeviceUseCase       — délègue à PairingRepository.sendPin() — pas d'appel réseau direct
-└── ConfirmPairingUseCase        — poll toutes les 2s via withTimeout(120_000) — retourne dès "paired" ou "failed"
+├── SendPinToDeviceUseCase       — délègue à PairingRepository.sendPin() — payload chiffré via SealedBoxHelper
+├── ConfirmPairingUseCase        — poll toutes les 2s via withTimeout(120_000) — retourne dès "paired" ou "failed"
+└── ParseSetupQrUseCase          — parse QR onboarding mobile → SetupQrData(wg_private_key, endpoint, tunnel_ip, dns, server_pubkey)
 ```
 
 **Intervalle de polling : 2 secondes.** Ne pas laisser au développeur le choix — une boucle
@@ -984,6 +994,10 @@ Android au build time). Ce fichier se limite au blocage cleartext.
 > - `androidx.security:security-crypto-ktx:1.1.0-alpha06` (EncryptedDataStore)
 > - `androidx.biometric:biometric-ktx:1.2.0-alpha05` (BiometricPrompt)
 
+> **lazysodium-android** : `com.goterl:lazysodium-android` — wrapper libsodium utilisé par
+> `SealedBoxHelper` pour le chiffrement `crypto_box_seal` des payloads LAN (pairing + maintenance).
+> Voir `docs/gradle-setup.md` pour la version exacte et la configuration ABI splits.
+
 ---
 
 ## 12. SESSION ET PERSISTANCE
@@ -1178,4 +1192,10 @@ Les widgets Glance accèdent aux données via `WidgetUpdateWorker` (WorkManager 
 | `auth_portfolio_id` | `portfolioId` (Int) |
 | `wg_private_key` | Clé privée WireGuard (base64) |
 | `wg_config` | Config WireGuard complète (JSON) |
+| `wg_endpoint` | Endpoint WireGuard du VPS |
+| `wg_server_pubkey` | Clé publique WireGuard du VPS |
+| `wg_tunnel_ip` | IP tunnel attribuée |
+| `wg_dns` | DNS du tunnel |
+| `setup_completed` | `true` après onboarding QR + premier login |
+| `local_token_{device_id}` | local_token par device Radxa (persisté après pairing) |
 | `cookie_*` | Cookies auth (refresh token httpOnly) |

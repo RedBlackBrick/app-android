@@ -31,6 +31,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
 import com.tradingplatform.app.security.BiometricManager
+import com.tradingplatform.app.ui.theme.IconSize
 import com.tradingplatform.app.ui.theme.Spacing
 
 /**
@@ -95,7 +96,7 @@ fun BiometricLockOverlay(
                 Icon(
                     imageVector = Icons.Default.Lock,
                     contentDescription = null,
-                    modifier = Modifier.size(64.dp),
+                    modifier = Modifier.size(IconSize.xl),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 

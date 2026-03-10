@@ -6,10 +6,14 @@ import javax.inject.Inject
 
 /**
  * Auth context needed by navigation and transversal ViewModels.
+ *
+ * [setupCompleted] is false on first launch — the app shows [SetupScreen] to guide
+ * the user through the WireGuard onboarding QR scan before reaching [LoginScreen].
  */
 data class AuthContext(
     val isLoggedIn: Boolean,
     val isAdmin: Boolean,
+    val setupCompleted: Boolean,
 )
 
 /**
@@ -24,9 +28,11 @@ class GetAuthContextUseCase @Inject constructor(
     suspend operator fun invoke(): AuthContext {
         val token = dataStore.readString(DataStoreKeys.ACCESS_TOKEN)
         val admin = dataStore.readBoolean(DataStoreKeys.IS_ADMIN) ?: false
+        val setupCompleted = dataStore.readBoolean(DataStoreKeys.SETUP_COMPLETED) ?: false
         return AuthContext(
             isLoggedIn = token != null,
             isAdmin = admin,
+            setupCompleted = setupCompleted,
         )
     }
 }

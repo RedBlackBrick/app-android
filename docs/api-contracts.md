@@ -317,3 +317,98 @@ Grace period 5s pour les appels concurrents (un seul refresh via `Mutex`).
 **CSRF :** `CsrfInterceptor` appelle `GET /csrf-token` et injecte `X-CSRF-Token` sur tous les
 `POST/PUT/DELETE/PATCH`. Le VPS n'exempte pas les requêtes Bearer — interceptor obligatoire.
 Voir `CLAUDE.md §3` pour la chaîne d'intercepteurs complète et `§11` pour l'implémentation.
+
+---
+
+## Onboarding mobile — QR format
+
+```json
+{
+  "wg_private_key": "base64... (44 chars)",
+  "wg_public_key_server": "base64... (44 chars)",
+  "endpoint": "vps.example.com:51820",
+  "tunnel_ip": "10.42.0.101/32",
+  "dns": "10.42.0.1"
+}
+```
+
+QR Version ~10, TTL 5 minutes. Généré par `GET /v1/vpn-peers/mobile-setup-qr` (admin, VPS).
+
+---
+
+## Pairing — QR VPS mis à jour
+
+```json
+{
+  "session_id": "uuid",
+  "session_pin": "472938",
+  "device_wg_ip": "10.42.0.5",
+  "local_token": "hex-256-bit"
+}
+```
+
+Le champ `local_token` est nouveau — généré par le VPS lors de la création de session.
+
+---
+
+## Pairing — POST LAN /pin (format chiffré)
+
+```
+POST http://{radxa_ip}:8099/pin
+Content-Type: application/octet-stream
+
+Body: crypto_box_seal(
+  '{"session_id":"uuid","session_pin":"472938","local_token":"hex"}',
+  radxa_wg_pubkey
+)
+```
+
+Réponse : `200 OK` (body vide ou `{"status": "ok"}`).
+
+---
+
+## Maintenance LAN — POST /command (format chiffré)
+
+```
+POST http://{radxa_ip}:8099/command
+Content-Type: application/octet-stream
+
+Body: crypto_box_seal(
+  '{"action":"wifi_configure","local_token":"hex","params":{"ssid":"...","password":"..."}}',
+  radxa_wg_pubkey
+)
+```
+
+Actions : `wifi_configure`, `wireguard_restart`, `logs`, `reboot`.
+
+---
+
+## Maintenance LAN — GET /identity
+
+```
+GET http://{radxa_ip}:8099/identity
+
+Response 200:
+{
+  "device_id": "radxa-001",
+  "wg_pubkey": "base64...",
+  "local_ip": "192.168.1.42"
+}
+```
+
+---
+
+## Maintenance LAN — GET /status
+
+```
+GET http://{radxa_ip}:8099/status
+
+Response 200:
+{
+  "device_id": "radxa-001",
+  "wg_status": "up",
+  "wifi_ssid": "MyNetwork",
+  "uptime": "3d 12h",
+  "last_error": null
+}
+```

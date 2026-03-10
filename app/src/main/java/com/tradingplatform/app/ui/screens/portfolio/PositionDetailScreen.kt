@@ -41,8 +41,10 @@ import com.tradingplatform.app.ui.components.OpenPositionBadge
 import com.tradingplatform.app.ui.components.PnlText
 import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.Spacing
+import com.tradingplatform.app.ui.theme.pnlColor
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -161,7 +163,7 @@ private fun PositionSummaryCard(
                     "prix actuel ${position.currentPrice} €"
             },
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            containerColor = LocalExtendedColors.current.cardSurface,
         ),
     ) {
         Column(
@@ -243,11 +245,7 @@ private fun PositionSummaryCard(
                             style = MaterialTheme.typography.bodyLarge,
                         )
                         val pnlPct = position.unrealizedPnlPercent
-                        val pnlPctColor = when {
-                            pnlPct > 0.0 -> LocalExtendedColors.current.pnlPositive
-                            pnlPct < 0.0 -> LocalExtendedColors.current.pnlNegative
-                            else -> MaterialTheme.colorScheme.onSurface
-                        }
+                        val pnlPctColor = pnlColor(position.unrealizedPnl)
                         Text(
                             text = "(${if (pnlPct >= 0) "+" else ""}${"%.2f".format(pnlPct)}%)",
                             style = MaterialTheme.typography.bodySmall,
@@ -288,7 +286,7 @@ private fun TransactionRow(
     transaction: Transaction,
     modifier: Modifier = Modifier,
 ) {
-    val dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm")
+    val dateFormatter = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.SHORT)
     val executedAt = transaction.executedAt
         .atZone(ZoneId.systemDefault())
         .let { dateFormatter.format(it) }

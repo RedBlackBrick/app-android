@@ -1,8 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- Cleartext permis globalement : nécessaire pour POST http://radxa_ip:8099/pin
-         (pairing LAN). Les IPs Radxa sont RFC-1918 dynamiques, non listables statiquement.
-         Risque atténué : VpnRequiredInterceptor exige le tunnel actif, isLocalNetwork()
-         valide l'IP avant envoi. Décision architecture §C = Option 1. -->
+    <!-- Cleartext permis globalement pour HTTP LAN Radxa (pairing port 8099).
+         Les IPs Radxa sont RFC-1918 dynamiques, non listables statiquement
+         (Android network-security-config ne supporte pas les plages CIDR).
+
+         Securite par defense-in-depth :
+         1. VpnRequiredInterceptor bloque si VPN non connecte
+         2. isLocalNetwork() valide que l'IP est RFC-1918 avant envoi
+         3. crypto_box_seal() chiffre session_pin/local_token
+
+         Decision architecture C (docs/architecture-decisions.md). -->
     <base-config cleartextTrafficPermitted="true" />
 </network-security-config>
