@@ -30,7 +30,7 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         buildConfigField("String", "VPS_BASE_URL",
-            "\"${localProperties.getProperty("VPS_BASE_URL", "https://10.42.0.1:8013")}\"")
+            "\"${localProperties.getProperty("VPS_BASE_URL", "https://10.42.0.1:443")}\"")
         buildConfigField("String", "CERT_PIN_SHA256",
             "\"${localProperties.getProperty("CERT_PIN_SHA256", "sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")}\"")
         buildConfigField("String", "CERT_PIN_SHA256_BACKUP",

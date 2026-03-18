@@ -39,8 +39,8 @@ object NetworkModule {
     /**
      * Extrait le hostname depuis VPS_BASE_URL pour le certificate pinning.
      * Exemples :
-     *   "https://10.42.0.1:8013" → "10.42.0.1"
-     *   "https://vps.example.com:8013" → "vps.example.com"
+     *   "https://10.42.0.1:443" → "10.42.0.1"
+     *   "https://vps.example.com:443" → "vps.example.com"
      */
     private val VPS_HOSTNAME: String
         get() = BuildConfig.VPS_BASE_URL

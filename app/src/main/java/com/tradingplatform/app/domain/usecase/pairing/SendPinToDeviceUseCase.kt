@@ -18,9 +18,10 @@ class SendPinToDeviceUseCase @Inject constructor(
         sessionId: String,
         sessionPin: String,
         localToken: String,
+        nonce: String,
         radxaWgPubkey: String,
     ): Result<Unit> {
-        Timber.d("SendPinToDevice: ip=$deviceIp port=$devicePort sessionId=$sessionId pin=[REDACTED] token=[REDACTED]")
-        return repository.sendPin(deviceIp, devicePort, sessionId, sessionPin, localToken, radxaWgPubkey)
+        Timber.d("SendPinToDevice: ip=$deviceIp port=$devicePort sessionId=$sessionId pin=[REDACTED] token=[REDACTED] nonce=[REDACTED]")
+        return repository.sendPin(deviceIp, devicePort, sessionId, sessionPin, localToken, nonce, radxaWgPubkey)
     }
 }

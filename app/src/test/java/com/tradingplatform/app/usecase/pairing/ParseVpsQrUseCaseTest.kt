@@ -19,7 +19,7 @@ class ParseVpsQrUseCaseTest {
 
     @Test
     fun `valid VPS QR returns PairingSession`() = runTest {
-        val raw = """{"session_id":"abc-123","session_pin":"472938","device_wg_ip":"10.42.0.5","local_token":"tok-xyz"}"""
+        val raw = """{"session_id":"abc-123","session_pin":"472938","device_wg_ip":"10.42.0.5","local_token":"tok-xyz","nonce":"deadbeef01234567890abcdef01234567890abcdef01234567890abcdef012345"}"""
         val result = useCase(raw)
 
         assertTrue(result.isSuccess)
@@ -28,6 +28,7 @@ class ParseVpsQrUseCaseTest {
         assertEquals("472938", session.sessionPin)
         assertEquals("10.42.0.5", session.deviceWgIp)
         assertEquals("tok-xyz", session.localToken)
+        assertEquals("deadbeef01234567890abcdef01234567890abcdef01234567890abcdef012345", session.nonce)
     }
 
     @Test
@@ -39,7 +40,7 @@ class ParseVpsQrUseCaseTest {
 
     @Test
     fun `missing session_pin returns MalformedQrException`() = runTest {
-        val raw = """{"session_id":"abc-123","device_wg_ip":"10.42.0.5","local_token":"tok-xyz"}"""
+        val raw = """{"session_id":"abc-123","device_wg_ip":"10.42.0.5","local_token":"tok-xyz","nonce":"aabbcc"}"""
         val result = useCase(raw)
         assertTrue(result.isFailure)
         assertTrue(result.exceptionOrNull() is MalformedQrException)
@@ -47,7 +48,7 @@ class ParseVpsQrUseCaseTest {
 
     @Test
     fun `missing session_id returns MalformedQrException`() = runTest {
-        val raw = """{"session_pin":"472938","device_wg_ip":"10.42.0.5","local_token":"tok-xyz"}"""
+        val raw = """{"session_pin":"472938","device_wg_ip":"10.42.0.5","local_token":"tok-xyz","nonce":"aabbcc"}"""
         val result = useCase(raw)
         assertTrue(result.isFailure)
         assertTrue(result.exceptionOrNull() is MalformedQrException)
@@ -55,7 +56,7 @@ class ParseVpsQrUseCaseTest {
 
     @Test
     fun `missing device_wg_ip returns MalformedQrException`() = runTest {
-        val raw = """{"session_id":"abc-123","session_pin":"472938","local_token":"tok-xyz"}"""
+        val raw = """{"session_id":"abc-123","session_pin":"472938","local_token":"tok-xyz","nonce":"aabbcc"}"""
         val result = useCase(raw)
         assertTrue(result.isFailure)
         assertTrue(result.exceptionOrNull() is MalformedQrException)
@@ -63,7 +64,15 @@ class ParseVpsQrUseCaseTest {
 
     @Test
     fun `missing local_token returns MalformedQrException`() = runTest {
-        val raw = """{"session_id":"abc-123","session_pin":"472938","device_wg_ip":"10.42.0.5"}"""
+        val raw = """{"session_id":"abc-123","session_pin":"472938","device_wg_ip":"10.42.0.5","nonce":"aabbcc"}"""
+        val result = useCase(raw)
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull() is MalformedQrException)
+    }
+
+    @Test
+    fun `missing nonce returns MalformedQrException`() = runTest {
+        val raw = """{"session_id":"abc-123","session_pin":"472938","device_wg_ip":"10.42.0.5","local_token":"tok-xyz"}"""
         val result = useCase(raw)
         assertTrue(result.isFailure)
         assertTrue(result.exceptionOrNull() is MalformedQrException)
@@ -84,7 +93,7 @@ class ParseVpsQrUseCaseTest {
 
     @Test
     fun `whitespace trimmed before parsing`() = runTest {
-        val raw = """  {"session_id":"abc-123","session_pin":"472938","device_wg_ip":"10.42.0.5","local_token":"tok-xyz"}  """
+        val raw = """  {"session_id":"abc-123","session_pin":"472938","device_wg_ip":"10.42.0.5","local_token":"tok-xyz","nonce":"aabbcc"}  """
         val result = useCase(raw)
         assertTrue(result.isSuccess)
     }

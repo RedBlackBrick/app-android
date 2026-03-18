@@ -79,7 +79,7 @@ Voir `CLAUDE.md §3` et `§11`.
 
 ## J — Chiffrement LAN libsodium (crypto_box_seal)
 
-Toute donnée sensible transitant en HTTP sur le LAN (session_pin, local_token, commandes
+Toute donnée sensible transitant en HTTP sur le LAN (session_pin, local_token, nonce, commandes
 maintenance) est chiffrée avec `crypto_box_seal(radxa_wg_pubkey)` via lazysodium-android.
 Le HTTP reste en clair mais les secrets sont illisibles pour le réseau. Le Radxa déchiffre
 avec sa `wg_private_key` via PyNaCl. Voir `security/SealedBoxHelper.kt`.

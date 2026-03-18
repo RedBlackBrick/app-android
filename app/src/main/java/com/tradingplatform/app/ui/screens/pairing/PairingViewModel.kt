@@ -171,13 +171,14 @@ class PairingViewModel @Inject constructor(
         viewModelScope.launch {
             _step.value = PairingStep.SendingPin
 
-            // Step 1 — send encrypted PIN to Radxa device over LAN
+            // Step 1 — send encrypted PIN + nonce to Radxa device over LAN
             sendPinToDeviceUseCase(
                 deviceIp = current.device.localIp,
                 devicePort = current.device.port,
                 sessionId = current.session.sessionId,
                 sessionPin = current.session.sessionPin,   // never logged by the UseCase ([REDACTED])
                 localToken = current.session.localToken,   // never logged ([REDACTED])
+                nonce = current.session.nonce,              // never logged ([REDACTED])
                 radxaWgPubkey = current.device.wgPubkey,
             ).onFailure { e ->
                 Timber.d("PairingViewModel: SendPin failed — ${e.message}")

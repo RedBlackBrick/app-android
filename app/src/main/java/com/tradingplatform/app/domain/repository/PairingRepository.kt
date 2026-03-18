@@ -10,6 +10,7 @@ interface PairingRepository {
         sessionId: String,
         sessionPin: String,
         localToken: String,
+        nonce: String,
         radxaWgPubkey: String,
     ): Result<Unit>
 

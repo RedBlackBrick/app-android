@@ -219,7 +219,7 @@ cp local.properties.example local.properties
 Clés requises dans `local.properties` :
 
 ```properties
-VPS_BASE_URL=https://10.42.0.1:8013
+VPS_BASE_URL=https://10.42.0.1:443
 WG_VPS_ENDPOINT=vps.example.com:51820
 WG_VPS_PUBKEY=<clé_publique_wg_du_vps>
 CERT_PIN_SHA256=sha256/<empreinte_courante>

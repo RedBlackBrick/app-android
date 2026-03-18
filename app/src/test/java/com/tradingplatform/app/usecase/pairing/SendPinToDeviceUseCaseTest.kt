@@ -21,7 +21,7 @@ class SendPinToDeviceUseCaseTest {
 
     @Test
     fun `delegates to repository sendPin`() = runTest {
-        coEvery { repository.sendPin(any(), any(), any(), any(), any(), any()) } returns Result.success(Unit)
+        coEvery { repository.sendPin(any(), any(), any(), any(), any(), any(), any()) } returns Result.success(Unit)
 
         val result = useCase(
             deviceIp = "192.168.1.42",
@@ -29,6 +29,7 @@ class SendPinToDeviceUseCaseTest {
             sessionId = "abc-123",
             sessionPin = "472938",
             localToken = "tok-xyz",
+            nonce = "deadbeef0123456789abcdef",
             radxaWgPubkey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
         )
 
@@ -40,6 +41,7 @@ class SendPinToDeviceUseCaseTest {
                 sessionId = "abc-123",
                 sessionPin = "472938",
                 localToken = "tok-xyz",
+                nonce = "deadbeef0123456789abcdef",
                 radxaWgPubkey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
             )
         }
@@ -47,7 +49,7 @@ class SendPinToDeviceUseCaseTest {
 
     @Test
     fun `returns failure when repository fails`() = runTest {
-        coEvery { repository.sendPin(any(), any(), any(), any(), any(), any()) } returns Result.failure(RuntimeException("Connection refused"))
+        coEvery { repository.sendPin(any(), any(), any(), any(), any(), any(), any()) } returns Result.failure(RuntimeException("Connection refused"))
 
         val result = useCase(
             deviceIp = "192.168.1.42",
@@ -55,6 +57,7 @@ class SendPinToDeviceUseCaseTest {
             sessionId = "abc-123",
             sessionPin = "472938",
             localToken = "tok-xyz",
+            nonce = "deadbeef0123456789abcdef",
             radxaWgPubkey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
         )
 
@@ -63,7 +66,7 @@ class SendPinToDeviceUseCaseTest {
 
     @Test
     fun `does not call repository more than once`() = runTest {
-        coEvery { repository.sendPin(any(), any(), any(), any(), any(), any()) } returns Result.success(Unit)
+        coEvery { repository.sendPin(any(), any(), any(), any(), any(), any(), any()) } returns Result.success(Unit)
 
         useCase(
             deviceIp = "192.168.1.42",
@@ -71,9 +74,10 @@ class SendPinToDeviceUseCaseTest {
             sessionId = "abc-123",
             sessionPin = "472938",
             localToken = "tok-xyz",
+            nonce = "deadbeef0123456789abcdef",
             radxaWgPubkey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
         )
 
-        coVerify(exactly = 1) { repository.sendPin(any(), any(), any(), any(), any(), any()) }
+        coVerify(exactly = 1) { repository.sendPin(any(), any(), any(), any(), any(), any(), any()) }
     }
 }

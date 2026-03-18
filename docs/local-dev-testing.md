@@ -60,7 +60,7 @@ WG_VPS_PUBKEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
 ```
 
 > **Pourquoi port 8000 ?** L'API gateway tourne sur le port `8000` en local (Docker
-> `- "8000:8000"`). Le port `8013` est le port de production derrière WireGuard.
+> `- "8000:8000"`). Le port `443` est le port de production derrière WireGuard (Caddy TLS).
 
 ---
 

@@ -661,7 +661,7 @@ Tester en light **et** dark (deux snapshots par composant critique).
 
 `local.properties` (non commité) :
 ```properties
-VPS_BASE_URL=https://10.42.0.1:8013
+VPS_BASE_URL=https://10.42.0.1:443
 WG_VPS_ENDPOINT=vps.example.com:51820
 WG_VPS_PUBKEY=<clé_publique_wg_du_vps>
 CERT_PIN_SHA256=sha256/<empreinte_courante>
@@ -682,15 +682,15 @@ L'app joue un rôle de **pont sécurisé** entre le VPS (qui génère le PIN) et
 l'applique). Elle ne stocke jamais le `session_pin` — elle le transmet en un seul appel LAN.
 
 ```
-VPS QR → scan → {session_id, session_pin, device_wg_ip}
+VPS QR → scan → {session_id, session_pin, device_wg_ip, local_token, nonce}
 Radxa QR → scan → {device_id, wg_pubkey, local_ip:8099}
-App → POST http://radxa_ip:8099/pin {session_id, session_pin}  (LAN direct)
+App → POST http://radxa_ip:8099/pin {session_id, session_pin, local_token, nonce}  (LAN direct, chiffré)
 App → poll GET http://radxa_ip:8099/status jusqu'à "paired"
 ```
 
 **Règles critiques :**
 - Valider que `radxa_ip` est RFC-1918 avant d'envoyer le PIN (`isLocalNetwork()`)
-- Le `session_pin` ne doit jamais être loggé (`[REDACTED]` si debug nécessaire)
+- Le `session_pin`, `local_token` et `nonce` ne doivent jamais être loggés (`[REDACTED]` si debug nécessaire)
 - La connexion vers `radxa_ip:8099` doit être faite uniquement si `VpnState.Connected`
   (le VPN garantit qu'on est sur le bon réseau avant de contacter le LAN)
 - Timeout 120s sur l'opération complète (durée de vie de la session VPS)
@@ -715,7 +715,7 @@ App → poll GET http://radxa_ip:8099/status jusqu'à "paired"
 
 **QR VPS** : affiché sur `(app)/admin/edge-devices/` via `GET /v1/pairing/{session_id}/qr`
 ```json
-{ "session_id": "uuid", "session_pin": "472938", "device_wg_ip": "10.42.0.5", "local_token": "hex-256-bit" }
+{ "session_id": "uuid", "session_pin": "472938", "device_wg_ip": "10.42.0.5", "local_token": "hex-256-bit", "nonce": "64-char-hex" }
 ```
 
 **QR Radxa** : affiché sur l'écran e-ink du device
@@ -751,9 +751,9 @@ Le `PairingRepository` utilise un `OkHttpClient` **séparé** sans les intercept
 
 ```
 domain/usecase/pairing/
-├── ParseVpsQrUseCase            — parse QR VPS → PairingSession(session_id, session_pin, device_wg_ip, local_token)
+├── ParseVpsQrUseCase            — parse QR VPS → PairingSession(session_id, session_pin, device_wg_ip, local_token, nonce)
 ├── ScanDeviceQrUseCase          — parse QR Radxa → DevicePairingInfo(device_id, wg_pubkey, local_ip)
-├── SendPinToDeviceUseCase       — délègue à PairingRepository.sendPin() — payload chiffré via SealedBoxHelper
+├── SendPinToDeviceUseCase       — délègue à PairingRepository.sendPin() — payload chiffré (session_pin + nonce) via SealedBoxHelper
 ├── ConfirmPairingUseCase        — poll toutes les 2s via withTimeout(120_000) — retourne dès "paired" ou "failed"
 └── ParseSetupQrUseCase          — parse QR onboarding mobile → SetupQrData(wg_private_key, endpoint, tunnel_ip, dns, server_pubkey)
 ```

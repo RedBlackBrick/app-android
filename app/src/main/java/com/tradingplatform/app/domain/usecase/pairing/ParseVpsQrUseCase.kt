@@ -37,13 +37,16 @@ class ParseVpsQrUseCase @Inject constructor() {
             ?: throw MalformedQrException("device_wg_ip")
         val localToken = obj.optString("local_token").takeIf { it.isNotEmpty() }
             ?: throw MalformedQrException("local_token")
+        val nonce = obj.optString("nonce").takeIf { it.isNotEmpty() }
+            ?: throw MalformedQrException("nonce")
 
-        // session_pin et local_token ne doivent jamais être loggés — [REDACTED]
+        // session_pin, local_token, nonce ne doivent jamais être loggés — [REDACTED]
         PairingSession(
             sessionId = sessionId,
             sessionPin = sessionPin,
             deviceWgIp = deviceWgIp,
             localToken = localToken,
+            nonce = nonce,
         )
     }
 }

@@ -42,6 +42,7 @@ class PairingViewModelTest {
         sessionPin = "472938", // never assert on this value in logs
         deviceWgIp = "10.42.0.5",
         localToken = "tok-xyz",  // never assert on this value in logs
+        nonce = "deadbeef0123456789abcdef0123456789abcdef0123456789abcdef01234567",
     )
 
     private val fakeDevice = DevicePairingInfo(
@@ -188,7 +189,7 @@ class PairingViewModelTest {
     fun `startPairing transitions SendingPin then WaitingConfirmation then Success`() = runTest {
         coEvery { parseVpsQrUseCase(any()) } returns Result.success(fakeSession)
         coEvery { scanDeviceQrUseCase(any()) } returns Result.success(fakeDevice)
-        coEvery { sendPinToDeviceUseCase(any(), any(), any(), any(), any(), any()) } returns Result.success(Unit)
+        coEvery { sendPinToDeviceUseCase(any(), any(), any(), any(), any(), any(), any()) } returns Result.success(Unit)
         coEvery { confirmPairingUseCase(any(), any(), any()) } returns Result.success(PairingStatus.PAIRED)
 
         viewModel.step.test {
@@ -212,7 +213,7 @@ class PairingViewModelTest {
     fun `startPairing transitions to Error when sendPin fails`() = runTest {
         coEvery { parseVpsQrUseCase(any()) } returns Result.success(fakeSession)
         coEvery { scanDeviceQrUseCase(any()) } returns Result.success(fakeDevice)
-        coEvery { sendPinToDeviceUseCase(any(), any(), any(), any(), any(), any()) } returns
+        coEvery { sendPinToDeviceUseCase(any(), any(), any(), any(), any(), any(), any()) } returns
             Result.failure(RuntimeException("LAN unreachable"))
 
         viewModel.step.test {
@@ -238,7 +239,7 @@ class PairingViewModelTest {
     fun `startPairing transitions to Error when confirm returns FAILED`() = runTest {
         coEvery { parseVpsQrUseCase(any()) } returns Result.success(fakeSession)
         coEvery { scanDeviceQrUseCase(any()) } returns Result.success(fakeDevice)
-        coEvery { sendPinToDeviceUseCase(any(), any(), any(), any(), any(), any()) } returns Result.success(Unit)
+        coEvery { sendPinToDeviceUseCase(any(), any(), any(), any(), any(), any(), any()) } returns Result.success(Unit)
         coEvery { confirmPairingUseCase(any(), any(), any()) } returns Result.success(PairingStatus.FAILED)
 
         viewModel.step.test {
@@ -264,7 +265,7 @@ class PairingViewModelTest {
     fun `startPairing transitions to Error on timeout`() = runTest {
         coEvery { parseVpsQrUseCase(any()) } returns Result.success(fakeSession)
         coEvery { scanDeviceQrUseCase(any()) } returns Result.success(fakeDevice)
-        coEvery { sendPinToDeviceUseCase(any(), any(), any(), any(), any(), any()) } returns Result.success(Unit)
+        coEvery { sendPinToDeviceUseCase(any(), any(), any(), any(), any(), any(), any()) } returns Result.success(Unit)
         coEvery { confirmPairingUseCase(any(), any(), any()) } returns
             Result.failure(Exception("Pairing timeout"))
 

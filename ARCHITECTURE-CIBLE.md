@@ -336,7 +336,7 @@ En mode debug, l'App peut se connecter directement a une instance trading-platfo
 
 ```properties
 # local.properties
-VPS_BASE_URL=http://192.168.1.X:8013
+VPS_BASE_URL=http://192.168.1.X:8000
 DEV_MODE=true
 ```
 
@@ -359,7 +359,7 @@ buildTypes {
 |-----------|-----------|---------------|
 | `VpnRequiredInterceptor` | Bloque si VPN off | Skip le check |
 | `CertificatePinner` | SHA-256 actif | Desactive (HTTP local) |
-| `VPS_BASE_URL` | `https://10.42.0.1:8013` | `http://192.168.1.X:8013` |
+| `VPS_BASE_URL` | `https://10.42.0.1:443` | `http://192.168.1.X:8000` |
 
 ### Implementation
 

@@ -8,7 +8,7 @@ Extraits de `trading-platform/docs/08_reference/API_ENDPOINTS.md` et
 ## Base URL et auth
 
 ```
-Production  : https://10.42.0.1:8013  (via tunnel WireGuard uniquement)
+Production  : https://10.42.0.1:443  (via tunnel WireGuard uniquement)
 Dev         : http://localhost:8000
 
 Authorization: Bearer <access_token>   ← header sur tous les endpoints protégés
@@ -250,7 +250,7 @@ Liste les devices enregistrés avec leur statut.
 ```
 
 > Endpoint existant dans l'API Gateway (accès conditionnel `is_admin`).
-> L'API edge-control (port 8013) est Radxa → VPS uniquement — pas accessible depuis l'app.
+> L'API edge-control est Radxa → VPS uniquement — pas accessible depuis l'app.
 
 ---
 
@@ -336,18 +336,19 @@ QR Version ~10, TTL 5 minutes. Généré par `GET /v1/vpn-peers/mobile-setup-qr`
 
 ---
 
-## Pairing — QR VPS mis à jour
+## Pairing — QR VPS
 
 ```json
 {
   "session_id": "uuid",
   "session_pin": "472938",
   "device_wg_ip": "10.42.0.5",
-  "local_token": "hex-256-bit"
+  "local_token": "hex-256-bit",
+  "nonce": "64-char-hex"
 }
 ```
 
-Le champ `local_token` est nouveau — généré par le VPS lors de la création de session.
+Le `nonce` est un token anti-replay one-time-use (64 caractères hex) avec TTL 5 minutes. Il est consommé atomiquement par le VPS lors de la complétion du pairing.
 
 ---
 
@@ -358,12 +359,13 @@ POST http://{radxa_ip}:8099/pin
 Content-Type: application/octet-stream
 
 Body: crypto_box_seal(
-  '{"session_id":"uuid","session_pin":"472938","local_token":"hex"}',
+  '{"session_id":"uuid","session_pin":"472938","local_token":"hex","nonce":"64-char-hex"}',
   radxa_wg_pubkey
 )
 ```
 
 Réponse : `200 OK` (body vide ou `{"status": "ok"}`).
+En cas de nonce invalide ou rejoué, le VPS retourne `409 Conflict` à la Radxa.
 
 ---
 

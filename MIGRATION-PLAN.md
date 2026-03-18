@@ -1127,7 +1127,7 @@ Ajouter :
 ```properties
 # --- Dev Mode (direct LAN, no WireGuard) ---
 # DEV_MODE=true
-# VPS_BASE_URL=http://192.168.1.X:8013
+# VPS_BASE_URL=http://192.168.1.X:8000
 ```
 
 ---

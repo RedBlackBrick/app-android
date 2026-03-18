@@ -22,7 +22,7 @@ class EncryptedCookieJarTest {
 
     @Test
     fun `saves refresh_token cookie on login path`() = runTest {
-        val url = "https://10.42.0.1:8013/v1/auth/login".toHttpUrl()
+        val url = "https://10.42.0.1:443/v1/auth/login".toHttpUrl()
         val cookie = Cookie.Builder()
             .name("refresh_token")
             .value("refresh123")
@@ -37,7 +37,7 @@ class EncryptedCookieJarTest {
 
     @Test
     fun `does not save cookies on non-auth paths`() = runTest {
-        val url = "https://10.42.0.1:8013/v1/portfolios/1/positions".toHttpUrl()
+        val url = "https://10.42.0.1:443/v1/portfolios/1/positions".toHttpUrl()
         val cookie = Cookie.Builder()
             .name("refresh_token")
             .value("refresh123")
@@ -53,8 +53,8 @@ class EncryptedCookieJarTest {
     fun `loads cookies only for refresh path`() = runTest {
         coEvery { dataStore.loadCookies() } returns emptyList()
 
-        val refreshUrl = "https://10.42.0.1:8013/v1/auth/refresh".toHttpUrl()
-        val otherUrl = "https://10.42.0.1:8013/v1/portfolios".toHttpUrl()
+        val refreshUrl = "https://10.42.0.1:443/v1/auth/refresh".toHttpUrl()
+        val otherUrl = "https://10.42.0.1:443/v1/portfolios".toHttpUrl()
 
         cookieJar.loadForRequest(refreshUrl)
         coVerify { dataStore.loadCookies() }

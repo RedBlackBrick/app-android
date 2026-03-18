@@ -2,7 +2,7 @@
 # Ne jamais commiter local.properties
 
 # URL du VPS (via tunnel WireGuard)
-VPS_BASE_URL=https://10.42.0.1:8013
+VPS_BASE_URL=https://10.42.0.1:443
 
 # Endpoint WireGuard du VPS
 WG_VPS_ENDPOINT=vps.example.com:51820
@@ -16,7 +16,7 @@ CERT_PIN_SHA256_BACKUP=sha256/<empreinte_backup>
 
 # --- Dev Mode (direct LAN, no WireGuard) ---
 # DEV_MODE=true
-# VPS_BASE_URL=http://192.168.1.X:8013
+# VPS_BASE_URL=http://192.168.1.X:8000
 
 # Signing (release uniquement)
 KEYSTORE_PATH=../keystore/release.jks

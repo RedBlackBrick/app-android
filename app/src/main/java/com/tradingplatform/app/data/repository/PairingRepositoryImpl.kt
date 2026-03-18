@@ -39,19 +39,21 @@ class PairingRepositoryImpl @Inject constructor(
         sessionId: String,
         sessionPin: String,
         localToken: String,
+        nonce: String,
         radxaWgPubkey: String,
     ): Result<Unit> = runCatching {
         if (!isLocalNetwork(deviceIp)) {
             error("Refused: $deviceIp is not a local network address (RFC-1918 required)")
         }
 
-        Timber.d("PairingRepository: sending encrypted PIN to $deviceIp:$devicePort sessionId=$sessionId pin=[REDACTED] token=[REDACTED]")
+        Timber.d("PairingRepository: sending encrypted PIN to $deviceIp:$devicePort sessionId=$sessionId pin=[REDACTED] token=[REDACTED] nonce=[REDACTED]")
 
-        // Construire le JSON payload
+        // Construire le JSON payload (nonce included for anti-replay)
         val payloadJson = JSONObject().apply {
             put("session_id", sessionId)
             put("session_pin", sessionPin)
             put("local_token", localToken)
+            put("nonce", nonce)
         }.toString()
 
         // Décoder la clé publique WireGuard base64 → 32 bytes Curve25519
