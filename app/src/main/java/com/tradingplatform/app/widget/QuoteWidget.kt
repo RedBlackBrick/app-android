@@ -72,6 +72,12 @@ class QuoteWidget : GlanceAppWidget() {
 
     companion object {
         const val DEFAULT_SYMBOL = "AAPL"
+
+        // Plain SharedPreferences is intentional here. This stores only public ticker
+        // symbols (e.g. "AAPL", "TSLA") — non-sensitive, publicly available market
+        // identifiers. EncryptedSharedPreferences would add overhead and KeyStore
+        // fragility for no security benefit. Sensitive data (tokens, portfolio IDs)
+        // is stored in EncryptedDataStore, never here.
         const val PREFS_NAME = "quote_widget_prefs"
 
         fun readConfiguredSymbol(context: Context, appWidgetId: Int): String? {

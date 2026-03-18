@@ -2,7 +2,9 @@ package com.tradingplatform.app.ui.screens.totp
 
 import app.cash.turbine.test
 import com.tradingplatform.app.domain.exception.InvalidTotpCodeException
+import com.tradingplatform.app.domain.model.AuthTokens
 import com.tradingplatform.app.domain.model.Portfolio
+import com.tradingplatform.app.domain.model.User
 import com.tradingplatform.app.domain.usecase.auth.GetPortfoliosUseCase
 import com.tradingplatform.app.domain.usecase.auth.Verify2faUseCase
 import com.tradingplatform.app.util.MainDispatcherRule
@@ -27,6 +29,19 @@ class TotpViewModelTest {
     private val getPortfoliosUseCase = mockk<GetPortfoliosUseCase>()
     private lateinit var viewModel: TotpViewModel
 
+    private val fakeUser = User(
+        id = 1L,
+        email = "test@example.com",
+        firstName = "Test",
+        lastName = "User",
+        isAdmin = false,
+        totpEnabled = true,
+    )
+    private val fakeTokens = AuthTokens(
+        accessToken = "access-token-xyz",
+        tokenType = "bearer",
+        expiresIn = 1800,
+    )
     private val fakePortfolio = Portfolio(id = "42", name = "Main Portfolio", currency = "EUR")
     private val sessionToken = "session-token-xyz"
     private val validCode = "123456"
@@ -36,15 +51,16 @@ class TotpViewModelTest {
         viewModel = TotpViewModel(verify2faUseCase, getPortfoliosUseCase)
     }
 
-    // ── Cas nominal : vérification réussie → Success ───────────────────────────
+    // -- Cas nominal : verification reussie -> Success ---
 
     @Test
     fun `verify success emits Verifying then Success`() = runTest {
-        coEvery { verify2faUseCase(any(), any()) } returns Result.success(Unit)
+        coEvery { verify2faUseCase(any(), any()) } returns
+            Result.success(Pair(fakeUser, fakeTokens))
         coEvery { getPortfoliosUseCase() } returns Result.success(listOf(fakePortfolio))
 
         viewModel.uiState.test {
-            assertEquals(TotpUiState.AwaitingInput, awaitItem()) // état initial
+            assertEquals(TotpUiState.AwaitingInput, awaitItem()) // initial state
 
             viewModel.verify(sessionToken, validCode)
 
@@ -55,7 +71,7 @@ class TotpViewModelTest {
         }
     }
 
-    // ── Code TOTP invalide (InvalidTotpCodeException) ─────────────────────────
+    // -- Code TOTP invalide (InvalidTotpCodeException) ---
 
     @Test
     fun `verify returns Error on InvalidTotpCodeException`() = runTest {
@@ -76,7 +92,7 @@ class TotpViewModelTest {
         }
     }
 
-    // ── Erreur générique de vérification ──────────────────────────────────────
+    // -- Erreur generique de verification ---
 
     @Test
     fun `verify returns Error on unexpected exception`() = runTest {
@@ -96,11 +112,12 @@ class TotpViewModelTest {
         }
     }
 
-    // ── Portfolio vide après vérification réussie ──────────────────────────────
+    // -- Portfolio vide apres verification reussie ---
 
     @Test
     fun `verify emits Error when portfolios empty after successful 2FA`() = runTest {
-        coEvery { verify2faUseCase(any(), any()) } returns Result.success(Unit)
+        coEvery { verify2faUseCase(any(), any()) } returns
+            Result.success(Pair(fakeUser, fakeTokens))
         coEvery { getPortfoliosUseCase() } returns Result.success(emptyList())
 
         viewModel.uiState.test {
@@ -117,11 +134,12 @@ class TotpViewModelTest {
         }
     }
 
-    // ── Erreur réseau GetPortfoliosUseCase ─────────────────────────────────────
+    // -- Erreur reseau GetPortfoliosUseCase ---
 
     @Test
     fun `verify emits Error when getPortfoliosUseCase fails after successful 2FA`() = runTest {
-        coEvery { verify2faUseCase(any(), any()) } returns Result.success(Unit)
+        coEvery { verify2faUseCase(any(), any()) } returns
+            Result.success(Pair(fakeUser, fakeTokens))
         coEvery { getPortfoliosUseCase() } returns Result.failure(RuntimeException("Network error"))
 
         viewModel.uiState.test {
@@ -137,7 +155,7 @@ class TotpViewModelTest {
         }
     }
 
-    // ── resetError ────────────────────────────────────────────────────────────
+    // -- resetError ---
 
     @Test
     fun `resetError resets state from Error to AwaitingInput`() = runTest {
@@ -162,26 +180,26 @@ class TotpViewModelTest {
 
     @Test
     fun `resetError is no-op when state is not Error`() = runTest {
-        // État initial AwaitingInput — resetError ne doit rien faire
+        // Initial state AwaitingInput — resetError should be a no-op
         viewModel.uiState.test {
             assertEquals(TotpUiState.AwaitingInput, awaitItem())
 
             viewModel.resetError()
 
-            // Aucun nouvel état émis
+            // No new state emitted
             expectNoEvents()
 
             cancelAndIgnoreRemainingEvents()
         }
     }
 
-    // ── Idempotence Verifying ──────────────────────────────────────────────────
+    // -- Idempotence Verifying ---
 
     @Test
     fun `second verify call is ignored while Verifying`() = runTest {
         coEvery { verify2faUseCase(any(), any()) } coAnswers {
             kotlinx.coroutines.delay(100)
-            Result.success(Unit)
+            Result.success(Pair(fakeUser, fakeTokens))
         }
         coEvery { getPortfoliosUseCase() } returns Result.success(listOf(fakePortfolio))
 
@@ -191,10 +209,10 @@ class TotpViewModelTest {
             viewModel.verify(sessionToken, validCode)
             assertEquals(TotpUiState.Verifying, awaitItem())
 
-            // Second appel pendant Verifying — ignoré
+            // Second call while Verifying — ignored
             viewModel.verify(sessionToken, validCode)
 
-            // On attend Success directement (pas de double Verifying)
+            // We expect Success directly (no double Verifying)
             assertEquals(TotpUiState.Success, awaitItem())
 
             cancelAndIgnoreRemainingEvents()

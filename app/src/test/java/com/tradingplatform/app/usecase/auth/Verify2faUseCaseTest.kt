@@ -1,5 +1,7 @@
 package com.tradingplatform.app.usecase.auth
 
+import com.tradingplatform.app.domain.model.AuthTokens
+import com.tradingplatform.app.domain.model.User
 import com.tradingplatform.app.domain.repository.AuthRepository
 import com.tradingplatform.app.domain.usecase.auth.Verify2faUseCase
 import com.tradingplatform.app.util.MainDispatcherRule
@@ -23,6 +25,20 @@ class Verify2faUseCaseTest {
     private val repository = mockk<AuthRepository>()
     private lateinit var useCase: Verify2faUseCase
 
+    private val fakeUser = User(
+        id = 1L,
+        email = "test@example.com",
+        firstName = "Test",
+        lastName = "User",
+        isAdmin = false,
+        totpEnabled = true,
+    )
+    private val fakeTokens = AuthTokens(
+        accessToken = "access-token-xyz",
+        tokenType = "bearer",
+        expiresIn = 1800,
+    )
+
     @Before
     fun setUp() {
         useCase = Verify2faUseCase(repository)
@@ -30,7 +46,8 @@ class Verify2faUseCaseTest {
 
     @Test
     fun `verify2fa success returns Result success`() = runTest {
-        coEvery { repository.verify2fa("session-token", "123456") } returns Result.success(Unit)
+        coEvery { repository.verify2fa("session-token", "123456") } returns
+            Result.success(Pair(fakeUser, fakeTokens))
 
         val result = useCase("session-token", "123456")
 
@@ -65,7 +82,8 @@ class Verify2faUseCaseTest {
     fun `verify2fa delegates to repository with correct args`() = runTest {
         val sessionToken = "abc-session-token"
         val totpCode = "654321"
-        coEvery { repository.verify2fa(sessionToken, totpCode) } returns Result.success(Unit)
+        coEvery { repository.verify2fa(sessionToken, totpCode) } returns
+            Result.success(Pair(fakeUser, fakeTokens))
 
         useCase(sessionToken, totpCode)
 
@@ -80,5 +98,18 @@ class Verify2faUseCaseTest {
         val result = useCase("session-token", "")
 
         assertTrue("Expected failure for empty code", result.isFailure)
+    }
+
+    @Test
+    fun `verify2fa success returns user and tokens`() = runTest {
+        coEvery { repository.verify2fa("session-token", "123456") } returns
+            Result.success(Pair(fakeUser, fakeTokens))
+
+        val result = useCase("session-token", "123456")
+
+        assertTrue(result.isSuccess)
+        val (user, tokens) = result.getOrThrow()
+        assertTrue("Expected user email", user.email == "test@example.com")
+        assertTrue("Expected access token", tokens.accessToken == "access-token-xyz")
     }
 }

@@ -106,7 +106,7 @@ class AuthRepositoryImpl @Inject constructor(
         dataStore.clearAll()
     }
 
-    override suspend fun verify2fa(sessionToken: String, totpCode: String): Result<Unit> =
+    override suspend fun verify2fa(sessionToken: String, totpCode: String): Result<Pair<User, AuthTokens>> =
         runCatching {
             val response = authApi.verify2fa(TotpVerifyRequestDto(sessionToken, totpCode))
             if (!response.isSuccessful) {
@@ -116,6 +116,19 @@ class AuthRepositoryImpl @Inject constructor(
                 }
                 error("2FA verification failed: HTTP ${response.code()}")
             }
+            val body = response.body() ?: error("Empty 2FA verify response")
+            val userDto = body.user ?: error("2FA verify response missing user")
+            val tokensDto = body.tokens ?: error("2FA verify response missing tokens")
+
+            val user = userDto.toDomain()
+            val tokens = tokensDto.toDomain()
+
+            // Persist user data and tokens after successful 2FA (same as login)
+            dataStore.writeString(DataStoreKeys.ACCESS_TOKEN, tokens.accessToken)
+            dataStore.writeLong(DataStoreKeys.USER_ID, user.id)
+            dataStore.writeBoolean(DataStoreKeys.IS_ADMIN, user.isAdmin)
+
+            Pair(user, tokens)
         }
 
     override suspend fun getPortfolios(): Result<List<Portfolio>> = runCatching {

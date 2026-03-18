@@ -73,6 +73,11 @@ class PnlWidget : GlanceAppWidget() {
     }
 
     companion object {
+        // Plain SharedPreferences is intentional here. This stores only display
+        // period preferences ("day", "week", "month") — non-sensitive UI config.
+        // EncryptedSharedPreferences would add overhead and KeyStore fragility for
+        // no security benefit. Sensitive data (tokens, portfolio IDs) is stored in
+        // EncryptedDataStore, never here.
         const val PREFS_NAME = "pnl_widget_prefs"
         const val DEFAULT_PERIOD = "day"
 
