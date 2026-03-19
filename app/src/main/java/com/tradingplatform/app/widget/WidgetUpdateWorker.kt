@@ -1,6 +1,7 @@
 package com.tradingplatform.app.widget
 
 import android.content.Context
+import androidx.core.content.edit
 import androidx.glance.appwidget.updateAll
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
@@ -58,22 +59,41 @@ class WidgetUpdateWorker @AssistedInject constructor(
 ) : CoroutineWorker(context, workerParams) {
 
     companion object {
+        private const val TAG = "WidgetUpdateWorker"
         private const val POSITION_TTL_MS = 5 * 60 * 1000L            // 5 min
         private const val PNL_TTL_MS = 5 * 60 * 1000L                 // 5 min
         private const val QUOTE_TTL_MS = 10 * 60 * 1000L              // 10 min
         private const val ALERT_RETENTION_MS = 30L * 24 * 60 * 60 * 1000L  // 30 jours
+
+        // SharedPreferences — données non sensibles (timestamp d'UI uniquement)
+        const val SYNC_PREFS_NAME = "widget_sync_prefs"
+        const val KEY_LAST_SYNC_ATTEMPT = "widget_last_sync_attempt"
+
+        /**
+         * Lit le timestamp de la dernière tentative de sync (réussie ou non).
+         * Retourne 0L si aucune tentative n'a encore eu lieu.
+         * Non sensible — stocké en SharedPreferences plain.
+         */
+        fun readLastSyncAttempt(context: Context): Long =
+            context.getSharedPreferences(SYNC_PREFS_NAME, Context.MODE_PRIVATE)
+                .getLong(KEY_LAST_SYNC_ATTEMPT, 0L)
     }
 
     override suspend fun doWork(): Result {
+        // 0. Enregistrer le timestamp de cette tentative (réussie ou non) — non sensible,
+        //    stocké en SharedPreferences plain pour être lu depuis les widgets sans Hilt.
+        applicationContext.getSharedPreferences(SYNC_PREFS_NAME, Context.MODE_PRIVATE)
+            .edit { putLong(KEY_LAST_SYNC_ATTEMPT, System.currentTimeMillis()) }
+
         // 1. Vérification VPN — si absent, garder le cache daté affiché sans retry
         if (vpnManager.state.value !is VpnState.Connected) {
-            Timber.d("WidgetUpdateWorker — VPN not connected, skipping sync (cache retained)")
+            Timber.tag(TAG).d("WidgetUpdateWorker — VPN not connected, skipping sync (cache retained)")
             return Result.success()
         }
 
         val portfolioId = dataStore.readString(DataStoreKeys.PORTFOLIO_ID)
         if (portfolioId == null) {
-            Timber.d("WidgetUpdateWorker — portfolioId not found in DataStore, skipping sync")
+            Timber.tag(TAG).d("WidgetUpdateWorker — portfolioId not found in DataStore, skipping sync")
             return Result.success()
         }
 
@@ -83,34 +103,34 @@ class WidgetUpdateWorker @AssistedInject constructor(
         try {
             syncPositions(portfolioId)
         } catch (e: IOException) {
-            Timber.w(e, "WidgetUpdateWorker — positions sync failed (IOException), will retry")
+            Timber.tag(TAG).w(e, "WidgetUpdateWorker — positions sync failed (IOException), will retry")
             anyRetryNeeded = true
         } catch (e: VpnNotConnectedException) {
-            Timber.d("WidgetUpdateWorker — VPN disconnected during positions sync")
+            Timber.tag(TAG).d("WidgetUpdateWorker — VPN disconnected during positions sync")
         }
 
         // 2b. Sync PnL — indépendant des positions et des autres blocs
         try {
             syncPnl(portfolioId)
         } catch (e: IOException) {
-            Timber.w(e, "WidgetUpdateWorker — PnL sync failed (IOException), will retry")
+            Timber.tag(TAG).w(e, "WidgetUpdateWorker — PnL sync failed (IOException), will retry")
             anyRetryNeeded = true
         } catch (e: VpnNotConnectedException) {
-            Timber.d("WidgetUpdateWorker — VPN disconnected during PnL sync")
+            Timber.tag(TAG).d("WidgetUpdateWorker — VPN disconnected during PnL sync")
         }
 
         // 3. Sync quotes — indépendant du portfolio
         try {
             val anyQuoteFailed = syncQuotes()
             if (anyQuoteFailed) {
-                Timber.w("WidgetUpdateWorker — some quotes failed (IOException), will retry")
+                Timber.tag(TAG).w("WidgetUpdateWorker — some quotes failed (IOException), will retry")
                 anyRetryNeeded = true
             }
         } catch (e: IOException) {
-            Timber.w(e, "WidgetUpdateWorker — quotes sync failed entirely (IOException), will retry")
+            Timber.tag(TAG).w(e, "WidgetUpdateWorker — quotes sync failed entirely (IOException), will retry")
             anyRetryNeeded = true
         } catch (e: VpnNotConnectedException) {
-            Timber.d("WidgetUpdateWorker — VPN disconnected during quotes sync")
+            Timber.tag(TAG).d("WidgetUpdateWorker — VPN disconnected during quotes sync")
         }
 
         // 4. Purge des alertes (30 jours / 500 max) — local uniquement, jamais réseau
@@ -118,14 +138,14 @@ class WidgetUpdateWorker @AssistedInject constructor(
         try {
             purgeExpiredAlerts()
         } catch (e: Exception) {
-            Timber.w(e, "WidgetUpdateWorker — alert purge failed (non-blocking)")
+            Timber.tag(TAG).w(e, "WidgetUpdateWorker — alert purge failed (non-blocking)")
         }
 
         // 5. Rafraîchir tous les widgets Glance — ils relisent Room dans provideGlance()
         try {
             refreshAllWidgets()
         } catch (e: Exception) {
-            Timber.w(e, "WidgetUpdateWorker — widget refresh failed (non-blocking)")
+            Timber.tag(TAG).w(e, "WidgetUpdateWorker — widget refresh failed (non-blocking)")
         }
 
         return if (anyRetryNeeded) Result.retry() else Result.success()
@@ -149,7 +169,7 @@ class WidgetUpdateWorker @AssistedInject constructor(
 
         getPositionsUseCase(portfolioId)
             .onSuccess { positions ->
-                Timber.d("WidgetUpdateWorker — positions synced: ${positions.size} items")
+                Timber.tag(TAG).d("WidgetUpdateWorker — positions synced: ${positions.size} items")
                 // Purge après upsert réussi (le Repository a déjà fait l'upsert)
                 positionDao.deleteOlderThan(now - POSITION_TTL_MS)
             }
@@ -157,7 +177,7 @@ class WidgetUpdateWorker @AssistedInject constructor(
                 when (e) {
                     is VpnNotConnectedException -> throw e
                     is IOException -> throw e
-                    else -> Timber.w(e, "WidgetUpdateWorker — positions sync error (non-retryable): ${e.message}")
+                    else -> Timber.tag(TAG).w(e, "WidgetUpdateWorker — positions sync error (non-retryable): ${e.message}")
                 }
             }
     }
@@ -176,7 +196,7 @@ class WidgetUpdateWorker @AssistedInject constructor(
 
         getPnlUseCase(portfolioId, PnlPeriod.DAY)
             .onSuccess {
-                Timber.d("WidgetUpdateWorker — PnL DAY synced")
+                Timber.tag(TAG).d("WidgetUpdateWorker — PnL DAY synced")
                 // Purge après upsert réussi
                 pnlDao.deleteOlderThan(now - PNL_TTL_MS)
             }
@@ -184,7 +204,7 @@ class WidgetUpdateWorker @AssistedInject constructor(
                 when (e) {
                     is VpnNotConnectedException -> throw e
                     is IOException -> throw e
-                    else -> Timber.w(e, "WidgetUpdateWorker — PnL sync error (non-retryable): ${e.message}")
+                    else -> Timber.tag(TAG).w(e, "WidgetUpdateWorker — PnL sync error (non-retryable): ${e.message}")
                 }
             }
     }
@@ -214,23 +234,23 @@ class WidgetUpdateWorker @AssistedInject constructor(
         for (symbol in symbolsToSync) {
             getQuoteUseCase(symbol)
                 .onSuccess {
-                    Timber.d("WidgetUpdateWorker — quote synced: $symbol @ ${it.price}")
+                    Timber.tag(TAG).d("WidgetUpdateWorker — quote synced: $symbol @ ${it.price}")
                 }
                 .onFailure { e ->
                     when (e) {
                         is VpnNotConnectedException -> throw e
                         is IOException -> {
-                            Timber.w(e, "WidgetUpdateWorker — quote sync failed for $symbol, continuing with others")
+                            Timber.tag(TAG).w(e, "WidgetUpdateWorker — quote sync failed for $symbol, continuing with others")
                             anySymbolFailed = true
                         }
-                        else -> Timber.w(e, "WidgetUpdateWorker — quote error for $symbol (non-retryable): ${e.message}")
+                        else -> Timber.tag(TAG).w(e, "WidgetUpdateWorker — quote error for $symbol (non-retryable): ${e.message}")
                     }
                 }
         }
 
         // Purge après toutes les syncs (même partielle — au moins un symbole réussi suffit)
         quoteDao.deleteOlderThan(now - QUOTE_TTL_MS)
-        Timber.d("WidgetUpdateWorker — quotes purged (TTL ${QUOTE_TTL_MS / 60_000} min)")
+        Timber.tag(TAG).d("WidgetUpdateWorker — quotes purged (TTL ${QUOTE_TTL_MS / 60_000} min)")
 
         return anySymbolFailed
     }
@@ -245,7 +265,7 @@ class WidgetUpdateWorker @AssistedInject constructor(
         val cutoff = System.currentTimeMillis() - ALERT_RETENTION_MS
         alertDao.deleteOlderThan(cutoff)
         alertDao.keepOnlyLatest500()
-        Timber.d("WidgetUpdateWorker — alerts purged (30 days / 500 max)")
+        Timber.tag(TAG).d("WidgetUpdateWorker — alerts purged (30 days / 500 max)")
     }
 
     // ── Rafraîchissement widgets ───────────────────────────────────────────────
@@ -261,6 +281,6 @@ class WidgetUpdateWorker @AssistedInject constructor(
         AlertsWidget().updateAll(applicationContext)
         SystemStatusWidget().updateAll(applicationContext)
         QuoteWidget().updateAll(applicationContext)
-        Timber.d("WidgetUpdateWorker — all widgets refreshed")
+        Timber.tag(TAG).d("WidgetUpdateWorker — all widgets refreshed")
     }
 }

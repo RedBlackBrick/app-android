@@ -28,6 +28,7 @@ import timber.log.Timber
 class WireGuardVpnService : VpnService() {
 
     companion object {
+        private const val TAG = "WireGuardVpnService"
         const val ACTION_CONNECT = "com.tradingplatform.app.vpn.ACTION_CONNECT"
         const val ACTION_DISCONNECT = "com.tradingplatform.app.vpn.ACTION_DISCONNECT"
 
@@ -45,17 +46,17 @@ class WireGuardVpnService : VpnService() {
         return when (intent?.action) {
             ACTION_CONNECT -> {
                 startForeground(NOTIFICATION_ID, buildNotification("VPN connecté"))
-                Timber.i("WireGuardVpnService: foreground started (CONNECT)")
+                Timber.tag(TAG).i("WireGuardVpnService: foreground started (CONNECT)")
                 START_STICKY
             }
             ACTION_DISCONNECT -> {
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
-                Timber.i("WireGuardVpnService: stopped (DISCONNECT)")
+                Timber.tag(TAG).i("WireGuardVpnService: stopped (DISCONNECT)")
                 START_NOT_STICKY
             }
             else -> {
-                Timber.w("WireGuardVpnService: unknown action — ${intent?.action}")
+                Timber.tag(TAG).w("WireGuardVpnService: unknown action — ${intent?.action}")
                 START_NOT_STICKY
             }
         }
@@ -63,7 +64,7 @@ class WireGuardVpnService : VpnService() {
 
     override fun onDestroy() {
         super.onDestroy()
-        Timber.i("WireGuardVpnService: destroyed")
+        Timber.tag(TAG).i("WireGuardVpnService: destroyed")
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────

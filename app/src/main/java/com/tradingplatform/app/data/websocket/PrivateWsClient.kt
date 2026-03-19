@@ -101,8 +101,10 @@ class PrivateWsClient @Inject constructor(
     // ── Lifecycle app ──────────────────────────────────────────────────────────
 
     init {
-        // Enregistrer l'observateur sur le thread principal (ProcessLifecycleOwner l'exige)
-        appScope.launch(Dispatchers.Main) {
+        // Enregistrer l'observateur sur le thread principal (ProcessLifecycleOwner l'exige).
+        // Dispatchers.Main.immediate : si on est déjà sur Main, exécution synchrone immédiate
+        // (pas de dispatch supplémentaire), sinon dispatch normal. Non-bloquant dans tous les cas.
+        appScope.launch(Dispatchers.Main.immediate) {
             ProcessLifecycleOwner.get().lifecycle.addObserver(this@PrivateWsClient)
         }
     }

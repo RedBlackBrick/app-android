@@ -37,6 +37,10 @@ class CsrfInterceptor @Inject constructor(
     private val applicationScope: CoroutineScope,
 ) : Interceptor {
 
+    companion object {
+        private const val TAG = "CsrfInterceptor"
+    }
+
     private val mutex = Mutex()
     @Volatile private var csrfToken: String? = null
 
@@ -102,13 +106,13 @@ class CsrfInterceptor @Inject constructor(
                     if (csrfToken == null) fetchCsrfToken()
                 }
             } catch (e: Exception) {
-                Timber.w(e, "CsrfInterceptor: preFetch failed (non-blocking)")
+                Timber.tag(TAG).w(e, "CsrfInterceptor: preFetch failed (non-blocking)")
             }
         }
     }
 
     private fun fetchCsrfToken(): String {
-        Timber.d("CsrfInterceptor: fetching new CSRF token")
+        Timber.tag(TAG).d("CsrfInterceptor: fetching new CSRF token")
         val req = Request.Builder()
             .url("$baseUrl/csrf-token")
             .get()
@@ -116,7 +120,7 @@ class CsrfInterceptor @Inject constructor(
         val token = try {
             bareHttpClient.newCall(req).execute().use { resp ->
                 if (!resp.isSuccessful) {
-                    Timber.e("CsrfInterceptor: fetch failed (HTTP ${resp.code})")
+                    Timber.tag(TAG).e("CsrfInterceptor: fetch failed (HTTP ${resp.code})")
                     null
                 } else {
                     val body = resp.body?.string()
@@ -129,11 +133,11 @@ class CsrfInterceptor @Inject constructor(
                 }
             }
         } catch (e: IOException) {
-            Timber.e(e, "CsrfInterceptor: fetch failed (network error)")
+            Timber.tag(TAG).e(e, "CsrfInterceptor: fetch failed (network error)")
             null
         }
         if (token == null) {
-            Timber.e("CsrfInterceptor: unable to obtain CSRF token")
+            Timber.tag(TAG).e("CsrfInterceptor: unable to obtain CSRF token")
             throw IOException("Failed to fetch CSRF token")
         }
         csrfToken = token

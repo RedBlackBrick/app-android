@@ -6,14 +6,19 @@ import com.tradingplatform.app.domain.model.PnlPeriod
 import com.tradingplatform.app.domain.model.PnlSummary
 import com.tradingplatform.app.domain.model.Quote
 import com.tradingplatform.app.domain.usecase.auth.GetPortfolioIdUseCase
+import com.tradingplatform.app.domain.usecase.market.GetQuoteStreamUseCase
 import com.tradingplatform.app.domain.usecase.market.GetQuoteUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPnlUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPortfolioNavUseCase
+import com.tradingplatform.app.domain.usecase.portfolio.GetPortfolioWsUpdatesUseCase
 import com.tradingplatform.app.util.MainDispatcherRule
 import com.tradingplatform.app.vpn.VpnNotConnectedException
 import io.mockk.coEvery
+import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -22,6 +27,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import java.io.IOException
 import java.math.BigDecimal
 import java.time.Instant
 
@@ -34,7 +40,9 @@ class DashboardViewModelTest {
     private val getPnlUseCase = mockk<GetPnlUseCase>()
     private val getPortfolioNavUseCase = mockk<GetPortfolioNavUseCase>()
     private val getQuoteUseCase = mockk<GetQuoteUseCase>()
+    private val getQuoteStreamUseCase = mockk<GetQuoteStreamUseCase>()
     private val getPortfolioIdUseCase = mockk<GetPortfolioIdUseCase>()
+    private val getPortfolioWsUpdatesUseCase = mockk<GetPortfolioWsUpdatesUseCase>()
 
     private lateinit var viewModel: DashboardViewModel
 
@@ -78,13 +86,19 @@ class DashboardViewModelTest {
         coEvery { getPortfolioNavUseCase(any()) } returns Result.success(fakeNav)
         coEvery { getPnlUseCase(any(), any()) } returns Result.success(fakePnl)
         coEvery { getQuoteUseCase(any()) } returns Result.success(fakeQuote)
+        // Portfolio WS updates — flux vide par défaut (le WS privé n'est pas l'objet des tests ici)
+        every { getPortfolioWsUpdatesUseCase() } returns emptyFlow()
+        // WS public — par défaut, échec immédiat → déclenche le fallback polling REST
+        every { getQuoteStreamUseCase(any()) } returns flow { throw IOException("WS not available in tests") }
     }
 
     private fun createViewModel(): DashboardViewModel = DashboardViewModel(
         getPnlUseCase = getPnlUseCase,
         getPortfolioNavUseCase = getPortfolioNavUseCase,
         getQuoteUseCase = getQuoteUseCase,
+        getQuoteStreamUseCase = getQuoteStreamUseCase,
         getPortfolioIdUseCase = getPortfolioIdUseCase,
+        getPortfolioWsUpdatesUseCase = getPortfolioWsUpdatesUseCase,
     )
 
     // ── portfolioId ───────────────────────────────────────────────────────────
@@ -131,10 +145,11 @@ class DashboardViewModelTest {
         assertTrue("Expected Error, got $state", state is PnlUiState.Error)
     }
 
-    // ── QuoteUiState ──────────────────────────────────────────────────────────
+    // ── QuoteUiState — via polling REST fallback ───────────────────────────────
+    // Les tests de quote passent par le chemin de fallback REST (WS mocké en échec immédiat).
 
     @Test
-    fun `quote emits Success when use case returns data`() = runTest {
+    fun `quote emits Success when REST use case returns data`() = runTest {
         viewModel = createViewModel()
         val state = viewModel.uiState.value.quote
         assertTrue("Expected Success, got $state", state is QuoteUiState.Success)
@@ -253,5 +268,20 @@ class DashboardViewModelTest {
         val state = viewModel.uiState.value
         assertNotNull(state)
         assertTrue(state.navSummary is NavUiState.Success || state.navSummary is NavUiState.Loading)
+    }
+
+    // ── WS public quote subscription ──────────────────────────────────────────
+
+    @Test
+    fun `quote emits Success from WS stream when available`() = runTest {
+        val wsQuote = fakeQuote.copy(source = "ws_public")
+        // WS stream retourne un quote immédiatement — pas d'erreur
+        every { getQuoteStreamUseCase(any()) } returns flow { emit(wsQuote) }
+
+        viewModel = createViewModel()
+
+        val state = viewModel.uiState.value.quote
+        assertTrue("Expected Success from WS, got $state", state is QuoteUiState.Success)
+        assertEquals("ws_public", (state as QuoteUiState.Success).data.source)
     }
 }

@@ -53,11 +53,16 @@ class AlertsWidget : GlanceAppWidget() {
         val unreadCount = allAlerts.count { !it.read }
         val latestAlert = allAlerts.firstOrNull()  // déjà trié par received_at DESC
 
+        // Timestamp de la dernière tentative de sync Worker (pour la purge des alertes)
+        // Les alertes elles-mêmes viennent de FCM — le Worker effectue seulement la purge.
+        val lastSyncAttempt = WidgetUpdateWorker.readLastSyncAttempt(context)
+
         provideContent {
             GlanceTheme {
                 AlertsWidgetContent(
                     unreadCount = unreadCount,
                     latestAlert = latestAlert,
+                    lastSyncAttempt = lastSyncAttempt,
                 )
             }
         }
@@ -68,6 +73,7 @@ class AlertsWidget : GlanceAppWidget() {
 private fun AlertsWidgetContent(
     unreadCount: Int,
     latestAlert: AlertEntity?,
+    lastSyncAttempt: Long,
 ) {
     Column(
         modifier = GlanceModifier
@@ -77,7 +83,7 @@ private fun AlertsWidgetContent(
             .clickable(actionStartActivity<MainActivity>()),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // En-tête avec compteur non lus
+        // En-tête avec compteur non lus et timestamp de dernière activité
         Row(
             modifier = GlanceModifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -98,6 +104,15 @@ private fun AlertsWidgetContent(
                         color = GlanceTheme.colors.primary,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
+                    ),
+                )
+            } else if (lastSyncAttempt > 0L) {
+                // Afficher le timestamp de la dernière purge/sync Worker
+                Text(
+                    text = "Sync ${formatAlertTime(lastSyncAttempt)}",
+                    style = TextStyle(
+                        color = GlanceTheme.colors.onSurfaceVariant,
+                        fontSize = 10.sp,
                     ),
                 )
             }

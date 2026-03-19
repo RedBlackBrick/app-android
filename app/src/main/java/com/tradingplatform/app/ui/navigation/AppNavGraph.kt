@@ -135,6 +135,25 @@ class AppNavViewModel @Inject constructor(
         biometricLockManager.unlock()
     }
 
+    /**
+     * Re-reads [isAdmin] from [EncryptedDataStore] via [GetAuthContextUseCase].
+     *
+     * Must be called after a successful login (direct or via 2FA) so that the
+     * [BottomNavBar] Devices tab and the admin guard in the NavHost reflect the
+     * newly persisted flag without requiring an app restart.
+     *
+     * [AppNavViewModel._isAdmin] is set once in [init] from the DataStore value
+     * present at launch (typically `false` for a fresh login), so it must be
+     * refreshed once [AuthRepositoryImpl] has written the real value.
+     */
+    fun refreshIsAdmin() {
+        viewModelScope.launch {
+            val context = getAuthContextUseCase()
+            _isAdmin.value = context.isAdmin
+            Timber.d("AppNavViewModel: refreshIsAdmin → isAdmin=${context.isAdmin}")
+        }
+    }
+
     init {
         viewModelScope.launch {
             val context = getAuthContextUseCase()
@@ -305,6 +324,11 @@ fun AppNavGraph(
             composable(Screen.Login.route) {
                 LoginScreen(
                     onNavigateToDashboard = {
+                        // Refresh isAdmin before navigating — LoginUseCase has just written the
+                        // real value to EncryptedDataStore; the startup read in init{} returned
+                        // false (no token yet). Without this refresh the Devices tab stays
+                        // hidden for admins who log in during this app session.
+                        appNavViewModel.refreshIsAdmin()
                         navController.navigate(Screen.Dashboard.route) {
                             popUpTo(Screen.Login.route) { inclusive = true }
                         }
@@ -319,6 +343,8 @@ fun AppNavGraph(
             composable(route = Screen.Totp.route) {
                 TotpScreen(
                     onNavigateToDashboard = {
+                        // Same refresh as the direct-login path — 2FA also writes is_admin.
+                        appNavViewModel.refreshIsAdmin()
                         navController.navigate(Screen.Dashboard.route) {
                             popUpTo(Screen.Login.route) { inclusive = true }
                         }

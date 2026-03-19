@@ -62,12 +62,16 @@ class PnlWidget : GlanceAppWidget() {
         val period = readConfiguredPeriod(context, appWidgetId)
         val pnlSnapshot = pnlDao.getLatestByPeriod(period)
 
+        // Timestamp de la dernière tentative de sync (non sensible — SharedPreferences plain)
+        val lastSyncAttempt = WidgetUpdateWorker.readLastSyncAttempt(context)
+
         provideContent {
             GlanceTheme {
                 PnlWidgetContent(
                     pnlSnapshot = pnlSnapshot,
                     hasPortfolio = portfolioId != null,
                     periodLabel = periodDisplayLabel(period),
+                    lastSyncAttempt = lastSyncAttempt,
                 )
             }
         }
@@ -108,6 +112,7 @@ private fun PnlWidgetContent(
     pnlSnapshot: PnlSnapshotEntity?,
     hasPortfolio: Boolean,
     periodLabel: String,
+    lastSyncAttempt: Long,
 ) {
     Column(
         modifier = GlanceModifier
@@ -152,8 +157,13 @@ private fun PnlWidgetContent(
                     fontWeight = FontWeight.Bold,
                 ),
             )
+            val waitingLabel = if (lastSyncAttempt > 0L) {
+                "Tentative ${formatSyncTime(lastSyncAttempt)}"
+            } else {
+                "En attente de sync"
+            }
             Text(
-                text = "En attente de sync",
+                text = waitingLabel,
                 style = TextStyle(
                     color = GlanceTheme.colors.onSurfaceVariant,
                     fontSize = 10.sp,

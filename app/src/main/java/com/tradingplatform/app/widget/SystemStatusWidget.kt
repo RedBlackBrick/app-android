@@ -66,11 +66,15 @@ class SystemStatusWidget : GlanceAppWidget() {
             emptyList()
         }
 
+        // Timestamp de la dernière tentative de sync (non sensible — SharedPreferences plain)
+        val lastSyncAttempt = WidgetUpdateWorker.readLastSyncAttempt(context)
+
         provideContent {
             GlanceTheme {
                 SystemStatusWidgetContent(
                     isAdmin = isAdmin,
                     devices = devices,
+                    lastSyncAttempt = lastSyncAttempt,
                 )
             }
         }
@@ -81,6 +85,7 @@ class SystemStatusWidget : GlanceAppWidget() {
 private fun SystemStatusWidgetContent(
     isAdmin: Boolean,
     devices: List<DeviceEntity>,
+    lastSyncAttempt: Long,
 ) {
     Column(
         modifier = GlanceModifier
@@ -115,10 +120,16 @@ private fun SystemStatusWidgetContent(
                 ),
                 modifier = GlanceModifier.defaultWeight(),
             )
-            if (devices.isNotEmpty()) {
-                val latestSync = devices.maxOf { it.syncedAt }
+            val syncLabel = if (devices.isNotEmpty()) {
+                "Sync ${formatSyncTime(devices.maxOf { it.syncedAt })}"
+            } else if (lastSyncAttempt > 0L) {
+                "Tentative ${formatSyncTime(lastSyncAttempt)}"
+            } else {
+                null
+            }
+            if (syncLabel != null) {
                 Text(
-                    text = "Sync ${formatSyncTime(latestSync)}",
+                    text = syncLabel,
                     style = TextStyle(
                         color = GlanceTheme.colors.onSurfaceVariant,
                         fontSize = 10.sp,

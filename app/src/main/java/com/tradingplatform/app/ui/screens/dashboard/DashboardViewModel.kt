@@ -8,12 +8,14 @@ import com.tradingplatform.app.domain.model.PnlPeriod
 import com.tradingplatform.app.domain.model.PnlSummary
 import com.tradingplatform.app.domain.model.Quote
 import com.tradingplatform.app.domain.usecase.auth.GetPortfolioIdUseCase
+import com.tradingplatform.app.domain.usecase.market.GetQuoteStreamUseCase
 import com.tradingplatform.app.domain.usecase.market.GetQuoteUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPnlUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPortfolioNavUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPortfolioWsUpdatesUseCase
 import com.tradingplatform.app.vpn.VpnNotConnectedException
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -46,7 +48,7 @@ sealed interface QuoteUiState {
     data class Success(val data: Quote) : QuoteUiState
 
     /**
-     * Dernière valeur connue, affichée quand le VPN est inactif.
+     * Dernière valeur connue, affichée quand le VPN est inactif ou le WS en échec.
      * Indique visuellement que le cours n'est plus live.
      */
     data class Stale(val data: Quote) : QuoteUiState
@@ -61,20 +63,33 @@ data class DashboardUiState(
     val selectedPeriod: PnlPeriod = PnlPeriod.DAY,
 )
 
-// ── Poll interval ────────────────────────────────────────────────────────────
+// ── Poll interval (fallback REST) ─────────────────────────────────────────────
 private const val QUOTE_POLL_INTERVAL_MS = 30_000L
+private const val TAG = "DashboardViewModel"
 
 @HiltViewModel
 class DashboardViewModel @Inject constructor(
     private val getPnlUseCase: GetPnlUseCase,
     private val getPortfolioNavUseCase: GetPortfolioNavUseCase,
     private val getQuoteUseCase: GetQuoteUseCase,
+    private val getQuoteStreamUseCase: GetQuoteStreamUseCase,
     private val getPortfolioIdUseCase: GetPortfolioIdUseCase,
     private val getPortfolioWsUpdatesUseCase: GetPortfolioWsUpdatesUseCase,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(DashboardUiState())
     val uiState: StateFlow<DashboardUiState> = _uiState.asStateFlow()
+
+    /**
+     * Job du polling REST en cours — annulé quand le WS public prend le relais,
+     * rétabli si le WS échoue.
+     */
+    private var pollingJob: Job? = null
+
+    /**
+     * Job d'abonnement au WS public en cours.
+     */
+    private var wsQuoteJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -88,25 +103,15 @@ class DashboardViewModel @Inject constructor(
 
         // Collect real-time portfolio updates from the private WebSocket.
         // On chaque portfolio_update, re-fetch NAV et PnL pour avoir les données fraîches.
-        // Le polling REST ci-dessous reste actif en parallèle comme fallback.
         // Independent top-level launch — cancellation is clear, not nested inside the init launch.
         viewModelScope.launch {
             collectPortfolioWsUpdates()
         }
 
-        // TODO: Replace REST polling with WebSocket subscription for real-time market data.
-        //  Server supports: ws(s)://<host>/ws/public with {"action": "subscribe", "symbols": ["AAPL"]}
-        //  Message type: "market_data" with bid/ask/mid/timestamp fields.
-        //  See trading-platform2 CLAUDE.md WebSocket section for full protocol details.
-
-        // Start quote polling loop — while(isActive) never uses repeatOnLifecycle
-        // (which is a Lifecycle extension, not available in ViewModel)
-        viewModelScope.launch {
-            while (isActive) {
-                fetchQuote(AppDefaults.DEFAULT_QUOTE_SYMBOL)
-                delay(QUOTE_POLL_INTERVAL_MS)
-            }
-        }
+        // Démarrer l'abonnement WS public pour les cours en temps réel.
+        // Si le WS échoue (erreur de connexion, VPN coupé), le fallback polling REST
+        // prend le relais via startPollingFallback().
+        startWsQuoteSubscription(AppDefaults.DEFAULT_QUOTE_SYMBOL)
     }
 
     /**
@@ -130,12 +135,86 @@ class DashboardViewModel @Inject constructor(
         getPortfolioWsUpdatesUseCase()
             .debounce(500L)  // ignorer les rafales — max 1 update/500ms
             .collect {
-                Timber.d("DashboardViewModel: portfolio_update received via WS — refreshing NAV/PnL")
+                Timber.tag(TAG).d("DashboardViewModel: portfolio_update received via WS — refreshing NAV/PnL")
                 val portfolioId = _uiState.value.portfolioId
                 val period = _uiState.value.selectedPeriod
                 viewModelScope.launch { fetchNav(portfolioId) }
                 viewModelScope.launch { fetchPnl(portfolioId, period) }
             }
+    }
+
+    /**
+     * Démarre l'abonnement au WebSocket public pour les cours en temps réel.
+     *
+     * Le flow [GetQuoteStreamUseCase] active la subscription WS à la collecte
+     * et la désactive à l'annulation. Si la connexion WS échoue (exception
+     * non transitoire), on bascule sur le polling REST via [startPollingFallback].
+     *
+     * La gestion VPN est identique au polling : [VpnNotConnectedException] transite
+     * le cours vers [QuoteUiState.Stale] sans bloquer l'UI.
+     */
+    private fun startWsQuoteSubscription(symbol: String) {
+        wsQuoteJob?.cancel()
+        pollingJob?.cancel()
+        pollingJob = null
+
+        wsQuoteJob = viewModelScope.launch {
+            try {
+                Timber.tag(TAG).d("DashboardViewModel: starting public WS quote subscription for $symbol")
+                getQuoteStreamUseCase(symbol).collect { quote ->
+                    _uiState.update { it.copy(quote = QuoteUiState.Success(quote)) }
+                }
+            } catch (e: VpnNotConnectedException) {
+                // VPN coupé — garder la valeur précédente, basculer en Stale
+                _uiState.update { state ->
+                    val newQuote = when (val prev = state.quote) {
+                        is QuoteUiState.Success -> QuoteUiState.Stale(prev.data)
+                        is QuoteUiState.Stale -> prev
+                        else -> state.quote
+                    }
+                    state.copy(quote = newQuote)
+                }
+                // Basculer sur le polling REST comme fallback — le VPN peut se reconnecter
+                Timber.tag(TAG).w("DashboardViewModel: VPN not connected — falling back to REST polling")
+                startPollingFallback(symbol)
+            } catch (e: SocketTimeoutException) {
+                // Timeout transitoire — basculer sur le polling REST
+                Timber.tag(TAG).w("DashboardViewModel: WS quote timeout — falling back to REST polling")
+                startPollingFallback(symbol)
+            } catch (e: IOException) {
+                // Erreur réseau — basculer sur le polling REST
+                Timber.tag(TAG).w(e, "DashboardViewModel: WS quote IO error — falling back to REST polling")
+                startPollingFallback(symbol)
+            } catch (e: Exception) {
+                // Autre erreur non transitoire — basculer sur le polling REST
+                Timber.tag(TAG).e(e, "DashboardViewModel: unexpected WS error — falling back to REST polling")
+                startPollingFallback(symbol)
+            }
+        }
+    }
+
+    /**
+     * Polling REST de secours — activé si le WebSocket public est indisponible.
+     *
+     * Utilise `while(isActive)` dans [viewModelScope] (jamais `repeatOnLifecycle`
+     * qui est une extension Lifecycle — non disponible dans un ViewModel).
+     * Côté UI, `collectAsStateWithLifecycle()` suspend automatiquement la
+     * collection quand l'app est en arrière-plan.
+     *
+     * Gestion des exceptions (CLAUDE.md §2 pattern polling Dashboard) :
+     * - [VpnNotConnectedException] → transition en Stale, poursuite du polling
+     * - [SocketTimeoutException] / [IOException] → transitoire, état inchangé
+     * - Autre → affiche erreur
+     */
+    private fun startPollingFallback(symbol: String) {
+        pollingJob?.cancel()
+        pollingJob = viewModelScope.launch {
+            Timber.tag(TAG).d("DashboardViewModel: starting REST polling fallback for $symbol")
+            while (isActive) {
+                fetchQuote(symbol)
+                delay(QUOTE_POLL_INTERVAL_MS)
+            }
+        }
     }
 
     // ── Public actions ────────────────────────────────────────────────────────
@@ -153,7 +232,11 @@ class DashboardViewModel @Inject constructor(
         viewModelScope.launch {
             launch { fetchNav(portfolioId) }
             launch { fetchPnl(portfolioId, period) }
-            launch { fetchQuote(AppDefaults.DEFAULT_QUOTE_SYMBOL) }
+        }
+        // Pour le cours : forcer un fetch REST immédiat si on est en mode polling,
+        // ou si le WS est actif le prochain update arrivera naturellement.
+        if (pollingJob?.isActive == true) {
+            viewModelScope.launch { fetchQuote(AppDefaults.DEFAULT_QUOTE_SYMBOL) }
         }
     }
 
@@ -186,7 +269,7 @@ class DashboardViewModel @Inject constructor(
     }
 
     /**
-     * Fetches a single quote. Three distinct error cases (CLAUDE.md §2 Dashboard polling pattern):
+     * Fetches a single quote via REST (fallback). Three distinct error cases (CLAUDE.md §2):
      * - VpnNotConnectedException → transition to Stale (keep last value) — not a blocking error
      * - SocketTimeoutException / IOException → transient, keep previous state
      * - Other → display error

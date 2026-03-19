@@ -58,11 +58,15 @@ class PositionsWidget : GlanceAppWidget() {
         val portfolioId = dataStore.readString(DataStoreKeys.PORTFOLIO_ID)
         val positions = positionDao.getAll().take(5)  // Top 5
 
+        // Timestamp de la dernière tentative de sync (non sensible — SharedPreferences plain)
+        val lastSyncAttempt = WidgetUpdateWorker.readLastSyncAttempt(context)
+
         provideContent {
             GlanceTheme {
                 PositionsWidgetContent(
                     positions = positions,
                     hasPortfolio = portfolioId != null,
+                    lastSyncAttempt = lastSyncAttempt,
                 )
             }
         }
@@ -73,6 +77,7 @@ class PositionsWidget : GlanceAppWidget() {
 private fun PositionsWidgetContent(
     positions: List<PositionEntity>,
     hasPortfolio: Boolean,
+    lastSyncAttempt: Long,
 ) {
     Column(
         modifier = GlanceModifier
@@ -95,10 +100,16 @@ private fun PositionsWidgetContent(
                 ),
                 modifier = GlanceModifier.defaultWeight(),
             )
-            if (positions.isNotEmpty()) {
-                val latestSync = positions.maxOf { it.syncedAt }
+            val syncLabel = if (positions.isNotEmpty()) {
+                "Sync ${formatSyncTime(positions.maxOf { it.syncedAt })}"
+            } else if (lastSyncAttempt > 0L) {
+                "Tentative ${formatSyncTime(lastSyncAttempt)}"
+            } else {
+                null
+            }
+            if (syncLabel != null) {
                 Text(
-                    text = "Sync ${formatSyncTime(latestSync)}",
+                    text = syncLabel,
                     style = TextStyle(
                         color = GlanceTheme.colors.onSurfaceVariant,
                         fontSize = 10.sp,

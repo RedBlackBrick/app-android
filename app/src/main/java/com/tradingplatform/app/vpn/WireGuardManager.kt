@@ -45,6 +45,7 @@ class WireGuardManager @Inject constructor(
     private var currentTunnel: Tunnel? = null
 
     companion object {
+        private const val TAG = "WireGuardManager"
         private const val TUNNEL_NAME = "trading_platform"
     }
 
@@ -78,13 +79,13 @@ class WireGuardManager @Inject constructor(
                 backend?.setState(tunnel, Tunnel.State.UP, wgConfig)
                 currentTunnel = tunnel
 
-                // State is set by the tunnel's onStateChange callback (Tunnel.State.UP → Connected).
-                // Explicitly set here as a fallback in case the callback races.
-                _state.value = VpnState.Connected()
-                Timber.i("WireGuard tunnel connected — tunnel=$TUNNEL_NAME")
+                // _state transition to Connected is handled exclusively by onStateChange
+                // (Tunnel.State.UP → VpnState.Connected). Setting it here would race with
+                // the callback and could mark the tunnel Connected before it is actually UP.
+                Timber.tag(TAG).i("WireGuard tunnel UP requested — tunnel=$TUNNEL_NAME")
 
             } catch (e: Exception) {
-                Timber.e(e, "WireGuard connect error")
+                Timber.tag(TAG).e(e, "WireGuard connect error")
                 _state.value = VpnState.Error(e.message ?: "Connection failed")
             }
         }
@@ -130,7 +131,7 @@ class WireGuardManager @Inject constructor(
                     currentTunnel = null
                 }
                 _state.value = VpnState.Disconnected
-                Timber.i("WireGuard tunnel disconnected")
+                Timber.tag(TAG).i("WireGuard tunnel disconnected")
 
                 // Stop the foreground notification.
                 val disconnectIntent = Intent(context, WireGuardVpnService::class.java).apply {
@@ -139,7 +140,7 @@ class WireGuardManager @Inject constructor(
                 context.startService(disconnectIntent)
 
             } catch (e: Exception) {
-                Timber.e(e, "WireGuard disconnect error")
+                Timber.tag(TAG).e(e, "WireGuard disconnect error")
                 _state.value = VpnState.Error(e.message ?: "Disconnect failed")
             }
         }
@@ -159,7 +160,7 @@ class WireGuardManager @Inject constructor(
                 Tunnel.State.DOWN -> VpnState.Disconnected
                 Tunnel.State.TOGGLE -> VpnState.Connecting
             }
-            Timber.d("WireGuard tunnel state changed: $newState")
+            Timber.tag(TAG).d("WireGuard tunnel state changed: $newState")
         }
     }
 

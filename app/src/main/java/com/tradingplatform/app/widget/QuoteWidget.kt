@@ -61,11 +61,15 @@ class QuoteWidget : GlanceAppWidget() {
         // Lecture depuis Room — pas d'appel réseau depuis un widget
         val quote = quoteDao.getBySymbol(symbol)
 
+        // Timestamp de la dernière tentative de sync (non sensible — SharedPreferences plain)
+        val lastSyncAttempt = WidgetUpdateWorker.readLastSyncAttempt(context)
+
         provideContent {
             GlanceTheme {
                 QuoteWidgetContent(
                     symbol = symbol,
                     quote = quote,
+                    lastSyncAttempt = lastSyncAttempt,
                 )
             }
         }
@@ -102,6 +106,7 @@ class QuoteWidget : GlanceAppWidget() {
 private fun QuoteWidgetContent(
     symbol: String,
     quote: QuoteEntity?,
+    lastSyncAttempt: Long,
 ) {
     Column(
         modifier = GlanceModifier
@@ -131,8 +136,13 @@ private fun QuoteWidgetContent(
                     fontWeight = FontWeight.Bold,
                 ),
             )
+            val waitingLabel = if (lastSyncAttempt > 0L) {
+                "Tentative ${formatSyncTime(lastSyncAttempt)}"
+            } else {
+                "En attente"
+            }
             Text(
-                text = "En attente",
+                text = waitingLabel,
                 style = TextStyle(
                     color = GlanceTheme.colors.onSurfaceVariant,
                     fontSize = 9.sp,

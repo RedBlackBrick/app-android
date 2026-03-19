@@ -2,6 +2,7 @@ package com.tradingplatform.app.data.repository
 
 import android.util.Base64
 import com.tradingplatform.app.data.api.PairingLanApi
+import com.tradingplatform.app.domain.exception.PairingDeviceException
 import com.tradingplatform.app.domain.model.PairingStatus
 import com.tradingplatform.app.domain.repository.PairingRepository
 import com.tradingplatform.app.security.SealedBoxHelper
@@ -22,6 +23,10 @@ class PairingRepositoryImpl @Inject constructor(
     @Named("lan") private val pairingApi: PairingLanApi,
     private val sealedBoxHelper: SealedBoxHelper,
 ) : PairingRepository {
+
+    companion object {
+        private const val TAG = "PairingRepositoryImpl"
+    }
 
     /**
      * Envoie le PIN de session à la Radxa via HTTP LAN (payload chiffré libsodium, TTL 120s).
@@ -46,7 +51,7 @@ class PairingRepositoryImpl @Inject constructor(
             error("Refused: $deviceIp is not a local network address (RFC-1918 required)")
         }
 
-        Timber.d("PairingRepository: sending encrypted PIN to $deviceIp:$devicePort sessionId=$sessionId pin=[REDACTED] token=[REDACTED] nonce=[REDACTED]")
+        Timber.tag(TAG).d("PairingRepository: sending encrypted PIN to $deviceIp:$devicePort sessionId=$sessionId pin=[REDACTED] token=[REDACTED] nonce=[REDACTED]")
 
         // Construire le JSON payload (nonce included for anti-replay)
         val payloadJson = JSONObject().apply {
@@ -68,7 +73,8 @@ class PairingRepositoryImpl @Inject constructor(
 
         val response = pairingApi.sendPin(url, requestBody)
         if (!response.isSuccessful) {
-            error("sendPin failed: HTTP ${response.code()}")
+            val body = response.errorBody()?.string()?.takeIf { it.isNotBlank() } ?: ""
+            throw PairingDeviceException(httpCode = response.code(), body = body)
         }
     }
 
@@ -86,7 +92,7 @@ class PairingRepositoryImpl @Inject constructor(
         sessionId: String,
     ): Flow<PairingStatus> = flow {
         if (!isLocalNetwork(deviceIp)) {
-            Timber.e("PairingRepository: pollStatus refused — $deviceIp is not RFC-1918")
+            Timber.tag(TAG).e("PairingRepository: pollStatus refused — $deviceIp is not RFC-1918")
             emit(PairingStatus.FAILED)
             return@flow
         }
@@ -100,11 +106,11 @@ class PairingRepositoryImpl @Inject constructor(
                     val statusStr = response.body()?.get("status") ?: "failed"
                     PairingStatus.fromString(statusStr)
                 } else {
-                    Timber.w("PairingRepository: poll status HTTP ${response.code()}")
+                    Timber.tag(TAG).w("PairingRepository: poll status HTTP ${response.code()}")
                     PairingStatus.PENDING
                 }
             }.getOrElse { e ->
-                Timber.e(e, "PairingRepository: poll status network error")
+                Timber.tag(TAG).e(e, "PairingRepository: poll status network error")
                 PairingStatus.PENDING
             }
 

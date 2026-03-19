@@ -2,6 +2,7 @@ package com.tradingplatform.app.ui.screens.pairing
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.tradingplatform.app.domain.exception.PairingTimeoutException
 import com.tradingplatform.app.domain.model.DevicePairingInfo
 import com.tradingplatform.app.domain.model.PairingSession
 import com.tradingplatform.app.domain.model.PairingStatus
@@ -221,8 +222,14 @@ class PairingViewModel @Inject constructor(
                 }
             }.onFailure { e ->
                 Timber.d("PairingViewModel: ConfirmPairing failed — ${e.message}")
+                val message = when (e) {
+                    is PairingTimeoutException ->
+                        "Session expirée — relancez le pairing depuis le VPS"
+                    else ->
+                        e.localizedMessage ?: "Erreur de confirmation"
+                }
                 _step.value = PairingStep.Error(
-                    message = e.localizedMessage ?: "Timeout ou erreur de confirmation",
+                    message = message,
                     retryable = false,
                 )
             }

@@ -65,7 +65,7 @@ class TradingFirebaseMessagingService : FirebaseMessagingService() {
         val alertType = AlertType.fromString(typeStr)
 
         // Debug uniquement — jamais le contenu de l'alerte
-        Timber.d("FCM reçu type=$alertType")
+        Timber.tag(TAG).d("FCM reçu type=$alertType")
 
         // 2. Persister dans Room via serviceScope — ne jamais bloquer le main thread (ANR).
         //    showNotification est appelé immédiatement sans attendre l'insert Room.
@@ -91,7 +91,7 @@ class TradingFirebaseMessagingService : FirebaseMessagingService() {
 
     override fun onNewToken(token: String) {
         // Token FCM renouvelé — jamais logger le token en clair
-        Timber.d("FCM token renouvelé : [REDACTED]")
+        Timber.tag(TAG).d("FCM token renouvelé : [REDACTED]")
 
         val deviceFingerprint = Settings.Secure.getString(
             contentResolver,
@@ -100,8 +100,8 @@ class TradingFirebaseMessagingService : FirebaseMessagingService() {
 
         serviceScope.launch {
             registerFcmTokenUseCase(token, deviceFingerprint)
-                .onSuccess { Timber.d("FCM token enregistré auprès du backend : [REDACTED]") }
-                .onFailure { e -> Timber.w(e, "FCM token registration failed — will retry on next token refresh") }
+                .onSuccess { Timber.tag(TAG).d("FCM token enregistré auprès du backend : [REDACTED]") }
+                .onFailure { e -> Timber.tag(TAG).w(e, "FCM token registration failed — will retry on next token refresh") }
         }
     }
 
@@ -135,7 +135,7 @@ class TradingFirebaseMessagingService : FirebaseMessagingService() {
                     Manifest.permission.POST_NOTIFICATIONS,
                 ) != PackageManager.PERMISSION_GRANTED
             ) {
-                Timber.w("POST_NOTIFICATIONS permission not granted — notification skipped")
+                Timber.tag(TAG).w("POST_NOTIFICATIONS permission not granted — notification skipped")
                 return
             }
         }
@@ -156,6 +156,7 @@ class TradingFirebaseMessagingService : FirebaseMessagingService() {
     }
 
     companion object {
+        private const val TAG = "TradingFcmService"
         private const val CHANNEL_ID = "trading_alerts"
     }
 }

@@ -30,59 +30,23 @@ class AuthRepositoryImpl @Inject constructor(
     private val csrfInterceptor: CsrfInterceptor,
 ) : AuthRepository {
 
+    companion object {
+        private const val TAG = "AuthRepositoryImpl"
+    }
+
     override suspend fun login(email: String, password: String): Result<Pair<User, AuthTokens>> =
         runCatching {
             val response = authApi.login(LoginRequestDto(email, password))
             if (!response.isSuccessful) {
                 val errorBody = response.errorBody()?.string()
                 val code = response.code()
+                val retryAfter = response.headers()["Retry-After"]?.toIntOrNull()
 
-                // AUTH_1004 : 2FA requis — parser le session_token dans le corps d'erreur
-                if (code == 401 && errorBody != null) {
-                    try {
-                        val totpError = moshi.adapter(TotpRequiredErrorDto::class.java)
-                            .fromJson(errorBody)
-                        if (totpError?.errorCode == "AUTH_1004") {
-                            throw TotpRequiredException(sessionToken = totpError.sessionToken)
-                        }
-                        val apiError = moshi.adapter(ApiErrorDto::class.java).fromJson(errorBody)
-                        if (apiError?.errorCode == "AUTH_1001") {
-                            throw InvalidCredentialsException()
-                        }
-                    } catch (e: TotpRequiredException) {
-                        throw e
-                    } catch (e: InvalidCredentialsException) {
-                        throw e
-                    } catch (_: Exception) {
-                        // Parsing échoué — erreur générique
-                    }
-                }
+                // 429 : compte verrouillé sans body nécessaire — lire Retry-After
+                if (code == 429) throw AccountLockedException(retryAfterSeconds = retryAfter)
 
-                // 429 : compte verrouillé — lire Retry-After
-                if (code == 429) {
-                    val retryAfter = response.headers()["Retry-After"]?.toIntOrNull()
-                    throw AccountLockedException(retryAfterSeconds = retryAfter)
-                }
-
-                // Vérifier AUTH_1008 dans le corps (peut arriver en 401 aussi)
-                if (errorBody != null) {
-                    try {
-                        val apiError = moshi.adapter(ApiErrorDto::class.java).fromJson(errorBody)
-                        if (apiError?.errorCode == "AUTH_1008") {
-                            val retryAfter = response.headers()["Retry-After"]?.toIntOrNull()
-                            throw AccountLockedException(retryAfterSeconds = retryAfter)
-                        }
-                        if (apiError?.errorCode == "AUTH_1001") {
-                            throw InvalidCredentialsException()
-                        }
-                    } catch (e: AccountLockedException) {
-                        throw e
-                    } catch (e: InvalidCredentialsException) {
-                        throw e
-                    } catch (_: Exception) {
-                        // Parsing échoué — erreur générique
-                    }
-                }
+                // Parser le corps d'erreur une seule fois et router selon le code API
+                parseLoginError(errorBody, retryAfter)?.let { throw it }
 
                 error("Login failed: HTTP $code")
             }
@@ -106,7 +70,7 @@ class AuthRepositoryImpl @Inject constructor(
         try {
             authApi.logout()
         } catch (e: Exception) {
-            Timber.w(e, "AuthRepository: logout API call failed, clearing local data anyway")
+            Timber.tag(TAG).w(e, "AuthRepository: logout API call failed, clearing local data anyway")
         }
         dataStore.clearAll()
     }
@@ -148,11 +112,11 @@ class AuthRepositoryImpl @Inject constructor(
 
         when {
             portfolios.isEmpty() -> {
-                Timber.e("AuthRepository: empty portfolio list — incoherent server state")
+                Timber.tag(TAG).e("AuthRepository: empty portfolio list — incoherent server state")
                 error("No portfolio found")
             }
             portfolios.size > 1 -> {
-                Timber.w("AuthRepository: [PORTFOLIO_MULTI] count=${portfolios.size}, using portfolios[0]")
+                Timber.tag(TAG).w("AuthRepository: [PORTFOLIO_MULTI] count=${portfolios.size}, using portfolios[0]")
             }
         }
 
@@ -160,6 +124,43 @@ class AuthRepositoryImpl @Inject constructor(
         dataStore.writeString(DataStoreKeys.PORTFOLIO_ID, portfolios[0].id)
 
         portfolios
+    }
+
+    /**
+     * Parse le corps d'erreur d'un appel login et retourne l'exception typée correspondante,
+     * ou null si le corps est absent / non reconnu.
+     *
+     * Règles de priorité :
+     * 1. AUTH_1004 → TotpRequiredException (corps TotpRequiredErrorDto, contient session_token)
+     * 2. AUTH_1008 → AccountLockedException (retryAfterSeconds depuis l'en-tête Retry-After)
+     * 3. AUTH_1001 → InvalidCredentialsException
+     *
+     * Le corps est parsé une seule fois via TotpRequiredErrorDto (super-set de ApiErrorDto).
+     * Si le parsing échoue, retourne null et laisse l'appelant émettre une erreur générique.
+     */
+    private fun parseLoginError(errorBody: String?, retryAfter: Int?): Exception? {
+        if (errorBody.isNullOrBlank()) return null
+        return try {
+            // TotpRequiredErrorDto contient error_code + session_token — tenter ce parsing en premier.
+            val totpError = moshi.adapter(TotpRequiredErrorDto::class.java).fromJson(errorBody)
+            when (totpError?.errorCode) {
+                "AUTH_1004" -> TotpRequiredException(sessionToken = totpError.sessionToken)
+                "AUTH_1008" -> AccountLockedException(retryAfterSeconds = retryAfter)
+                "AUTH_1001" -> InvalidCredentialsException()
+                else -> {
+                    // Session_token absent ou errorCode non reconnu — fallback sur ApiErrorDto générique
+                    val apiError = moshi.adapter(ApiErrorDto::class.java).fromJson(errorBody)
+                    when (apiError?.errorCode) {
+                        "AUTH_1008" -> AccountLockedException(retryAfterSeconds = retryAfter)
+                        "AUTH_1001" -> InvalidCredentialsException()
+                        else -> null
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            // Parsing Moshi échoué — le corps n'est pas du JSON valide
+            null
+        }
     }
 
     override suspend fun refreshToken(): Result<AuthTokens> = runCatching {

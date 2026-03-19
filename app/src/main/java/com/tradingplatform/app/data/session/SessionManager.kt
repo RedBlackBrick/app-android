@@ -3,6 +3,7 @@ package com.tradingplatform.app.data.session
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -44,15 +45,18 @@ class SessionManager @Inject constructor() {
         _deepLinkEvents.tryEmit(destination)
     }
 
-    @Volatile private var pendingTotpToken: String? = null
+    private val _pendingTotpToken = AtomicReference<String?>(null)
+
+    /** Exposé en lecture seule pour les cas où l'appelant doit inspecter sans consommer. */
+    val pendingTotpToken: String? get() = _pendingTotpToken.get()
 
     fun storePendingTotpToken(token: String) {
-        pendingTotpToken = token
+        _pendingTotpToken.set(token)
     }
 
-    fun consumePendingTotpToken(): String? {
-        val token = pendingTotpToken
-        pendingTotpToken = null
-        return token
-    }
+    /**
+     * Lit et efface le token TOTP en attente en une seule opération atomique.
+     * Garantit qu'un token ne peut être consommé qu'une seule fois, même sous concurrence.
+     */
+    fun consumePendingTotpToken(): String? = _pendingTotpToken.getAndSet(null)
 }
