@@ -19,13 +19,16 @@ class GetPnlUseCaseTest {
     private lateinit var useCase: GetPnlUseCase
 
     private val fakePnl = PnlSummary(
-        realizedPnl = BigDecimal("500.00"),
-        unrealizedPnl = BigDecimal("1000.00"),
-        totalPnl = BigDecimal("1500.00"),
-        totalPnlPercent = 3.5,
-        tradesCount = 10,
-        winningTrades = 7,
-        losingTrades = 3,
+        totalReturn = BigDecimal("1500.00"),
+        totalReturnPct = 0.035,
+        sharpeRatio = 1.1,
+        sortinoRatio = 1.4,
+        maxDrawdown = -0.04,
+        volatility = 0.10,
+        cagr = 0.07,
+        winRate = 0.7,
+        profitFactor = 2.1,
+        avgTradeReturn = BigDecimal("150.00"),
     )
 
     @Before
@@ -40,7 +43,7 @@ class GetPnlUseCaseTest {
         val result = useCase("1")
 
         assertTrue(result.isSuccess)
-        assertEquals(BigDecimal("1500.00"), result.getOrThrow().totalPnl)
+        assertEquals(BigDecimal("1500.00"), result.getOrThrow().totalReturn)
     }
 
     @Test

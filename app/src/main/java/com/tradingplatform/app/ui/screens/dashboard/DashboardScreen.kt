@@ -38,7 +38,6 @@ import com.tradingplatform.app.domain.model.PnlPeriod
 import com.tradingplatform.app.ui.components.AnimatedPnlText
 import com.tradingplatform.app.ui.components.CacheTimestamp
 import com.tradingplatform.app.ui.components.MoneyText
-import com.tradingplatform.app.ui.components.PnlText
 import com.tradingplatform.app.ui.components.SkeletonDashboardCard
 import com.tradingplatform.app.ui.components.SparklineChart
 import com.tradingplatform.app.ui.components.rememberHapticFeedback
@@ -186,16 +185,14 @@ private fun NavSection(
                 is NavUiState.Success -> {
                     val nav = navState.data
                     MoneyText(
-                        amount = nav.nav,
+                        amount = nav.currentValue,
                         style = MaterialTheme.typography.headlineMedium,
                         modifier = Modifier
                             .fillMaxWidth()
                             .semantics {
-                                contentDescription = "Valeur liquidative totale : ${nav.nav} €"
+                                contentDescription = "Valeur liquidative totale : ${nav.currentValue} €"
                             },
                     )
-                    val syncedAt = nav.timestamp.toEpochMilli()
-                    CacheTimestamp(syncedAt = syncedAt)
                 }
                 is NavUiState.Error -> {
                     Text(
@@ -272,46 +269,56 @@ private fun PnlSection(
                 }
                 is PnlUiState.Success -> {
                     val pnl = pnlState.data
-                    // Total P&L prominently displayed with animation
-                    AnimatedPnlText(
-                        value = pnl.totalPnl,
-                        style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    // Breakdown row
+                    // Total return prominently displayed with animation
+                    if (pnl.totalReturn != null) {
+                        AnimatedPnlText(
+                            value = pnl.totalReturn,
+                            style = MaterialTheme.typography.titleLarge,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    // Metrics row
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
                         Column {
                             Text(
-                                text = "Réalisé",
+                                text = "Rendement",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                            PnlText(
-                                value = pnl.realizedPnl,
+                            Text(
+                                text = pnl.totalReturnPct
+                                    ?.let { "%.2f%%".format(it * 100) }
+                                    ?: "—",
                                 style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
                             )
                         }
                         Column(horizontalAlignment = Alignment.End) {
                             Text(
-                                text = "Non réalisé",
+                                text = "Win rate",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                            PnlText(
-                                value = pnl.unrealizedPnl,
+                            Text(
+                                text = pnl.winRate
+                                    ?.let { "%.0f%%".format(it * 100) }
+                                    ?: "—",
                                 style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
                             )
                         }
                     }
-                    // Trade count
-                    Text(
-                        text = "${pnl.tradesCount} trades — ${pnl.winningTrades}W / ${pnl.losingTrades}L",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    // Sharpe ratio
+                    if (pnl.sharpeRatio != null) {
+                        Text(
+                            text = "Sharpe : %.2f".format(pnl.sharpeRatio),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
                 is PnlUiState.Error -> {
                     Text(

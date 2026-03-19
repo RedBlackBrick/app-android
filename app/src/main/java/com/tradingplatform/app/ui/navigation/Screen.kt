@@ -15,9 +15,8 @@ sealed class Screen(val route: String) {
 
     data object Login : Screen("login")
 
-    data object Totp : Screen("totp/{sessionToken}") {
-        fun createRoute(sessionToken: String): String = "totp/${Uri.encode(sessionToken)}"
-    }
+    /** Token is stored via SessionManager — never in the route (security). */
+    data object Totp : Screen("totp")
 
     data object Dashboard : Screen("dashboard")
 

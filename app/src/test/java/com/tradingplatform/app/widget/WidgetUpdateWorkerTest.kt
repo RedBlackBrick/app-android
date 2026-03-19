@@ -68,13 +68,16 @@ class WidgetUpdateWorkerTest {
     )
 
     private val fakePnl = PnlSummary(
-        realizedPnl = BigDecimal("1500.00"),
-        unrealizedPnl = BigDecimal("3000.00"),
-        totalPnl = BigDecimal("4500.00"),
-        totalPnlPercent = 4.5,
-        tradesCount = 10,
-        winningTrades = 7,
-        losingTrades = 3,
+        totalReturn = BigDecimal("4500.00"),
+        totalReturnPct = 0.045,
+        sharpeRatio = 1.2,
+        sortinoRatio = 1.5,
+        maxDrawdown = -0.05,
+        volatility = 0.12,
+        cagr = 0.09,
+        winRate = 0.7,
+        profitFactor = 2.3,
+        avgTradeReturn = BigDecimal("450.00"),
     )
 
     private val fakeQuote = Quote(

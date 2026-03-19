@@ -11,6 +11,7 @@ import com.tradingplatform.app.data.local.db.dao.AlertDao
 import com.tradingplatform.app.data.local.db.dao.PnlDao
 import com.tradingplatform.app.data.local.db.dao.PositionDao
 import com.tradingplatform.app.data.local.db.dao.QuoteDao
+import com.tradingplatform.app.domain.model.AppDefaults
 import com.tradingplatform.app.domain.model.PnlPeriod
 import com.tradingplatform.app.domain.usecase.market.GetQuoteUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPnlUseCase
@@ -61,9 +62,6 @@ class WidgetUpdateWorker @AssistedInject constructor(
         private const val PNL_TTL_MS = 5 * 60 * 1000L                 // 5 min
         private const val QUOTE_TTL_MS = 10 * 60 * 1000L              // 10 min
         private const val ALERT_RETENTION_MS = 30L * 24 * 60 * 60 * 1000L  // 30 jours
-
-        // Symbole par défaut si aucun quote en cache (premier démarrage)
-        private const val DEFAULT_QUOTE_SYMBOL = "AAPL"
     }
 
     override suspend fun doWork(): Result {
@@ -210,7 +208,7 @@ class WidgetUpdateWorker @AssistedInject constructor(
 
         // Récupérer les symboles actuellement en cache pour les rafraîchir
         val cachedSymbols = quoteDao.getAllSymbols()
-        val symbolsToSync = if (cachedSymbols.isEmpty()) listOf(DEFAULT_QUOTE_SYMBOL) else cachedSymbols
+        val symbolsToSync = if (cachedSymbols.isEmpty()) listOf(AppDefaults.DEFAULT_QUOTE_SYMBOL) else cachedSymbols
 
         var anySymbolFailed = false
         for (symbol in symbolsToSync) {

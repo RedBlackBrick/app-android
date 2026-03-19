@@ -6,6 +6,8 @@ import android.view.MotionEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.lifecycle.lifecycleScope
+import com.tradingplatform.app.data.session.SessionManager
+import com.tradingplatform.app.security.BiometricLockManager
 import com.tradingplatform.app.security.RootDetector
 import com.tradingplatform.app.ui.navigation.AppNavGraph
 import com.tradingplatform.app.ui.theme.TradingPlatformTheme
@@ -20,6 +22,8 @@ import javax.inject.Inject
 class MainActivity : ComponentActivity() {
 
     @Inject lateinit var rootDetector: RootDetector
+    @Inject lateinit var biometricLockManager: BiometricLockManager
+    @Inject lateinit var sessionManager: SessionManager
 
     private var inactivityJob: Job? = null
     private var isBiometricLocked = false
@@ -79,12 +83,12 @@ class MainActivity : ComponentActivity() {
     private fun showBiometricLock() {
         isBiometricLocked = true
         Timber.d("MainActivity: showing biometric lock (inactivity timeout)")
-        // L'overlay biométrique sera câblé au NavGraph en Phase 8
-        // Pour l'instant : log uniquement
+        biometricLockManager.lock()
     }
 
     fun onBiometricUnlocked() {
         isBiometricLocked = false
+        biometricLockManager.unlock()
         resetInactivityTimer()
         Timber.d("MainActivity: biometric unlocked — timer reset")
     }
@@ -98,14 +102,16 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Gère les deep links FCM : intent extra "navigate_to" = "alerts"
-     * Navigation effective sera câblée au NavController en Phase 8.
+     * Gère les deep links FCM : intent extra "navigate_to" = "alerts".
+     * Notifie [SessionManager] qui réémet l'événement vers [AppNavViewModel].
+     * Fonctionne pour onCreate (lancement depuis notification) ET onNewIntent
+     * (app déjà en foreground au moment de la notification).
      */
     private fun handleDeepLinkIntent(intent: Intent?) {
         val navigateTo = intent?.getStringExtra(EXTRA_NAVIGATE_TO)
         if (navigateTo == "alerts") {
             Timber.d("MainActivity: FCM deep link → alerts")
-            // NavController.navigate(Screen.Alerts) — câblé en Phase 8
+            sessionManager.notifyDeepLink("alerts")
         }
     }
 }

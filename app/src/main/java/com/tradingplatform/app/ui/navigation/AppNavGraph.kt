@@ -1,8 +1,6 @@
 package com.tradingplatform.app.ui.navigation
 
-import android.app.Activity
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -12,7 +10,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -26,9 +24,12 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.tradingplatform.app.data.session.SessionManager
 import com.tradingplatform.app.domain.usecase.auth.GetAuthContextUseCase
+import com.tradingplatform.app.security.BiometricLockManager
+import com.tradingplatform.app.security.BiometricManager
+import com.tradingplatform.app.ui.components.BiometricLockOverlay
+import com.tradingplatform.app.ui.components.VpnStatusBanner
 import com.tradingplatform.app.vpn.VpnState
 import com.tradingplatform.app.vpn.WireGuardManager
-import com.tradingplatform.app.ui.components.VpnStatusBanner
 import com.tradingplatform.app.ui.screens.alerts.AlertListScreen
 import com.tradingplatform.app.ui.screens.auth.LoginScreen
 import com.tradingplatform.app.ui.screens.dashboard.DashboardScreen
@@ -56,6 +57,31 @@ import kotlinx.coroutines.launch
 import timber.log.Timber
 import javax.inject.Inject
 
+// ── UpgradeRequiredDialog ──────────────────────────────────────────────────────
+
+@Composable
+private fun UpgradeRequiredDialog() {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = { /* non-dismissable */ },
+        title = {
+            androidx.compose.material3.Text("Mise à jour requise")
+        },
+        text = {
+            androidx.compose.material3.Text(
+                "Cette version de l'application n'est plus supportée. " +
+                    "Veuillez mettre à jour l'application pour continuer."
+            )
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = {
+                Timber.w("UpgradeRequiredDialog: user acknowledged — update action pending")
+            }) {
+                androidx.compose.material3.Text("Mettre à jour")
+            }
+        },
+    )
+}
+
 // ── AppNavViewModel ────────────────────────────────────────────────────────────
 
 /**
@@ -72,7 +98,9 @@ import javax.inject.Inject
 class AppNavViewModel @Inject constructor(
     private val getAuthContextUseCase: GetAuthContextUseCase,
     private val sessionManager: SessionManager,
+    private val biometricLockManager: BiometricLockManager,
     wireGuardManager: WireGuardManager,
+    val biometricManager: BiometricManager,
 ) : ViewModel() {
 
     /** VPN connection state — exposed for VpnStatusBanner. */
@@ -84,6 +112,9 @@ class AppNavViewModel @Inject constructor(
     private val _isAdmin = MutableStateFlow(false)
     val isAdmin: StateFlow<Boolean> = _isAdmin.asStateFlow()
 
+    private val _showUpgradeRequired = MutableStateFlow(false)
+    val showUpgradeRequired: StateFlow<Boolean> = _showUpgradeRequired.asStateFlow()
+
     /**
      * Tri-state:
      * - `null`  — datastore read in flight
@@ -92,6 +123,17 @@ class AppNavViewModel @Inject constructor(
      */
     private val _isSetupCompleted = MutableStateFlow<Boolean?>(null)
     val isSetupCompleted: StateFlow<Boolean?> = _isSetupCompleted.asStateFlow()
+
+    /** Biometric lock state — true when the inactivity overlay must be shown. */
+    val biometricLocked: StateFlow<Boolean> = biometricLockManager.isLocked
+
+    /** Deep link events from FCM — navigates to the given destination route name. */
+    val deepLinkEvents = sessionManager.deepLinkEvents
+
+    /** Called by the UI when biometric authentication succeeds. */
+    fun onBiometricUnlocked() {
+        biometricLockManager.unlock()
+    }
 
     init {
         viewModelScope.launch {
@@ -108,6 +150,12 @@ class AppNavViewModel @Inject constructor(
             sessionManager.forcedLogoutEvents.collect {
                 Timber.w("AppNavViewModel: forced logout received — redirecting to Login")
                 _isLoggedIn.value = false
+            }
+        }
+        viewModelScope.launch {
+            sessionManager.upgradeRequiredEvents.collect {
+                Timber.w("AppNavViewModel: HTTP 426 received — showing upgrade required dialog")
+                _showUpgradeRequired.value = true
             }
         }
     }
@@ -151,6 +199,8 @@ fun AppNavGraph(
     val isAdmin by appNavViewModel.isAdmin.collectAsStateWithLifecycle()
     val isSetupCompleted by appNavViewModel.isSetupCompleted.collectAsStateWithLifecycle()
     val vpnState by appNavViewModel.vpnState.collectAsStateWithLifecycle()
+    val showUpgradeRequired by appNavViewModel.showUpgradeRequired.collectAsStateWithLifecycle()
+    val biometricLocked by appNavViewModel.biometricLocked.collectAsStateWithLifecycle()
 
     // Wait until all datastore checks complete before rendering anything.
     // isLoggedIn and isSetupCompleted are set atomically in the same init coroutine,
@@ -193,21 +243,22 @@ fun AppNavGraph(
         }
     }
 
-    // FCM deep link — read "navigate_to" extra from the host Activity
-    val context = LocalContext.current
+    // FCM deep link — collect events from SessionManager so it works for both
+    // onCreate (cold start from notification) and onNewIntent (app already in foreground).
     LaunchedEffect(Unit) {
-        val activity = context as? Activity
-        val navigateTo = activity?.intent?.getStringExtra("navigate_to")
-        if (navigateTo == "alerts" && loggedIn) {
-            navController.navigate(Screen.Alerts.route) {
-                popUpTo(Screen.Dashboard.route) { saveState = false }
-                launchSingleTop = true
+        appNavViewModel.deepLinkEvents.collect { destination ->
+            if (destination == "alerts" && loggedIn) {
+                navController.navigate(Screen.Alerts.route) {
+                    popUpTo(Screen.Dashboard.route) { saveState = false }
+                    launchSingleTop = true
+                }
             }
         }
     }
 
+    Box(modifier = modifier.fillMaxSize()) {
     Scaffold(
-        modifier = modifier,
+        modifier = Modifier.fillMaxSize(),
         bottomBar = {
             if (showBottomBar) {
                 BottomNavBar(
@@ -217,6 +268,11 @@ fun AppNavGraph(
             }
         },
     ) { innerPadding ->
+        // HTTP 426 — dialog non-dismissable affiché par-dessus tout le contenu
+        if (showUpgradeRequired) {
+            UpgradeRequiredDialog()
+        }
+
         Column(modifier = Modifier.padding(innerPadding)) {
             // Global VPN disconnect banner
             val isVpnDisconnected = loggedIn && vpnState !is VpnState.Connected
@@ -253,21 +309,15 @@ fun AppNavGraph(
                             popUpTo(Screen.Login.route) { inclusive = true }
                         }
                     },
-                    onNavigateToTotp = { sessionToken ->
-                        navController.navigate(Screen.Totp.createRoute(sessionToken))
+                    onNavigateToTotp = {
+                        // sessionToken already stored in SessionManager by LoginViewModel
+                        navController.navigate(Screen.Totp.route)
                     },
                 )
             }
 
-            composable(
-                route = Screen.Totp.route,
-                arguments = listOf(
-                    navArgument("sessionToken") { type = NavType.StringType },
-                ),
-            ) { backStackEntry ->
-                val sessionToken = backStackEntry.arguments?.getString("sessionToken") ?: ""
+            composable(route = Screen.Totp.route) {
                 TotpScreen(
-                    sessionToken = sessionToken,
                     onNavigateToDashboard = {
                         navController.navigate(Screen.Dashboard.route) {
                             popUpTo(Screen.Login.route) { inclusive = true }
@@ -496,5 +546,18 @@ fun AppNavGraph(
             }
         }
         } // Column
-    }
+    } // Scaffold
+
+    // Biometric lock overlay — shown on top of all content when inactivity timer fires.
+    // BiometricLockManager.lock() is called by MainActivity after INACTIVITY_TIMEOUT_MS.
+    // The overlay is opaque — trading data is not visible while locked (CLAUDE.md §4).
+    BiometricLockOverlay(
+        isLocked = biometricLocked,
+        onAuthSuccess = { appNavViewModel.onBiometricUnlocked() },
+        modifier = Modifier
+            .fillMaxSize()
+            .zIndex(Float.MAX_VALUE),
+        biometricManager = appNavViewModel.biometricManager,
+    )
+    } // Box
 }

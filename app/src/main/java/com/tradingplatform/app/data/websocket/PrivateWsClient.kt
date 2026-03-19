@@ -79,17 +79,17 @@ class PrivateWsClient @Inject constructor(
     private val reconnectAttempts = AtomicInteger(0)
 
     /** Job du timer de reconnexion en cours — annulé si connect() est rappelé. */
-    private var reconnectJob: Job? = null
+    @Volatile private var reconnectJob: Job? = null
 
     /** True si l'app est visible (foreground). Mis à jour par ProcessLifecycleOwner. */
     @Volatile private var isAppForeground = false
 
-    // URL WebSocket dérivée de baseUrl : https://… → wss://…/v1/ws/private
+    // URL WebSocket dérivée de baseUrl : https://… → wss://…/ws/private
     private val wsUrl: String
         get() = baseUrl
             .replaceFirst("https://", "wss://")
             .replaceFirst("http://", "ws://")
-            .trimEnd('/') + "/v1/ws/private"
+            .trimEnd('/') + "/ws/private"
 
     companion object {
         private const val TAG = "PrivateWsClient"

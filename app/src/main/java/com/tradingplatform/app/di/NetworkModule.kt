@@ -15,6 +15,7 @@ import com.tradingplatform.app.data.api.interceptor.AuthInterceptor
 import com.tradingplatform.app.data.api.interceptor.CsrfInterceptor
 import com.tradingplatform.app.data.api.interceptor.EncryptedCookieJar
 import com.tradingplatform.app.data.api.interceptor.TokenAuthenticator
+import com.tradingplatform.app.data.api.interceptor.UpgradeRequiredInterceptor
 import com.tradingplatform.app.data.api.interceptor.VpnRequiredInterceptor
 import com.tradingplatform.app.data.model.BigDecimalAdapter
 import com.tradingplatform.app.data.model.InstantAdapter
@@ -90,12 +91,14 @@ object NetworkModule {
     }
 
     // ── OkHttpClient principal ─────────────────────────────────────────────────
-    // Chaîne d'intercepteurs (ordre obligatoire CLAUDE.md §3) :
-    // CSRF → VPN → Auth → (TokenAuthenticator) → Logging
+    // Chaîne d'intercepteurs (ordre obligatoire CLAUDE.md §3 + fix 426) :
+    // UpgradeRequired → CSRF → VPN → Auth → (TokenAuthenticator) → Logging
+    // UpgradeRequired est en première position pour intercepter 426 sur toute requête.
 
     @Provides
     @Singleton
     fun provideMainOkHttpClient(
+        upgradeRequiredInterceptor: UpgradeRequiredInterceptor,
         csrfInterceptor: CsrfInterceptor,
         vpnRequiredInterceptor: VpnRequiredInterceptor,
         authInterceptor: AuthInterceptor,
@@ -115,6 +118,7 @@ object NetworkModule {
         }
 
         val builder = OkHttpClient.Builder()
+            .addInterceptor(upgradeRequiredInterceptor)
             .addInterceptor(csrfInterceptor)
             .addInterceptor(vpnRequiredInterceptor)
             .addInterceptor(authInterceptor)
@@ -123,6 +127,7 @@ object NetworkModule {
             .cookieJar(encryptedCookieJar)
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
         certPinnerProvider.buildCertificatePinner(VPS_HOSTNAME)
             ?.let { builder.certificatePinner(it) }
         return builder.build()

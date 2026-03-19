@@ -12,8 +12,14 @@ import javax.inject.Singleton
  * [forcedLogoutEvents] est collecté par [AppNavViewModel] pour déclencher la
  * navigation vers LoginScreen quand [TokenAuthenticator] invalide la session.
  *
+ * [upgradeRequiredEvents] est collecté par [AppNavViewModel] pour afficher un
+ * dialog bloquant "Mise à jour requise" quand le VPS retourne HTTP 426.
+ *
+ * [deepLinkEvents] est collecté par [AppNavViewModel] pour déclencher la navigation
+ * vers une destination depuis un deep link FCM (onCreate ET onNewIntent).
+ *
  * SharedFlow (replay=0) : un seul consommateur suffit (AppNavViewModel).
- * L'émetteur (TokenAuthenticator) n'attend pas — tryEmit.
+ * Les émetteurs n'attendent pas — tryEmit.
  */
 @Singleton
 class SessionManager @Inject constructor() {
@@ -22,5 +28,31 @@ class SessionManager @Inject constructor() {
 
     fun notifyForcedLogout() {
         _forcedLogoutEvents.tryEmit(Unit)
+    }
+
+    private val _upgradeRequiredEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val upgradeRequiredEvents: SharedFlow<Unit> = _upgradeRequiredEvents.asSharedFlow()
+
+    fun notifyUpgradeRequired() {
+        _upgradeRequiredEvents.tryEmit(Unit)
+    }
+
+    private val _deepLinkEvents = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    val deepLinkEvents: SharedFlow<String> = _deepLinkEvents.asSharedFlow()
+
+    fun notifyDeepLink(destination: String) {
+        _deepLinkEvents.tryEmit(destination)
+    }
+
+    @Volatile private var pendingTotpToken: String? = null
+
+    fun storePendingTotpToken(token: String) {
+        pendingTotpToken = token
+    }
+
+    fun consumePendingTotpToken(): String? {
+        val token = pendingTotpToken
+        pendingTotpToken = null
+        return token
     }
 }

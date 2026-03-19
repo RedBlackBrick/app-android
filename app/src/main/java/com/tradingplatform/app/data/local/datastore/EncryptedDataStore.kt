@@ -36,7 +36,7 @@ object DataStoreKeys {
 class EncryptedDataStore(
     private val context: Context,
 ) {
-    private val sharedPreferences: SharedPreferences by lazy {
+    private val sharedPreferences: SharedPreferences? by lazy {
         try {
             val masterKey = MasterKey.Builder(context)
                 .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
@@ -49,19 +49,35 @@ class EncryptedDataStore(
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
             )
         } catch (e: GeneralSecurityException) {
-            Timber.e(e, "EncryptedDataStore: MasterKey creation failed")
-            throw e
+            Timber.e(e, "EncryptedDataStore: MasterKey creation failed — encrypted storage unavailable")
+            null
+        } catch (e: IOException) {
+            Timber.e(e, "EncryptedDataStore: IO error during init")
+            null
         }
     }
 
+    // Clés dont la perte (apply asynchrone + kill app) est critique — utiliser commit = true.
+    private val criticalKeys = setOf(
+        DataStoreKeys.ACCESS_TOKEN.name,
+        DataStoreKeys.WG_PRIVATE_KEY.name,
+        DataStoreKeys.WG_CONFIG.name,
+        DataStoreKeys.WG_ENDPOINT.name,
+        DataStoreKeys.WG_SERVER_PUBKEY.name,
+        DataStoreKeys.WG_TUNNEL_IP.name,
+        DataStoreKeys.WG_DNS.name,
+    )
+
     /**
      * Lit une valeur String de manière sécurisée.
-     * Retourne null en cas de corruption (IOException ou GeneralSecurityException).
+     * Retourne null en cas de corruption (IOException ou GeneralSecurityException)
+     * ou si le stockage chiffré est indisponible.
      * Si null est retourné suite à une exception auth : logout forcé vers LoginScreen.
      */
     suspend fun readString(key: Preferences.Key<String>): String? = withContext(Dispatchers.IO) {
+        val prefs = sharedPreferences ?: return@withContext null
         try {
-            sharedPreferences.getString(key.name, null)
+            prefs.getString(key.name, null)
         } catch (e: IOException) {
             Timber.e(e, "EncryptedDataStore read error — file corrupted")
             null
@@ -72,8 +88,9 @@ class EncryptedDataStore(
     }
 
     suspend fun readLong(key: Preferences.Key<Long>): Long? = withContext(Dispatchers.IO) {
+        val prefs = sharedPreferences ?: return@withContext null
         try {
-            val v = sharedPreferences.getLong(key.name, Long.MIN_VALUE)
+            val v = prefs.getLong(key.name, Long.MIN_VALUE)
             if (v == Long.MIN_VALUE) null else v
         } catch (e: Exception) {
             Timber.e(e, "EncryptedDataStore read error")
@@ -82,8 +99,9 @@ class EncryptedDataStore(
     }
 
     suspend fun readInt(key: Preferences.Key<Int>): Int? = withContext(Dispatchers.IO) {
+        val prefs = sharedPreferences ?: return@withContext null
         try {
-            val v = sharedPreferences.getInt(key.name, Int.MIN_VALUE)
+            val v = prefs.getInt(key.name, Int.MIN_VALUE)
             if (v == Int.MIN_VALUE) null else v
         } catch (e: Exception) {
             Timber.e(e, "EncryptedDataStore read error")
@@ -92,9 +110,10 @@ class EncryptedDataStore(
     }
 
     suspend fun readBoolean(key: Preferences.Key<Boolean>): Boolean? = withContext(Dispatchers.IO) {
+        val prefs = sharedPreferences ?: return@withContext null
         try {
-            if (!sharedPreferences.contains(key.name)) null
-            else sharedPreferences.getBoolean(key.name, false)
+            if (!prefs.contains(key.name)) null
+            else prefs.getBoolean(key.name, false)
         } catch (e: Exception) {
             Timber.e(e, "EncryptedDataStore read error")
             null
@@ -102,18 +121,22 @@ class EncryptedDataStore(
     }
 
     suspend fun writeString(key: Preferences.Key<String>, value: String) = withContext(Dispatchers.IO) {
-        sharedPreferences.edit { putString(key.name, value) }
+        val prefs = sharedPreferences ?: return@withContext
+        val commit = key.name in criticalKeys
+        prefs.edit(commit = commit) { putString(key.name, value) }
     }
 
     /** Écriture avec une clé String brute (pour les clés dynamiques, ex: "device_wg_pubkey_{id}"). */
     suspend fun writeString(key: String, value: String) = withContext(Dispatchers.IO) {
-        sharedPreferences.edit { putString(key, value) }
+        val prefs = sharedPreferences ?: return@withContext
+        prefs.edit { putString(key, value) }
     }
 
     /** Lit une valeur String avec une clé String brute. */
     suspend fun readString(key: String): String? = withContext(Dispatchers.IO) {
+        val prefs = sharedPreferences ?: return@withContext null
         try {
-            sharedPreferences.getString(key, null)
+            prefs.getString(key, null)
         } catch (e: IOException) {
             Timber.e(e, "EncryptedDataStore read error — file corrupted")
             null
@@ -127,9 +150,11 @@ class EncryptedDataStore(
      * Persiste le local_token associé à un device (pour la roue de secours LAN).
      * Le token n'est jamais loggé — [REDACTED].
      * Clé : "local_token_{deviceId}"
+     * Commit synchrone : token critique utilisé pour le chiffrement LAN.
      */
     suspend fun writeLocalToken(deviceId: String, token: String) = withContext(Dispatchers.IO) {
-        sharedPreferences.edit { putString("local_token_$deviceId", token) }
+        val prefs = sharedPreferences ?: return@withContext
+        prefs.edit(commit = true) { putString("local_token_$deviceId", token) }
     }
 
     /**
@@ -137,8 +162,9 @@ class EncryptedDataStore(
      * Retourne null si absent ou en cas d'erreur Keystore.
      */
     suspend fun readLocalToken(deviceId: String): String? = withContext(Dispatchers.IO) {
+        val prefs = sharedPreferences ?: return@withContext null
         try {
-            sharedPreferences.getString("local_token_$deviceId", null)
+            prefs.getString("local_token_$deviceId", null)
         } catch (e: IOException) {
             Timber.e(e, "EncryptedDataStore readLocalToken error — file corrupted")
             null
@@ -149,35 +175,45 @@ class EncryptedDataStore(
     }
 
     suspend fun writeLong(key: Preferences.Key<Long>, value: Long) = withContext(Dispatchers.IO) {
-        sharedPreferences.edit { putLong(key.name, value) }
+        val prefs = sharedPreferences ?: return@withContext
+        prefs.edit { putLong(key.name, value) }
     }
 
     suspend fun writeInt(key: Preferences.Key<Int>, value: Int) = withContext(Dispatchers.IO) {
-        sharedPreferences.edit { putInt(key.name, value) }
+        val prefs = sharedPreferences ?: return@withContext
+        prefs.edit { putInt(key.name, value) }
     }
 
     suspend fun writeBoolean(key: Preferences.Key<Boolean>, value: Boolean) = withContext(Dispatchers.IO) {
-        sharedPreferences.edit { putBoolean(key.name, value) }
+        val prefs = sharedPreferences ?: return@withContext
+        prefs.edit { putBoolean(key.name, value) }
     }
 
     suspend fun remove(key: Preferences.Key<*>) = withContext(Dispatchers.IO) {
-        sharedPreferences.edit { remove(key.name) }
+        val prefs = sharedPreferences ?: return@withContext
+        prefs.edit { remove(key.name) }
     }
 
     /** Efface toutes les données (logout) */
     suspend fun clearAll() = withContext(Dispatchers.IO) {
-        sharedPreferences.edit { clear() }
+        val prefs = sharedPreferences ?: return@withContext
+        prefs.edit { clear() }
     }
 
-    /** Sauvegarde un cookie (pour EncryptedCookieJar) */
+    /**
+     * Sauvegarde un cookie (pour EncryptedCookieJar).
+     * Commit synchrone : le refresh_token est critique — une perte entraîne un logout forcé.
+     */
     suspend fun saveCookie(name: String, value: String) = withContext(Dispatchers.IO) {
-        sharedPreferences.edit { putString("cookie_$name", value) }
+        val prefs = sharedPreferences ?: return@withContext
+        prefs.edit(commit = true) { putString("cookie_$name", value) }
     }
 
     /** Charge tous les cookies sauvegardés */
     suspend fun loadCookies(): List<String> = withContext(Dispatchers.IO) {
+        val prefs = sharedPreferences ?: return@withContext emptyList()
         try {
-            sharedPreferences.all
+            prefs.all
                 .filter { (key, _) -> key.startsWith("cookie_") }
                 .values
                 .filterIsInstance<String>()

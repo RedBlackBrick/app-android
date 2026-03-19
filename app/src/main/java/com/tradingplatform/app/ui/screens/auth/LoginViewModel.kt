@@ -6,6 +6,7 @@ import com.tradingplatform.app.domain.exception.AccountLockedException
 import com.tradingplatform.app.domain.exception.InvalidCredentialsException
 import com.tradingplatform.app.domain.exception.NoPortfolioException
 import com.tradingplatform.app.domain.exception.TotpRequiredException
+import com.tradingplatform.app.data.session.SessionManager
 import com.tradingplatform.app.domain.usecase.auth.ApplyAdminWidgetVisibilityUseCase
 import com.tradingplatform.app.domain.usecase.auth.GetPortfoliosUseCase
 import com.tradingplatform.app.domain.usecase.auth.LoginUseCase
@@ -21,10 +22,11 @@ sealed interface LoginUiState {
     data object Loading : LoginUiState
 
     /**
-     * 2FA requis — naviguer vers TotpScreen avec le [sessionToken].
+     * 2FA requis — naviguer vers TotpScreen.
+     * Le sessionToken est stocké dans [SessionManager] (jamais dans la route de navigation).
      * Ce state est émis une seule fois puis réinitialisé via [resetState] après navigation.
      */
-    data class TotpRequired(val sessionToken: String) : LoginUiState
+    data object TotpRequired : LoginUiState
 
     /**
      * Login complet (sans TOTP ou après vérification TOTP).
@@ -43,6 +45,7 @@ class LoginViewModel @Inject constructor(
     private val loginUseCase: LoginUseCase,
     private val getPortfoliosUseCase: GetPortfoliosUseCase,
     private val applyAdminWidgetVisibilityUseCase: ApplyAdminWidgetVisibilityUseCase,
+    private val sessionManager: SessionManager,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<LoginUiState>(LoginUiState.Idle)
@@ -82,7 +85,8 @@ class LoginViewModel @Inject constructor(
                 .onFailure { error ->
                     when (error) {
                         is TotpRequiredException -> {
-                            _uiState.value = LoginUiState.TotpRequired(error.sessionToken)
+                            sessionManager.storePendingTotpToken(error.sessionToken)
+                            _uiState.value = LoginUiState.TotpRequired
                         }
                         is InvalidCredentialsException -> {
                             _uiState.value = LoginUiState.Error("Email ou mot de passe incorrect")

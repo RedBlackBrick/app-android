@@ -12,6 +12,7 @@ import retrofit2.http.Path
 
 @JsonClass(generateAdapter = true)
 data class DeviceCommandRequestDto(
+    @Json(name = "device_id") val deviceId: String,
     @Json(name = "command_type") val commandType: String,
 )
 
@@ -22,9 +23,8 @@ interface DeviceApi {
     @DELETE("v1/edge/devices/{deviceId}")
     suspend fun unpairDevice(@Path("deviceId") deviceId: String): Response<Unit>
 
-    @POST("v1/edge-control/devices/{deviceId}/commands")
+    @POST("v1/edge-control/commands")
     suspend fun sendCommand(
-        @Path("deviceId") deviceId: String,
         @Body body: DeviceCommandRequestDto,
     ): Response<Unit>
 }

@@ -69,8 +69,7 @@ class DeviceRepositoryImpl @Inject constructor(
 
     override suspend fun sendCommand(deviceId: String, commandType: String): Result<Unit> = runCatching {
         val response = deviceApi.sendCommand(
-            deviceId = deviceId,
-            body = DeviceCommandRequestDto(commandType = commandType),
+            body = DeviceCommandRequestDto(deviceId = deviceId, commandType = commandType),
         )
         if (!response.isSuccessful) {
             error("Send command failed: HTTP ${response.code()}")

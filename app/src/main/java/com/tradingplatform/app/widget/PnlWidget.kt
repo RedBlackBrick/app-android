@@ -162,9 +162,9 @@ private fun PnlWidgetContent(
             return@Column
         }
 
-        val totalPnl = runCatching { BigDecimal(pnlSnapshot.totalPnl) }.getOrNull()
-        val isPositive = totalPnl != null && totalPnl > BigDecimal.ZERO
-        val isNegative = totalPnl != null && totalPnl < BigDecimal.ZERO
+        val totalReturn = runCatching { pnlSnapshot.totalReturn?.let { BigDecimal(it) } }.getOrNull()
+        val isPositive = totalReturn != null && totalReturn > BigDecimal.ZERO
+        val isNegative = totalReturn != null && totalReturn < BigDecimal.ZERO
 
         val pnlColor = when {
             isPositive -> Color(0xFF34D399)
@@ -172,15 +172,15 @@ private fun PnlWidgetContent(
             else -> Color(0xFF94A3B8)
         }
 
-        val formattedPnl = if (totalPnl != null) {
+        val formattedReturn = if (totalReturn != null) {
             val sign = if (isPositive) "+" else ""
-            "$sign${String.format(java.util.Locale.FRENCH, "%.2f", totalPnl)} €"
+            "$sign${String.format(java.util.Locale.FRENCH, "%.2f", totalReturn)} €"
         } else {
             "—"
         }
 
         Text(
-            text = formattedPnl,
+            text = formattedReturn,
             style = TextStyle(
                 color = ColorProvider(day = pnlColor, night = pnlColor),
                 fontSize = 20.sp,
@@ -188,15 +188,18 @@ private fun PnlWidgetContent(
             ),
         )
 
-        val pctSign = if (pnlSnapshot.totalPnlPercent > 0) "+" else ""
-        val pctText = "$pctSign${String.format(java.util.Locale.FRENCH, "%.2f", pnlSnapshot.totalPnlPercent)}%"
-        Text(
-            text = pctText,
-            style = TextStyle(
-                color = ColorProvider(day = pnlColor, night = pnlColor),
-                fontSize = 12.sp,
-            ),
-        )
+        val totalReturnPct = pnlSnapshot.totalReturnPct
+        if (totalReturnPct != null) {
+            val pctSign = if (totalReturnPct > 0) "+" else ""
+            val pctText = "$pctSign${String.format(java.util.Locale.FRENCH, "%.2f", totalReturnPct * 100)}%"
+            Text(
+                text = pctText,
+                style = TextStyle(
+                    color = ColorProvider(day = pnlColor, night = pnlColor),
+                    fontSize = 12.sp,
+                ),
+            )
+        }
 
         Text(
             text = "Sync ${formatSyncTime(pnlSnapshot.syncedAt)}",

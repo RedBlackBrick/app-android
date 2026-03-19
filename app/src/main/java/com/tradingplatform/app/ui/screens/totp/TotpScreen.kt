@@ -44,13 +44,14 @@ private const val TOTP_CODE_LENGTH = 6
 /**
  * Ecran de vérification 2FA (TOTP).
  *
- * @param sessionToken   Token de session fourni par POST /v1/auth/login (AUTH_1004).
+ * Le sessionToken est lu depuis [SessionManager] via [TotpViewModel] — il n'est
+ * jamais transmis via les routes de navigation (sécurité backstack).
+ *
  * @param onNavigateToDashboard Appelé quand la vérification réussit et le portfolio est chargé.
  * @param onNavigateBack Appelé quand l'utilisateur appuie sur "Retour" (optionnel).
  */
 @Composable
 fun TotpScreen(
-    sessionToken: String,
     onNavigateToDashboard: () -> Unit,
     modifier: Modifier = Modifier,
     onNavigateBack: (() -> Unit)? = null,
@@ -67,7 +68,7 @@ fun TotpScreen(
 
     TotpScreenContent(
         uiState = uiState,
-        onVerifyClick = { code -> viewModel.verify(sessionToken, code) },
+        onVerifyClick = { code -> viewModel.verify(code) },
         onDismissError = { viewModel.resetError() },
         onNavigateBack = onNavigateBack,
         modifier = modifier,

@@ -2,6 +2,7 @@ package com.tradingplatform.app.ui.screens.totp
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.tradingplatform.app.data.session.SessionManager
 import com.tradingplatform.app.domain.exception.InvalidTotpCodeException
 import com.tradingplatform.app.domain.exception.NoPortfolioException
 import com.tradingplatform.app.domain.usecase.auth.ApplyAdminWidgetVisibilityUseCase
@@ -32,6 +33,7 @@ class TotpViewModel @Inject constructor(
     private val verify2faUseCase: Verify2faUseCase,
     private val getPortfoliosUseCase: GetPortfoliosUseCase,
     private val applyAdminWidgetVisibilityUseCase: ApplyAdminWidgetVisibilityUseCase,
+    private val sessionManager: SessionManager,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<TotpUiState>(TotpUiState.AwaitingInput)
@@ -44,11 +46,17 @@ class TotpViewModel @Inject constructor(
      * 1. POST /v1/auth/2fa/verify → succès ou [InvalidTotpCodeException]
      * 2. Si succès → GET /v1/portfolios → stocker portfolioId → [TotpUiState.Success]
      *
-     * @param sessionToken Token de session reçu depuis LoginScreen (via nav args).
-     * @param totpCode     Code à 6 chiffres saisi par l'utilisateur.
+     * Le sessionToken est consommé depuis [SessionManager] — il n'est jamais transmis
+     * via les routes de navigation pour éviter son exposition dans la backstack.
+     *
+     * @param totpCode Code à 6 chiffres saisi par l'utilisateur.
      */
-    fun verify(sessionToken: String, totpCode: String) {
+    fun verify(totpCode: String) {
         if (_uiState.value is TotpUiState.Verifying) return
+        val sessionToken = sessionManager.consumePendingTotpToken() ?: run {
+            _uiState.value = TotpUiState.Error("Session expirée. Reconnectez-vous.")
+            return
+        }
 
         viewModelScope.launch {
             _uiState.value = TotpUiState.Verifying

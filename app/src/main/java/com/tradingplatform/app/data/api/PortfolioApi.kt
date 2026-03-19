@@ -1,7 +1,7 @@
 package com.tradingplatform.app.data.api
 
-import com.tradingplatform.app.data.model.NavResponseDto
-import com.tradingplatform.app.data.model.PnlResponseDto
+import com.tradingplatform.app.data.model.PerformanceResponseDto
+import com.tradingplatform.app.data.model.PortfolioDetailDto
 import com.tradingplatform.app.data.model.PositionListResponseDto
 import com.tradingplatform.app.data.model.TransactionListResponseDto
 import retrofit2.Response
@@ -16,16 +16,15 @@ interface PortfolioApi {
         @Query("status") status: String = "open",
     ): Response<PositionListResponseDto>
 
-    @GET("v1/portfolios/{portfolio_id}/pnl")
-    suspend fun getPnl(
+    @GET("v1/portfolios/{portfolio_id}/performance")
+    suspend fun getPerformance(
         @Path("portfolio_id") portfolioId: String,
-        @Query("period") period: String = "day",
-    ): Response<PnlResponseDto>
+    ): Response<PerformanceResponseDto>
 
-    @GET("v1/portfolios/{portfolio_id}/nav")
-    suspend fun getNav(
+    @GET("v1/portfolios/{portfolio_id}")
+    suspend fun getPortfolioDetail(
         @Path("portfolio_id") portfolioId: String,
-    ): Response<NavResponseDto>
+    ): Response<PortfolioDetailDto>
 
     @GET("v1/portfolios/{portfolio_id}/transactions")
     suspend fun getTransactions(

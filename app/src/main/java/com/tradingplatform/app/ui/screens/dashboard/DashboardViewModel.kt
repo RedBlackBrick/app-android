@@ -2,6 +2,7 @@ package com.tradingplatform.app.ui.screens.dashboard
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.tradingplatform.app.domain.model.AppDefaults
 import com.tradingplatform.app.domain.model.NavSummary
 import com.tradingplatform.app.domain.model.PnlPeriod
 import com.tradingplatform.app.domain.model.PnlSummary
@@ -17,6 +18,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -59,8 +61,7 @@ data class DashboardUiState(
     val selectedPeriod: PnlPeriod = PnlPeriod.DAY,
 )
 
-// ── Default symbol for quote polling ────────────────────────────────────────
-private const val DEFAULT_QUOTE_SYMBOL = "AAPL"
+// ── Poll interval ────────────────────────────────────────────────────────────
 private const val QUOTE_POLL_INTERVAL_MS = 30_000L
 
 @HiltViewModel
@@ -102,7 +103,7 @@ class DashboardViewModel @Inject constructor(
         // (which is a Lifecycle extension, not available in ViewModel)
         viewModelScope.launch {
             while (isActive) {
-                fetchQuote(DEFAULT_QUOTE_SYMBOL)
+                fetchQuote(AppDefaults.DEFAULT_QUOTE_SYMBOL)
                 delay(QUOTE_POLL_INTERVAL_MS)
             }
         }
@@ -126,13 +127,15 @@ class DashboardViewModel @Inject constructor(
      * launch imbriqué pour garder la hiérarchie d'annulation claire.
      */
     private suspend fun collectPortfolioWsUpdates() {
-        getPortfolioWsUpdatesUseCase().collect {
-            Timber.d("DashboardViewModel: portfolio_update received via WS — refreshing NAV/PnL")
-            val portfolioId = _uiState.value.portfolioId
-            val period = _uiState.value.selectedPeriod
-            viewModelScope.launch { fetchNav(portfolioId) }
-            viewModelScope.launch { fetchPnl(portfolioId, period) }
-        }
+        getPortfolioWsUpdatesUseCase()
+            .debounce(500L)  // ignorer les rafales — max 1 update/500ms
+            .collect {
+                Timber.d("DashboardViewModel: portfolio_update received via WS — refreshing NAV/PnL")
+                val portfolioId = _uiState.value.portfolioId
+                val period = _uiState.value.selectedPeriod
+                viewModelScope.launch { fetchNav(portfolioId) }
+                viewModelScope.launch { fetchPnl(portfolioId, period) }
+            }
     }
 
     // ── Public actions ────────────────────────────────────────────────────────
@@ -150,7 +153,7 @@ class DashboardViewModel @Inject constructor(
         viewModelScope.launch {
             launch { fetchNav(portfolioId) }
             launch { fetchPnl(portfolioId, period) }
-            launch { fetchQuote(DEFAULT_QUOTE_SYMBOL) }
+            launch { fetchQuote(AppDefaults.DEFAULT_QUOTE_SYMBOL) }
         }
     }
 

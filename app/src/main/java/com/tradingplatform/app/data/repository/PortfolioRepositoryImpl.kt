@@ -66,11 +66,11 @@ class PortfolioRepositoryImpl @Inject constructor(
 
     override suspend fun getPnl(portfolioId: String, period: PnlPeriod): Result<PnlSummary> =
         runCatching {
-            val response = portfolioApi.getPnl(portfolioId, period.toApiString())
+            val response = portfolioApi.getPerformance(portfolioId)
             if (!response.isSuccessful) {
-                error("Get PnL failed: HTTP ${response.code()}")
+                error("Get performance failed: HTTP ${response.code()}")
             }
-            val pnl = response.body()?.toDomain() ?: error("Empty PnL response")
+            val pnl = response.body()?.toDomain() ?: error("Empty performance response")
 
             // Purge Room APRÈS sync réussie
             val now = System.currentTimeMillis()
@@ -81,11 +81,11 @@ class PortfolioRepositoryImpl @Inject constructor(
         }
 
     override suspend fun getNav(portfolioId: String): Result<NavSummary> = runCatching {
-        val response = portfolioApi.getNav(portfolioId)
+        val response = portfolioApi.getPortfolioDetail(portfolioId)
         if (!response.isSuccessful) {
-            error("Get NAV failed: HTTP ${response.code()}")
+            error("Get portfolio detail failed: HTTP ${response.code()}")
         }
-        response.body()?.toDomain() ?: error("Empty NAV response")
+        response.body()?.toDomain() ?: error("Empty portfolio detail response")
     }
 
     override suspend fun getTransactions(

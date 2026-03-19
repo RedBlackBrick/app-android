@@ -59,21 +59,24 @@ fun PositionDto.toDomain(): Position = Position(
     openedAt = Instant.parse(openedAt),
 )
 
-fun PnlResponseDto.toDomain(): PnlSummary = PnlSummary(
-    realizedPnl = realizedPnl,
-    unrealizedPnl = unrealizedPnl,
-    totalPnl = totalPnl,
-    totalPnlPercent = totalPnlPercent,
-    tradesCount = tradesCount,
-    winningTrades = winningTrades,
-    losingTrades = losingTrades,
+fun PerformanceResponseDto.toDomain(): PnlSummary = PnlSummary(
+    totalReturn = totalReturn,
+    totalReturnPct = totalReturnPct,
+    sharpeRatio = sharpeRatio,
+    sortinoRatio = sortinoRatio,
+    maxDrawdown = maxDrawdown,
+    volatility = volatility,
+    cagr = cagr,
+    winRate = winRate,
+    profitFactor = profitFactor,
+    avgTradeReturn = avgTradeReturn,
 )
 
-fun NavResponseDto.toDomain(): NavSummary = NavSummary(
-    nav = nav,
-    cash = cash,
-    positionsValue = positionsValue,
-    timestamp = Instant.parse(timestamp),
+fun PortfolioDetailDto.toDomain(): NavSummary = NavSummary(
+    currentValue = portfolio.currentValue,
+    cashBalance = portfolio.cashBalance,
+    totalRealizedPnl = totalRealizedPnl,
+    totalUnrealizedPnl = totalUnrealizedPnl,
 )
 
 fun TransactionDto.toDomain(): Transaction = Transaction(
@@ -148,13 +151,16 @@ fun PositionEntity.toDomain(): Position = Position(
 )
 
 fun PnlSnapshotEntity.toDomain(): PnlSummary = PnlSummary(
-    realizedPnl = BigDecimal(realizedPnl),
-    unrealizedPnl = BigDecimal(unrealizedPnl),
-    totalPnl = BigDecimal(totalPnl),
-    totalPnlPercent = totalPnlPercent,
-    tradesCount = tradesCount,
-    winningTrades = winningTrades,
-    losingTrades = losingTrades,
+    totalReturn = totalReturn?.let { BigDecimal(it) },
+    totalReturnPct = totalReturnPct,
+    sharpeRatio = sharpeRatio,
+    sortinoRatio = sortinoRatio,
+    maxDrawdown = maxDrawdown,
+    volatility = volatility,
+    cagr = cagr,
+    winRate = winRate,
+    profitFactor = profitFactor,
+    avgTradeReturn = avgTradeReturn?.let { BigDecimal(it) },
 )
 
 fun AlertEntity.toDomain(): Alert = Alert(
@@ -210,13 +216,16 @@ fun Position.toEntity(syncedAt: Long = System.currentTimeMillis()): PositionEnti
 
 fun PnlSummary.toEntity(period: PnlPeriod, syncedAt: Long = System.currentTimeMillis()): PnlSnapshotEntity = PnlSnapshotEntity(
     period = period.toApiString(),
-    realizedPnl = realizedPnl.toPlainString(),
-    unrealizedPnl = unrealizedPnl.toPlainString(),
-    totalPnl = totalPnl.toPlainString(),
-    totalPnlPercent = totalPnlPercent,
-    tradesCount = tradesCount,
-    winningTrades = winningTrades,
-    losingTrades = losingTrades,
+    totalReturn = totalReturn?.toPlainString(),
+    totalReturnPct = totalReturnPct,
+    sharpeRatio = sharpeRatio,
+    sortinoRatio = sortinoRatio,
+    maxDrawdown = maxDrawdown,
+    volatility = volatility,
+    cagr = cagr,
+    winRate = winRate,
+    profitFactor = profitFactor,
+    avgTradeReturn = avgTradeReturn?.toPlainString(),
     syncedAt = syncedAt,
 )
 

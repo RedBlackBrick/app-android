@@ -44,12 +44,13 @@ import kotlinx.coroutines.delay
  * Ecran de connexion.
  *
  * @param onNavigateToDashboard Appelé quand le login est réussi (sans TOTP).
- * @param onNavigateToTotp Appelé quand le 2FA est requis, avec le [sessionToken].
+ * @param onNavigateToTotp Appelé quand le 2FA est requis.
+ *   Le sessionToken est déjà stocké dans [SessionManager] par [LoginViewModel].
  */
 @Composable
 fun LoginScreen(
     onNavigateToDashboard: () -> Unit,
-    onNavigateToTotp: (sessionToken: String) -> Unit,
+    onNavigateToTotp: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: LoginViewModel = hiltViewModel(),
 ) {
@@ -57,14 +58,14 @@ fun LoginScreen(
 
     // Réagir aux états de navigation — une seule fois par transition
     LaunchedEffect(uiState) {
-        when (val state = uiState) {
+        when (uiState) {
             is LoginUiState.Success -> {
                 viewModel.resetState()
                 onNavigateToDashboard()
             }
             is LoginUiState.TotpRequired -> {
                 viewModel.resetState()
-                onNavigateToTotp(state.sessionToken)
+                onNavigateToTotp()
             }
             else -> Unit
         }

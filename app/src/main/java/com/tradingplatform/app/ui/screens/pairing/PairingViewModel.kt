@@ -5,19 +5,17 @@ import androidx.lifecycle.viewModelScope
 import com.tradingplatform.app.domain.model.DevicePairingInfo
 import com.tradingplatform.app.domain.model.PairingSession
 import com.tradingplatform.app.domain.model.PairingStatus
-import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
 import com.tradingplatform.app.domain.usecase.pairing.ConfirmPairingUseCase
 import com.tradingplatform.app.domain.usecase.pairing.ParseVpsQrUseCase
 import com.tradingplatform.app.domain.usecase.pairing.ScanDeviceQrUseCase
 import com.tradingplatform.app.domain.usecase.pairing.SendPinToDeviceUseCase
+import com.tradingplatform.app.domain.usecase.pairing.StoreDevicePairingResultUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import timber.log.Timber
-import java.io.IOException
-import java.security.GeneralSecurityException
 import javax.inject.Inject
 
 // ── PairingStep state machine ─────────────────────────────────────────────────
@@ -76,7 +74,7 @@ class PairingViewModel @Inject constructor(
     private val scanDeviceQrUseCase: ScanDeviceQrUseCase,
     private val sendPinToDeviceUseCase: SendPinToDeviceUseCase,
     private val confirmPairingUseCase: ConfirmPairingUseCase,
-    private val dataStore: EncryptedDataStore,
+    private val storeDevicePairingResultUseCase: StoreDevicePairingResultUseCase,
 ) : ViewModel() {
 
     private val _step = MutableStateFlow<PairingStep>(PairingStep.Idle)
@@ -201,33 +199,17 @@ class PairingViewModel @Inject constructor(
             ).onSuccess { status ->
                 Timber.d("PairingViewModel: ConfirmPairing result — status=$status")
                 if (status == PairingStatus.PAIRED) {
-                    try {
-                        // Persister local_token pour la roue de secours LAN — [REDACTED] en log
-                        dataStore.writeLocalToken(
-                            deviceId = current.device.deviceId,
-                            token = current.session.localToken,
-                        )
-                        // Persister la wgPubkey du device pour le chiffrement futur
-                        dataStore.writeString(
-                            "device_wg_pubkey_${current.device.deviceId}",
-                            current.device.wgPubkey,
-                        )
-                        // Persister l'IP locale du device pour la roue de secours
-                        dataStore.writeString(
-                            "device_local_ip_${current.device.deviceId}",
-                            current.device.localIp,
-                        )
+                    storeDevicePairingResultUseCase(
+                        deviceId = current.device.deviceId,
+                        localToken = current.session.localToken,
+                        wgPubkey = current.device.wgPubkey,
+                        localIp = current.device.localIp,
+                    ).onSuccess {
                         _step.value = PairingStep.Success
-                    } catch (e: IOException) {
-                        Timber.e(e, "PairingViewModel: DataStore write failed — I/O error")
+                    }.onFailure { e ->
+                        Timber.e(e, "PairingViewModel: StoreDevicePairingResult failed")
                         _step.value = PairingStep.Error(
-                            message = "Échec de la sauvegarde des clés — erreur E/S",
-                            retryable = false,
-                        )
-                    } catch (e: GeneralSecurityException) {
-                        Timber.e(e, "PairingViewModel: DataStore write failed — Keystore invalidated")
-                        _step.value = PairingStep.Error(
-                            message = "Échec de la sauvegarde — Keystore invalide, vérifiez la biométrie",
+                            message = "Échec de la sauvegarde des clés du device",
                             retryable = false,
                         )
                     }

@@ -38,7 +38,7 @@ class CsrfInterceptor @Inject constructor(
 ) : Interceptor {
 
     private val mutex = Mutex()
-    private var csrfToken: String? = null
+    @Volatile private var csrfToken: String? = null
 
     private val csrfMethods = setOf("POST", "PUT", "DELETE", "PATCH")
 
@@ -96,7 +96,6 @@ class CsrfInterceptor @Inject constructor(
      * No-op si un token est déjà en cache.
      */
     fun preFetch() {
-        if (csrfToken != null) return
         applicationScope.launch(Dispatchers.IO) {
             try {
                 mutex.withLock {
