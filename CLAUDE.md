@@ -48,14 +48,15 @@ Instructions pour Claude Code lors du travail sur ce projet.
 
 ```
 com.tradingplatform.app/
-├── di/                    # Hilt modules (AppModule, NetworkModule, VpnModule, SecurityModule)
+├── di/                    # Hilt modules (AppModule, NetworkModule, VpnModule, SecurityModule, WebSocketModule)
 ├── data/
-│   ├── api/               # Interfaces Retrofit (AuthApi, PortfolioApi, DeviceApi, PairingApi, LocalMaintenanceApi)
+│   ├── api/               # Interfaces Retrofit (AuthApi, PortfolioApi, DeviceApi, PairingApi, LocalMaintenanceApi, NotificationApi)
 │   ├── repository/        # Implémentations des Repository interfaces du domaine
 │   ├── local/
 │   │   ├── db/            # Room : AppDatabase, DAOs, Entities
 │   │   └── datastore/     # EncryptedDataStore (tokens, config WireGuard)
-│   └── model/             # Data Transfer Objects (DTOs) JSON ↔ API
+│   ├── model/             # Data Transfer Objects (DTOs) JSON ↔ API
+│   └── websocket/         # PrivateWsClient, WsEvent, WsRepository
 ├── domain/
 │   ├── model/             # Domain models (purs Kotlin, sans annotations Android/Retrofit/Room)
 │   ├── repository/        # Interfaces Repository (définies dans domain, implémentées dans data)
@@ -63,9 +64,10 @@ com.tradingplatform.app/
 │   └── usecase/
 │       ├── auth/          # LoginUseCase, LogoutUseCase
 │       ├── portfolio/     # GetPortfolioUseCase, GetPositionsUseCase
-│       ├── device/        # GetDevicesUseCase, GetDeviceStatusUseCase
+│       ├── device/        # GetDevicesUseCase, GetDeviceStatusUseCase, SendDeviceCommandUseCase
 │       ├── alerts/        # GetAlertsUseCase, MarkAlertReadUseCase
 │       ├── maintenance/   # SendLocalCommandUseCase, GetLocalStatusUseCase
+│       ├── notification/  # RegisterFcmTokenUseCase
 │       └── pairing/       # ParseVpsQrUseCase, ScanDeviceQrUseCase, SendPinToDeviceUseCase, ConfirmPairingUseCase, ParseSetupQrUseCase
 ├── ui/
 │   ├── theme/             # Color.kt, Theme.kt, Type.kt (Material 3)
@@ -75,7 +77,7 @@ com.tradingplatform.app/
 │       ├── auth/          # LoginScreen + LoginViewModel
 │       ├── dashboard/     # DashboardScreen + DashboardViewModel
 │       ├── portfolio/     # PositionsScreen, PositionDetailScreen + ViewModels
-│       ├── devices/       # DeviceListScreen, DeviceDetailScreen + ViewModels
+│       ├── devices/       # DeviceListScreen, EdgeDeviceDashboardScreen + ViewModels
 │       ├── pairing/       # ScanVpsQrScreen, ScanDeviceQrScreen, PairingProgressScreen, PairingDoneScreen + PairingViewModel
 │       ├── alerts/        # AlertListScreen + AlertsViewModel
 │       ├── totp/          # TotpScreen + TotpViewModel (2FA post-login)
@@ -297,10 +299,10 @@ La vérification VPN en entrée de Worker (via `vpnManager.state`) évite de pas
 intercepteurs OkHttp pour un cas prévisible. `Result.retry()` uniquement si au moins une
 section a eu une erreur réseau transitoire.
 
-### Données de marché — stratégie polling
+### Données de marché — stratégie
 
-Pas de WebSocket — polling REST uniquement :
-- **Dashboard** : `GET /v1/market-data/quote/{symbol}` toutes les **30 secondes** via `while(isActive)` dans `viewModelScope`
+- **Cours** : polling REST — `GET /v1/market-data/quote/{symbol}` toutes les **30 secondes** via `while(isActive)` dans `viewModelScope`
+- **Portfolio (P&L, positions)** : mises à jour temps réel via `WsRepository` (WebSocket `wss://vps/v1/ws/private`) en complément du polling REST
 - **Widgets** : rafraîchissement inclus dans le cycle WorkManager **5 min**
 
 La table Room `quotes` persiste le dernier cours connu (TTL 10 min) pour le `QuoteWidget`.
@@ -342,6 +344,14 @@ init {
 // Dans le Composable — collectAsStateWithLifecycle() gère le lifecycle
 val quoteState by viewModel.quoteState.collectAsStateWithLifecycle()
 ```
+
+### WebSocket privé — PrivateWsClient
+
+`PrivateWsClient` se connecte à `wss://vps/v1/ws/private` avec un JWT dont le claim `"websocket"` est obtenu via `POST /v1/auth/ws-token`. Il implémente `DefaultLifecycleObserver` : la connexion est établie en foreground et fermée en arrière-plan.
+
+`WsRepository` expose des `Flow` pour les événements WS : `portfolioUpdates`, `positionUpdates`, `notifications`, etc. `DashboardViewModel` collecte `WsRepository.portfolioUpdates` en complément du polling REST — le WS prend le dessus en temps réel, le polling assure la cohérence.
+
+Le token WS est distinct de l'access token — obtenir via `POST /v1/auth/ws-token` avant chaque connexion. `WebSocketModule` dans `di/` fournit les bindings Hilt.
 
 ### Alertes — source de données (FCM → Room)
 

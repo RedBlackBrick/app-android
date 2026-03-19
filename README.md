@@ -11,7 +11,7 @@ de la plateforme de trading algorithmique.
 |----------------|--------|-------------|
 | Authentification sécurisée | ✅ Implémenté | Login JWT + TOTP 2FA + biométrie (5 min inactivité) |
 | Tunnel WireGuard intégré | ✅ Implémenté | VpnService Android foreground — pas d'app externe |
-| Dashboard investissements | ✅ Implémenté | P&L, positions ouvertes, cours live (polling 30s) |
+| Dashboard investissements | ✅ Implémenté | P&L, positions ouvertes, cours live (polling REST 30s + mises à jour portfolio temps réel via WebSocket) |
 | Pairing device Radxa | ✅ Implémenté | Scan QR VPS + QR Radxa (ordre libre) + PIN LAN |
 | Accès direct device (LAN) | ✅ Implémenté | isLocalNetwork() guard RFC-1918, HTTP LAN uniquement |
 | Widgets écran d'accueil | ✅ Implémenté | 5 widgets Glance, WorkManager 15 min, cache Room |
@@ -65,9 +65,10 @@ Clean Architecture en 3 couches + couches transversales :
 Transversaux :
   vpn/      — WireGuardManager (@Singleton) + WireGuardVpnService (foreground)
   security/ — KeystoreManager, BiometricManager, RootDetector, CertificatePinner, NetworkUtils
-  di/       — Hilt modules (App, Security, Vpn, Network, Database, Repository, Widget)
+  di/       — Hilt modules (App, Security, Vpn, Network, Database, Repository, Widget, WebSocket)
   widget/   — 5 Glance AppWidgets + WidgetUpdateWorker @HiltWorker
   fcm/      — TradingFirebaseMessagingService + FcmTokenManager
+  data/websocket/ — PrivateWsClient, WsEvent, WsRepository
 ```
 
 ### Chaîne intercepteurs OkHttp (ordre strict)
@@ -105,7 +106,7 @@ LoginScreen
         │   └── PositionDetailScreen
         ├── Devices tab          — admin uniquement (is_admin == true)
         │   ├── DeviceListScreen
-        │   ├── DeviceDetailScreen
+        │   ├── EdgeDeviceDashboardScreen  — métriques CPU/RAM/temp/disque + actions reboot/health/update
         │   └── Pairing flow
         │       ScanVpsQrScreen → ScanDeviceQrScreen → PairingProgressScreen → PairingDoneScreen
         ├── Alerts tab

@@ -86,6 +86,21 @@ Pas de body. Le cookie httpOnly est envoyé automatiquement par OkHttp via `Cook
 
 ---
 
+### POST /v1/auth/ws-token
+
+Obtient un token JWT avec claim `"websocket"` pour établir la connexion `PrivateWsClient`.
+
+Pas de body.
+
+**Response 200 :**
+```json
+{ "token": "eyJ...", "expires_at": "2025-11-17T15:30:00Z" }
+```
+
+Auth : JWT Bearer.
+
+---
+
 ### POST /v1/auth/2fa/verify (si totp_enabled)
 
 **Request :**
@@ -204,6 +219,26 @@ Réutiliser pour tous les appels suivants sans re-fetch.
 
 ---
 
+## Notifications
+
+### POST /v1/notifications/fcm-token
+
+Enregistre ou met à jour le token FCM de l'appareil pour l'utilisateur authentifié.
+
+**Request :**
+```json
+{ "fcm_token": "...", "device_fingerprint": "..." }
+```
+
+**Response 200 :**
+```json
+{ "registered": true }
+```
+
+Auth : JWT Bearer. Appelé depuis `TradingFirebaseMessagingService.onNewToken()` via `RegisterFcmTokenUseCase`.
+
+---
+
 ## Market Data
 
 ### GET /v1/market-data/quote/{symbol}
@@ -243,14 +278,38 @@ Liste les devices enregistrés avec leur statut.
       "name": "Radxa-01",
       "status": "online",
       "wg_ip": "10.42.0.5",
-      "last_heartbeat": "2025-11-17T14:28:00Z"
+      "last_heartbeat": "2025-11-17T14:28:00Z",
+      "cpu_pct": 12.5,
+      "memory_pct": 45.0,
+      "temperature": 52.3,
+      "disk_pct": 38.0,
+      "uptime_seconds": 86400,
+      "firmware_version": "1.2.0",
+      "hostname": "radxa-01"
     }
   ]
 }
 ```
 
 > Endpoint existant dans l'API Gateway (accès conditionnel `is_admin`).
-> L'API edge-control est Radxa → VPS uniquement — pas accessible depuis l'app.
+
+---
+
+### POST /v1/edge-control/devices/{id}/commands (admin uniquement)
+
+Envoie une commande à un device Radxa via le VPS.
+
+**Request :**
+```json
+{ "command": "reboot" }
+```
+
+**Response 200 :**
+```json
+{ "accepted": true }
+```
+
+Auth : JWT Bearer. Accessible uniquement depuis le sous-réseau VPN (`/v1/edge-control/*` restreint par Caddy).
 
 ---
 
