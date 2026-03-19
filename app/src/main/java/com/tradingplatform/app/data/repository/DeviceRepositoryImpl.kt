@@ -35,9 +35,28 @@ class DeviceRepositoryImpl @Inject constructor(
     }
 
     override suspend fun getDeviceStatus(deviceId: String): Result<Device> = runCatching {
-        // Lire depuis le cache Room — getDevices() est appelé en amont par le ViewModel/UseCase
-        deviceDao.getById(deviceId)?.toDomain()
-            ?: error("Device $deviceId not found in cache")
+        // Tenter d'abord le cache Room (TTL 1 min — CLAUDE.md §2 stratégie cache)
+        val cached = deviceDao.getById(deviceId)
+        if (cached != null) return@runCatching cached.toDomain()
+
+        // Cache vide (getDevices() pas encore appelé, ou TTL expiré) :
+        // Pas d'endpoint GET /v1/edge/devices/{id} — fallback sur getDevices() complet
+        // puis filtre sur le deviceId demandé. Le résultat est upserted dans Room
+        // pour les prochains appels.
+        // NOTE : si l'API expose un jour GET /v1/edge/devices/{id}, ajouter
+        // deviceApi.getDeviceById(deviceId) dans DeviceApi et supprimer ce fallback.
+        val response = deviceApi.getDevices()
+        if (!response.isSuccessful) {
+            error("Get devices (fallback for status) failed: HTTP ${response.code()}")
+        }
+        val devices = response.body()?.devices?.map { it.toDomain() } ?: emptyList()
+
+        val now = System.currentTimeMillis()
+        deviceDao.upsertAll(devices.map { it.toEntity(syncedAt = now) })
+        deviceDao.deleteOlderThan(now - DEVICE_TTL_MS)
+
+        devices.firstOrNull { it.id == deviceId }
+            ?: error("Device $deviceId not found")
     }
 
     override suspend fun unpairDevice(deviceId: String): Result<Unit> = runCatching {

@@ -11,19 +11,23 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+// ── UiState ────────────────────────────────────────────────────────────────────
+
+sealed interface MyDevicesUiState {
+    data object Loading : MyDevicesUiState
+    data class Success(val peers: List<VpnPeer>, val syncedAt: Long) : MyDevicesUiState
+    data class Error(val message: String) : MyDevicesUiState
+}
+
+// ── ViewModel ──────────────────────────────────────────────────────────────────
+
 @HiltViewModel
 class MyDevicesViewModel @Inject constructor(
     private val getMyDevicesUseCase: GetMyDevicesUseCase,
 ) : ViewModel() {
 
-    sealed interface UiState {
-        data object Loading : UiState
-        data class Success(val peers: List<VpnPeer>, val syncedAt: Long) : UiState
-        data class Error(val message: String) : UiState
-    }
-
-    private val _uiState = MutableStateFlow<UiState>(UiState.Loading)
-    val uiState: StateFlow<UiState> = _uiState.asStateFlow()
+    private val _uiState = MutableStateFlow<MyDevicesUiState>(MyDevicesUiState.Loading)
+    val uiState: StateFlow<MyDevicesUiState> = _uiState.asStateFlow()
 
     init {
         loadDevices()
@@ -31,15 +35,15 @@ class MyDevicesViewModel @Inject constructor(
 
     fun loadDevices() {
         viewModelScope.launch {
-            _uiState.value = UiState.Loading
+            _uiState.value = MyDevicesUiState.Loading
             getMyDevicesUseCase()
                 .onSuccess {
-                    _uiState.value = UiState.Success(
+                    _uiState.value = MyDevicesUiState.Success(
                         peers = it,
                         syncedAt = System.currentTimeMillis(),
                     )
                 }
-                .onFailure { _uiState.value = UiState.Error(it.localizedMessage ?: "Erreur") }
+                .onFailure { _uiState.value = MyDevicesUiState.Error(it.localizedMessage ?: "Erreur") }
         }
     }
 

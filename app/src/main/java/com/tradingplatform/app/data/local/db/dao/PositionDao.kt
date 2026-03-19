@@ -18,6 +18,9 @@ interface PositionDao {
     @Query("SELECT * FROM positions ORDER BY symbol ASC")
     suspend fun getAll(): List<PositionEntity>
 
+    @Query("SELECT * FROM positions WHERE id = :positionId LIMIT 1")
+    suspend fun getById(positionId: Int): PositionEntity?
+
     @Query("DELETE FROM positions WHERE synced_at < :cutoffMillis")
     suspend fun deleteOlderThan(cutoffMillis: Long)
 

@@ -29,7 +29,6 @@ import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -74,7 +73,6 @@ fun AlertListScreen(
     viewModel: AlertsViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -84,47 +82,45 @@ fun AlertListScreen(
         },
         modifier = modifier,
     ) { innerPadding ->
-        PullToRefreshBox(
-            isRefreshing = isRefreshing,
-            onRefresh = { viewModel.refresh() },
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
-        ) {
-            when (val state = uiState) {
-                is AlertsUiState.Loading -> {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(Spacing.lg),
-                        verticalArrangement = Arrangement.spacedBy(Spacing.sm),
-                    ) {
-                        items(6) {
-                            SkeletonAlertCard()
-                        }
+        // Alerts are sourced exclusively from FCM → Room (no network endpoint).
+        // The Room Flow updates reactively — no pull-to-refresh needed.
+        when (val state = uiState) {
+            is AlertsUiState.Loading -> {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding),
+                    contentPadding = PaddingValues(Spacing.lg),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+                ) {
+                    items(6) {
+                        SkeletonAlertCard()
                     }
                 }
+            }
 
-                is AlertsUiState.Success -> {
-                    AlertListContent(
-                        alerts = state.alerts,
-                        unreadCount = state.unreadCount,
-                        onMarkAsRead = viewModel::markAsRead,
+            is AlertsUiState.Success -> {
+                AlertListContent(
+                    alerts = state.alerts,
+                    unreadCount = state.unreadCount,
+                    onMarkAsRead = viewModel::markAsRead,
+                    modifier = Modifier.padding(innerPadding),
+                )
+            }
+
+            is AlertsUiState.Error -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding)
+                        .padding(Spacing.lg),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    EmptyState(
+                        illustration = { EmptyAlertsIllustration() },
+                        title = "Erreur de chargement",
+                        message = state.message,
                     )
-                }
-
-                is AlertsUiState.Error -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(Spacing.lg),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        EmptyState(
-                            illustration = { EmptyAlertsIllustration() },
-                            title = "Erreur de chargement",
-                            message = state.message,
-                        )
-                    }
                 }
             }
         }

@@ -92,14 +92,14 @@ fun MyDevicesScreen(
         modifier = modifier,
     ) { innerPadding ->
         PullToRefreshBox(
-            isRefreshing = uiState is MyDevicesViewModel.UiState.Loading,
+            isRefreshing = uiState is MyDevicesUiState.Loading,
             onRefresh = { viewModel.refresh() },
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
             when (val state = uiState) {
-                is MyDevicesViewModel.UiState.Loading -> {
+                is MyDevicesUiState.Loading -> {
                     // Skeleton placeholders
                     Column(
                         modifier = Modifier
@@ -125,7 +125,7 @@ fun MyDevicesScreen(
                     }
                 }
 
-                is MyDevicesViewModel.UiState.Success -> {
+                is MyDevicesUiState.Success -> {
                     if (state.peers.isEmpty()) {
                         Box(
                             modifier = Modifier.fillMaxSize(),
@@ -177,7 +177,7 @@ fun MyDevicesScreen(
                     }
                 }
 
-                is MyDevicesViewModel.UiState.Error -> {
+                is MyDevicesUiState.Error -> {
                     Box(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center,

@@ -28,6 +28,26 @@ class PortfolioRepositoryImpl @Inject constructor(
     // TTL PnL snapshots : 5 min
     private val PNL_TTL_MS = 5 * 60 * 1000L
 
+    override suspend fun getPosition(portfolioId: String, positionId: Int): Result<Position> =
+        runCatching {
+            // Fast path — read from Room cache directly (avoids fetching all positions)
+            val cached = positionDao.getById(positionId)
+            if (cached != null) return@runCatching cached.toDomain()
+
+            // Cache miss — fetch from API and find the position
+            val response = portfolioApi.getPositions(portfolioId, PositionStatus.OPEN.toApiString())
+            if (!response.isSuccessful) {
+                error("Get positions failed: HTTP ${response.code()}")
+            }
+            val positions = response.body()?.positions?.map { it.toDomain() } ?: emptyList()
+            val now = System.currentTimeMillis()
+            positionDao.upsertAll(positions.map { it.toEntity(syncedAt = now) })
+            positionDao.deleteOlderThan(now - POSITION_TTL_MS)
+
+            positions.find { it.id == positionId }
+                ?: error("Position $positionId not found")
+        }
+
     override suspend fun getPositions(portfolioId: String, status: PositionStatus): Result<List<Position>> =
         runCatching {
             val response = portfolioApi.getPositions(portfolioId, status.toApiString())

@@ -55,7 +55,9 @@ class LocalMaintenanceRepositoryImpl @Inject constructor(
 
         val response = maintenanceApi.sendCommand(url, body)
         if (!response.isSuccessful) error("command failed: HTTP ${response.code()}")
-        response.body()?.string() ?: "OK"
+        // ResponseBody doit être consommé dans use { } pour garantir la fermeture du flux
+        // même si une exception survient pendant la lecture (body().string() lit le stream).
+        response.body()?.use { it.string() } ?: "OK"
     }
 
     /**

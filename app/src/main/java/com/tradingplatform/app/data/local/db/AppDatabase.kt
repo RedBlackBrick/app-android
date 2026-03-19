@@ -15,6 +15,36 @@ import com.tradingplatform.app.data.local.db.entity.PnlSnapshotEntity
 import com.tradingplatform.app.data.local.db.entity.PositionEntity
 import com.tradingplatform.app.data.local.db.entity.QuoteEntity
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// HISTORIQUE DES VERSIONS DE SCHÉMA
+// ───────────────────────────────────────────────────────────────────────────────
+// v1 (initial) : tables positions, pnl_snapshots, alerts, devices (colonnes de base), quotes
+// v2           : [migration explicite à documenter lors de la bump — voir MIGRATION_1_2]
+// v3           : ajout colonnes métriques hardware dans devices
+//               (cpu_pct, memory_pct, temperature, disk_pct, uptime_seconds,
+//                firmware_version, hostname)
+//
+// STRATÉGIE DE MIGRATION — RÈGLES IMPÉRATIVES
+// ───────────────────────────────────────────────────────────────────────────────
+// DEBUG / DEV   : fallbackToDestructiveMigration() acceptable (schéma instable).
+//                 Configurer dans DatabaseModule.kt uniquement pour les builds debug.
+//
+// RELEASE       : OBLIGATOIREMENT addMigrations(MIGRATION_X_Y) dans DatabaseModule.kt.
+//                 NE JAMAIS utiliser fallbackToDestructiveMigration() en release :
+//                 la table "alerts" (historique FCM local) serait détruite — perte
+//                 irrémédiable de données utilisateur (pas de backup serveur).
+//
+// AJOUTER UNE MIGRATION (checklist)
+// ───────────────────────────────────────────────────────────────────────────────
+// 1. Incrémenter `version` dans l'annotation @Database ci-dessous (ex : 3 → 4)
+// 2. Déclarer val MIGRATION_3_4 = object : Migration(3, 4) { ... } dans ce fichier
+// 3. Ajouter .addMigrations(MIGRATION_3_4) dans DatabaseModule.kt (build release)
+// 4. Vérifier que exportSchema = true et que le fichier de schéma JSON généré
+//    dans app/schemas/ est commité — il sert de référence pour les tests de migration
+// 5. Écrire un test Room MigrationTest (androidTest) qui exerce le chemin X→Y
+//
+// ═══════════════════════════════════════════════════════════════════════════════
+
 // ── Migration 2 → 3 : ajout des colonnes de métriques hardware Radxa ─────────
 val MIGRATION_2_3 = object : Migration(2, 3) {
     override fun migrate(database: SupportSQLiteDatabase) {

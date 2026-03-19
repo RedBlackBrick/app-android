@@ -103,9 +103,13 @@ class WidgetUpdateWorker @AssistedInject constructor(
 
         // 3. Sync quotes — indépendant du portfolio
         try {
-            syncQuotes()
+            val anyQuoteFailed = syncQuotes()
+            if (anyQuoteFailed) {
+                Timber.w("WidgetUpdateWorker — some quotes failed (IOException), will retry")
+                anyRetryNeeded = true
+            }
         } catch (e: IOException) {
-            Timber.w(e, "WidgetUpdateWorker — quotes sync failed (IOException), will retry")
+            Timber.w(e, "WidgetUpdateWorker — quotes sync failed entirely (IOException), will retry")
             anyRetryNeeded = true
         } catch (e: VpnNotConnectedException) {
             Timber.d("WidgetUpdateWorker — VPN disconnected during quotes sync")
@@ -194,16 +198,21 @@ class WidgetUpdateWorker @AssistedInject constructor(
      * Si la table quotes est vide (premier démarrage), sync le symbole par défaut.
      * Purge Room APRÈS toutes les syncs.
      *
-     * @throws IOException en cas d'erreur réseau transitoire (premier symbole en échec)
-     * @throws VpnNotConnectedException si le VPN est coupé pendant la sync
+     * Un échec sur un symbole isolé ne bloque pas les autres — la boucle continue.
+     * Retourne true si au moins un symbole a échoué avec une IOException (pour que
+     * doWork() puisse positionner anyRetryNeeded).
+     *
+     * @throws VpnNotConnectedException si le VPN est coupé pendant la sync (remonte toujours)
+     * @return true si au moins un symbole a échoué, false si tous ont réussi
      */
-    private suspend fun syncQuotes() {
+    private suspend fun syncQuotes(): Boolean {
         val now = System.currentTimeMillis()
 
         // Récupérer les symboles actuellement en cache pour les rafraîchir
         val cachedSymbols = quoteDao.getAllSymbols()
         val symbolsToSync = if (cachedSymbols.isEmpty()) listOf(DEFAULT_QUOTE_SYMBOL) else cachedSymbols
 
+        var anySymbolFailed = false
         for (symbol in symbolsToSync) {
             getQuoteUseCase(symbol)
                 .onSuccess {
@@ -212,15 +221,20 @@ class WidgetUpdateWorker @AssistedInject constructor(
                 .onFailure { e ->
                     when (e) {
                         is VpnNotConnectedException -> throw e
-                        is IOException -> throw e
+                        is IOException -> {
+                            Timber.w(e, "WidgetUpdateWorker — quote sync failed for $symbol, continuing with others")
+                            anySymbolFailed = true
+                        }
                         else -> Timber.w(e, "WidgetUpdateWorker — quote error for $symbol (non-retryable): ${e.message}")
                     }
                 }
         }
 
-        // Purge après toutes les syncs réussies
+        // Purge après toutes les syncs (même partielle — au moins un symbole réussi suffit)
         quoteDao.deleteOlderThan(now - QUOTE_TTL_MS)
         Timber.d("WidgetUpdateWorker — quotes purged (TTL ${QUOTE_TTL_MS / 60_000} min)")
+
+        return anySymbolFailed
     }
 
     // ── Purge alertes ──────────────────────────────────────────────────────────

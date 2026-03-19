@@ -6,7 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.tradingplatform.app.domain.model.Position
 import com.tradingplatform.app.domain.model.Transaction
 import com.tradingplatform.app.domain.usecase.auth.GetPortfolioIdUseCase
-import com.tradingplatform.app.domain.usecase.portfolio.GetPositionsUseCase
+import com.tradingplatform.app.domain.usecase.portfolio.GetPositionUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetTransactionsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,7 +28,7 @@ sealed interface PositionDetailUiState {
 
 @HiltViewModel
 class PositionDetailViewModel @Inject constructor(
-    private val getPositionsUseCase: GetPositionsUseCase,
+    private val getPositionUseCase: GetPositionUseCase,
     private val getTransactionsUseCase: GetTransactionsUseCase,
     private val getPortfolioIdUseCase: GetPortfolioIdUseCase,
     savedStateHandle: SavedStateHandle,
@@ -53,10 +53,11 @@ class PositionDetailViewModel @Inject constructor(
         _uiState.update { PositionDetailUiState.Loading }
         val portfolioId = getPortfolioIdUseCase()
 
-        // Fetch all positions and find the one matching positionId
-        val positionResult = getPositionsUseCase(portfolioId)
-        val position = positionResult.getOrNull()?.find { it.id == positionId }
+        // Fetch only the single position by ID — no longer loads all positions
+        val positionFetchedAt = System.currentTimeMillis()
+        val positionResult = getPositionUseCase(portfolioId, positionId)
 
+        val position = positionResult.getOrNull()
         if (position == null) {
             val errorMsg = positionResult.exceptionOrNull()?.localizedMessage
                 ?: "Position introuvable"
@@ -79,13 +80,14 @@ class PositionDetailViewModel @Inject constructor(
                     )
                 }
             }
-            .onFailure { e ->
-                // Still show position even if transactions fail
+            .onFailure {
+                // Still show position even if transactions fail — use positionFetchedAt
+                // so syncedAt reflects when the position data was actually retrieved
                 _uiState.update {
                     PositionDetailUiState.Success(
                         position = position,
                         transactions = emptyList(),
-                        syncedAt = System.currentTimeMillis(),
+                        syncedAt = positionFetchedAt,
                     )
                 }
             }

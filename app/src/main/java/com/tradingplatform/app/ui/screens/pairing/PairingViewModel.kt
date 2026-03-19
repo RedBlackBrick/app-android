@@ -16,6 +16,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import timber.log.Timber
+import java.io.IOException
+import java.security.GeneralSecurityException
 import javax.inject.Inject
 
 // ── PairingStep state machine ─────────────────────────────────────────────────
@@ -199,22 +201,36 @@ class PairingViewModel @Inject constructor(
             ).onSuccess { status ->
                 Timber.d("PairingViewModel: ConfirmPairing result — status=$status")
                 if (status == PairingStatus.PAIRED) {
-                    // Persister local_token pour la roue de secours LAN — [REDACTED] en log
-                    dataStore.writeLocalToken(
-                        deviceId = current.device.deviceId,
-                        token = current.session.localToken,
-                    )
-                    // Persister la wgPubkey du device pour le chiffrement futur
-                    dataStore.writeString(
-                        "device_wg_pubkey_${current.device.deviceId}",
-                        current.device.wgPubkey,
-                    )
-                    // Persister l'IP locale du device pour la roue de secours
-                    dataStore.writeString(
-                        "device_local_ip_${current.device.deviceId}",
-                        current.device.localIp,
-                    )
-                    _step.value = PairingStep.Success
+                    try {
+                        // Persister local_token pour la roue de secours LAN — [REDACTED] en log
+                        dataStore.writeLocalToken(
+                            deviceId = current.device.deviceId,
+                            token = current.session.localToken,
+                        )
+                        // Persister la wgPubkey du device pour le chiffrement futur
+                        dataStore.writeString(
+                            "device_wg_pubkey_${current.device.deviceId}",
+                            current.device.wgPubkey,
+                        )
+                        // Persister l'IP locale du device pour la roue de secours
+                        dataStore.writeString(
+                            "device_local_ip_${current.device.deviceId}",
+                            current.device.localIp,
+                        )
+                        _step.value = PairingStep.Success
+                    } catch (e: IOException) {
+                        Timber.e(e, "PairingViewModel: DataStore write failed — I/O error")
+                        _step.value = PairingStep.Error(
+                            message = "Échec de la sauvegarde des clés — erreur E/S",
+                            retryable = false,
+                        )
+                    } catch (e: GeneralSecurityException) {
+                        Timber.e(e, "PairingViewModel: DataStore write failed — Keystore invalidated")
+                        _step.value = PairingStep.Error(
+                            message = "Échec de la sauvegarde — Keystore invalide, vérifiez la biométrie",
+                            retryable = false,
+                        )
+                    }
                 } else {
                     _step.value = PairingStep.Error(
                         message = "Le device n'a pas pu être appairé",

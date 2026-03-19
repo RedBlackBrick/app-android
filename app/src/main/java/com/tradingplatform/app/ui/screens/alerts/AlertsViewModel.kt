@@ -6,12 +6,12 @@ import com.tradingplatform.app.domain.model.Alert
 import com.tradingplatform.app.domain.usecase.alerts.GetAlertsUseCase
 import com.tradingplatform.app.domain.usecase.alerts.MarkAlertReadUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
+import timber.log.Timber
 import javax.inject.Inject
 
 // ── UiState ───────────────────────────────────────────────────────────────────
@@ -33,9 +33,6 @@ class AlertsViewModel @Inject constructor(
     private val _uiState = MutableStateFlow<AlertsUiState>(AlertsUiState.Loading)
     val uiState: StateFlow<AlertsUiState> = _uiState.asStateFlow()
 
-    private val _isRefreshing = MutableStateFlow(false)
-    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
-
     init {
         viewModelScope.launch {
             getAlertsUseCase()
@@ -54,24 +51,16 @@ class AlertsViewModel @Inject constructor(
     }
 
     /**
-     * Marks the alert with [alertId] as read. Errors are silently swallowed — a failed
-     * mark-as-read is non-critical and should not disrupt the UI.
+     * Marks the alert with [alertId] as read. Errors are logged but do not disrupt the UI —
+     * a failed mark-as-read is non-critical.
      */
     fun markAsRead(alertId: Long) {
         viewModelScope.launch {
-            markAlertReadUseCase(alertId)
-        }
-    }
-
-    /**
-     * Visual pull-to-refresh affordance. Room Flow auto-updates, so this just
-     * shows the refresh indicator briefly for UX consistency with other screens.
-     */
-    fun refresh() {
-        viewModelScope.launch {
-            _isRefreshing.value = true
-            delay(400)
-            _isRefreshing.value = false
+            try {
+                markAlertReadUseCase(alertId)
+            } catch (e: Exception) {
+                Timber.e(e, "markAsRead failed for alertId=$alertId")
+            }
         }
     }
 }

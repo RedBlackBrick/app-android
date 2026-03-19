@@ -1,5 +1,8 @@
 package com.tradingplatform.app.data.api.interceptor
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -31,6 +34,7 @@ import javax.inject.Singleton
 class CsrfInterceptor @Inject constructor(
     @Named("bare") private val bareHttpClient: OkHttpClient,
     @Named("base_url") private val baseUrl: String,
+    private val applicationScope: CoroutineScope,
 ) : Interceptor {
 
     private val mutex = Mutex()
@@ -93,17 +97,15 @@ class CsrfInterceptor @Inject constructor(
      */
     fun preFetch() {
         if (csrfToken != null) return
-        Thread {
+        applicationScope.launch(Dispatchers.IO) {
             try {
-                runBlocking {
-                    mutex.withLock {
-                        if (csrfToken == null) fetchCsrfToken()
-                    }
+                mutex.withLock {
+                    if (csrfToken == null) fetchCsrfToken()
                 }
             } catch (e: Exception) {
                 Timber.w(e, "CsrfInterceptor: preFetch failed (non-blocking)")
             }
-        }.apply { isDaemon = true }.start()
+        }
     }
 
     private fun fetchCsrfToken(): String {

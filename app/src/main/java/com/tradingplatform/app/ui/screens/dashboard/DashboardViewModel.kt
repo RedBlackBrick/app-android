@@ -83,19 +83,24 @@ class DashboardViewModel @Inject constructor(
             // Load NAV and PnL in parallel (one-shot on init, period default DAY)
             launch { fetchNav(portfolioId) }
             launch { fetchPnl(portfolioId, PnlPeriod.DAY) }
+        }
 
-            // Collect real-time portfolio updates from the private WebSocket.
-            // On chaque portfolio_update, re-fetch NAV et PnL pour avoir les données fraîches.
-            // Le polling REST ci-dessous reste actif en parallèle comme fallback.
-            collectPortfolioWsUpdates(portfolioId)
+        // Collect real-time portfolio updates from the private WebSocket.
+        // On chaque portfolio_update, re-fetch NAV et PnL pour avoir les données fraîches.
+        // Le polling REST ci-dessous reste actif en parallèle comme fallback.
+        // Independent top-level launch — cancellation is clear, not nested inside the init launch.
+        viewModelScope.launch {
+            collectPortfolioWsUpdates()
+        }
 
-            // TODO: Replace REST polling with WebSocket subscription for real-time market data.
-            //  Server supports: ws(s)://<host>/ws/public with {"action": "subscribe", "symbols": ["AAPL"]}
-            //  Message type: "market_data" with bid/ask/mid/timestamp fields.
-            //  See trading-platform2 CLAUDE.md WebSocket section for full protocol details.
+        // TODO: Replace REST polling with WebSocket subscription for real-time market data.
+        //  Server supports: ws(s)://<host>/ws/public with {"action": "subscribe", "symbols": ["AAPL"]}
+        //  Message type: "market_data" with bid/ask/mid/timestamp fields.
+        //  See trading-platform2 CLAUDE.md WebSocket section for full protocol details.
 
-            // Start quote polling loop — while(isActive) never uses repeatOnLifecycle
-            // (which is a Lifecycle extension, not available in ViewModel)
+        // Start quote polling loop — while(isActive) never uses repeatOnLifecycle
+        // (which is a Lifecycle extension, not available in ViewModel)
+        viewModelScope.launch {
             while (isActive) {
                 fetchQuote(DEFAULT_QUOTE_SYMBOL)
                 delay(QUOTE_POLL_INTERVAL_MS)
@@ -116,15 +121,17 @@ class DashboardViewModel @Inject constructor(
      *
      * Erreurs silencieuses — une update WS manquée est compensée par le
      * prochain cycle de polling.
+     *
+     * Appelée depuis un top-level [viewModelScope.launch] — ne crée pas de
+     * launch imbriqué pour garder la hiérarchie d'annulation claire.
      */
-    private fun collectPortfolioWsUpdates(portfolioId: String) {
-        viewModelScope.launch {
-            getPortfolioWsUpdatesUseCase().collect {
-                Timber.d("DashboardViewModel: portfolio_update received via WS — refreshing NAV/PnL")
-                val period = _uiState.value.selectedPeriod
-                launch { fetchNav(portfolioId) }
-                launch { fetchPnl(portfolioId, period) }
-            }
+    private suspend fun collectPortfolioWsUpdates() {
+        getPortfolioWsUpdatesUseCase().collect {
+            Timber.d("DashboardViewModel: portfolio_update received via WS — refreshing NAV/PnL")
+            val portfolioId = _uiState.value.portfolioId
+            val period = _uiState.value.selectedPeriod
+            viewModelScope.launch { fetchNav(portfolioId) }
+            viewModelScope.launch { fetchPnl(portfolioId, period) }
         }
     }
 
