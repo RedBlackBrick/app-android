@@ -3,7 +3,6 @@ package com.tradingplatform.app.widget
 import android.content.Context
 import androidx.compose.runtime.Composable
 import androidx.core.content.edit
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.GlanceId
@@ -31,8 +30,6 @@ import com.tradingplatform.app.data.local.db.entity.PnlSnapshotEntity
 import com.tradingplatform.app.di.WidgetEntryPoint
 import dagger.hilt.android.EntryPointAccessors
 import java.math.BigDecimal
-import java.text.SimpleDateFormat
-import java.util.Date
 
 /**
  * Widget P&L (2x1 minimum).
@@ -158,7 +155,7 @@ private fun PnlWidgetContent(
                 ),
             )
             val waitingLabel = if (lastSyncAttempt > 0L) {
-                "Tentative ${formatSyncTime(lastSyncAttempt)}"
+                "Tentative ${formatWidgetSyncTime(lastSyncAttempt)}"
             } else {
                 "En attente de sync"
             }
@@ -177,9 +174,9 @@ private fun PnlWidgetContent(
         val isNegative = totalReturn != null && totalReturn < BigDecimal.ZERO
 
         val pnlColor = when {
-            isPositive -> Color(0xFF34D399)
-            isNegative -> Color(0xFFFB7185)
-            else -> Color(0xFF94A3B8)
+            isPositive -> WidgetColors.PnlPositive
+            isNegative -> WidgetColors.PnlNegative
+            else -> WidgetColors.PnlNeutral
         }
 
         val formattedReturn = if (totalReturn != null) {
@@ -212,7 +209,7 @@ private fun PnlWidgetContent(
         }
 
         Text(
-            text = "Sync ${formatSyncTime(pnlSnapshot.syncedAt)}",
+            text = "Sync ${formatWidgetSyncTime(pnlSnapshot.syncedAt)}",
             style = TextStyle(
                 color = GlanceTheme.colors.onSurfaceVariant,
                 fontSize = 10.sp,
@@ -221,12 +218,3 @@ private fun PnlWidgetContent(
     }
 }
 
-private fun formatSyncTime(syncedAt: Long): String {
-    val now = System.currentTimeMillis()
-    val diffMin = (now - syncedAt) / 60_000
-    return when {
-        diffMin < 1 -> "maintenant"
-        diffMin < 60 -> "il y a ${diffMin}min"
-        else -> SimpleDateFormat("HH:mm", java.util.Locale.FRENCH).format(Date(syncedAt))
-    }
-}

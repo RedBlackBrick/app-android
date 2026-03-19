@@ -2,7 +2,6 @@ package com.tradingplatform.app.widget
 
 import android.content.Context
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.GlanceId
@@ -32,8 +31,6 @@ import com.tradingplatform.app.data.local.db.entity.DeviceEntity
 import com.tradingplatform.app.domain.model.DeviceStatus
 import com.tradingplatform.app.di.WidgetEntryPoint
 import dagger.hilt.android.EntryPointAccessors
-import java.text.SimpleDateFormat
-import java.util.Date
 
 /**
  * Widget System Status (2x1 minimum) — admin uniquement.
@@ -121,9 +118,9 @@ private fun SystemStatusWidgetContent(
                 modifier = GlanceModifier.defaultWeight(),
             )
             val syncLabel = if (devices.isNotEmpty()) {
-                "Sync ${formatSyncTime(devices.maxOf { it.syncedAt })}"
+                "Sync ${formatWidgetSyncTime(devices.maxOf { it.syncedAt })}"
             } else if (lastSyncAttempt > 0L) {
-                "Tentative ${formatSyncTime(lastSyncAttempt)}"
+                "Tentative ${formatWidgetSyncTime(lastSyncAttempt)}"
             } else {
                 null
             }
@@ -156,8 +153,8 @@ private fun SystemStatusWidgetContent(
         val offlineDevices = devices.size - onlineDevices
 
         // Couleurs status — cohérentes avec le design system (Emerald/Rose)
-        val onlineColor = Color(0xFF34D399)   // emerald-400
-        val offlineColor = Color(0xFFFB7185)  // rose-400
+        val onlineColor  = WidgetColors.PnlPositive
+        val offlineColor = WidgetColors.PnlNegative
 
         Row(
             modifier = GlanceModifier.fillMaxWidth(),
@@ -218,12 +215,3 @@ private fun SystemStatusWidgetContent(
     }
 }
 
-private fun formatSyncTime(syncedAt: Long): String {
-    val now = System.currentTimeMillis()
-    val diffMin = (now - syncedAt) / 60_000
-    return when {
-        diffMin < 1 -> "maintenant"
-        diffMin < 60 -> "il y a ${diffMin}min"
-        else -> SimpleDateFormat("HH:mm", java.util.Locale.FRENCH).format(Date(syncedAt))
-    }
-}

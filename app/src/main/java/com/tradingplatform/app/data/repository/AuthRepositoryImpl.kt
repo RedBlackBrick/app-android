@@ -72,7 +72,13 @@ class AuthRepositoryImpl @Inject constructor(
         } catch (e: Exception) {
             Timber.tag(TAG).w(e, "AuthRepository: logout API call failed, clearing local data anyway")
         }
-        dataStore.clearAll()
+        // clearAll() wrappé séparément — on doit toujours réussir le logout local
+        // même si EncryptedSharedPreferences est corrompu ou le Keystore invalidé
+        try {
+            dataStore.clearAll()
+        } catch (e: Exception) {
+            Timber.tag(TAG).e(e, "AuthRepository: clearAll failed during logout — session data may be stale")
+        }
     }
 
     override suspend fun verify2fa(sessionToken: String, totpCode: String): Result<Pair<User, AuthTokens>> =
