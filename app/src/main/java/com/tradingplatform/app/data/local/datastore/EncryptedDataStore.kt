@@ -2,6 +2,7 @@ package com.tradingplatform.app.data.local.datastore
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.core.content.edit
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
@@ -101,12 +102,12 @@ class EncryptedDataStore(
     }
 
     suspend fun writeString(key: Preferences.Key<String>, value: String) = withContext(Dispatchers.IO) {
-        sharedPreferences.edit().putString(key.name, value).apply()
+        sharedPreferences.edit { putString(key.name, value) }
     }
 
     /** Écriture avec une clé String brute (pour les clés dynamiques, ex: "device_wg_pubkey_{id}"). */
     suspend fun writeString(key: String, value: String) = withContext(Dispatchers.IO) {
-        sharedPreferences.edit().putString(key, value).apply()
+        sharedPreferences.edit { putString(key, value) }
     }
 
     /** Lit une valeur String avec une clé String brute. */
@@ -128,7 +129,7 @@ class EncryptedDataStore(
      * Clé : "local_token_{deviceId}"
      */
     suspend fun writeLocalToken(deviceId: String, token: String) = withContext(Dispatchers.IO) {
-        sharedPreferences.edit().putString("local_token_$deviceId", token).apply()
+        sharedPreferences.edit { putString("local_token_$deviceId", token) }
     }
 
     /**
@@ -148,29 +149,29 @@ class EncryptedDataStore(
     }
 
     suspend fun writeLong(key: Preferences.Key<Long>, value: Long) = withContext(Dispatchers.IO) {
-        sharedPreferences.edit().putLong(key.name, value).apply()
+        sharedPreferences.edit { putLong(key.name, value) }
     }
 
     suspend fun writeInt(key: Preferences.Key<Int>, value: Int) = withContext(Dispatchers.IO) {
-        sharedPreferences.edit().putInt(key.name, value).apply()
+        sharedPreferences.edit { putInt(key.name, value) }
     }
 
     suspend fun writeBoolean(key: Preferences.Key<Boolean>, value: Boolean) = withContext(Dispatchers.IO) {
-        sharedPreferences.edit().putBoolean(key.name, value).apply()
+        sharedPreferences.edit { putBoolean(key.name, value) }
     }
 
     suspend fun remove(key: Preferences.Key<*>) = withContext(Dispatchers.IO) {
-        sharedPreferences.edit().remove(key.name).apply()
+        sharedPreferences.edit { remove(key.name) }
     }
 
     /** Efface toutes les données (logout) */
     suspend fun clearAll() = withContext(Dispatchers.IO) {
-        sharedPreferences.edit().clear().apply()
+        sharedPreferences.edit { clear() }
     }
 
     /** Sauvegarde un cookie (pour EncryptedCookieJar) */
     suspend fun saveCookie(name: String, value: String) = withContext(Dispatchers.IO) {
-        sharedPreferences.edit().putString("cookie_$name", value).apply()
+        sharedPreferences.edit { putString("cookie_$name", value) }
     }
 
     /** Charge tous les cookies sauvegardés */

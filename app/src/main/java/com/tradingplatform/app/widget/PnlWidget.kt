@@ -2,6 +2,7 @@ package com.tradingplatform.app.widget
 
 import android.content.Context
 import androidx.compose.runtime.Composable
+import androidx.core.content.edit
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -90,9 +91,7 @@ class PnlWidget : GlanceAppWidget() {
 
         fun saveConfiguredPeriod(context: Context, appWidgetId: Int, period: String) {
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .edit()
-                .putString("period_$appWidgetId", period)
-                .apply()
+                .edit { putString("period_$appWidgetId", period) }
         }
 
         fun periodDisplayLabel(period: String): String = when (period) {

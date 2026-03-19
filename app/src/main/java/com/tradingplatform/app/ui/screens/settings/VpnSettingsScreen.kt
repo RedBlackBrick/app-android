@@ -57,8 +57,8 @@ import com.tradingplatform.app.vpn.VpnState
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VpnSettingsScreen(
-    onNavigateBack: () -> Unit = {},
     modifier: Modifier = Modifier,
+    onNavigateBack: () -> Unit = {},
     viewModel: VpnSettingsViewModel = hiltViewModel(),
 ) {
     val vpnState by viewModel.vpnState.collectAsStateWithLifecycle()

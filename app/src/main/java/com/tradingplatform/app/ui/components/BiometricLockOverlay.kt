@@ -58,9 +58,9 @@ import com.tradingplatform.app.ui.theme.Spacing
 fun BiometricLockOverlay(
     isLocked: Boolean,
     onAuthSuccess: () -> Unit,
+    modifier: Modifier = Modifier,
     onKeyInvalidated: () -> Unit = {},
     biometricManager: BiometricManager? = null,
-    modifier: Modifier = Modifier,
 ) {
     AnimatedVisibility(
         visible = isLocked,

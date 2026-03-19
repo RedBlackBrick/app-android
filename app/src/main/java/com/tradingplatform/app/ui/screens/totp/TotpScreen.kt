@@ -52,8 +52,8 @@ private const val TOTP_CODE_LENGTH = 6
 fun TotpScreen(
     sessionToken: String,
     onNavigateToDashboard: () -> Unit,
-    onNavigateBack: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
+    onNavigateBack: (() -> Unit)? = null,
     viewModel: TotpViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()

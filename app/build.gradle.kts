@@ -206,7 +206,7 @@ dependencies {
     testImplementation(libs.robolectric)
     testImplementation(libs.test.core)
     testImplementation(libs.okhttp.mockwebserver)
-    testImplementation("org.json:json:20240303")
+    testImplementation(libs.org.json)
     testImplementation(kotlin("test"))
     androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.compose.ui.test)

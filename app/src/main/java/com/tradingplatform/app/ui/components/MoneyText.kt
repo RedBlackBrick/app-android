@@ -36,10 +36,10 @@ import java.util.Locale
 @Composable
 fun MoneyText(
     amount: BigDecimal,
+    modifier: Modifier = Modifier,
     currencySymbol: String = "€",
     decimals: Int = 2,
     style: TextStyle = MaterialTheme.typography.bodyLarge,
-    modifier: Modifier = Modifier,
 ) {
     val formatted = formatMoneyAmount(amount, currencySymbol, decimals)
 

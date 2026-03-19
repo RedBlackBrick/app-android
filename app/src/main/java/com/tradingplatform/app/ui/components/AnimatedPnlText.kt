@@ -40,9 +40,9 @@ import java.math.BigDecimal
 @Composable
 fun AnimatedPnlText(
     value: BigDecimal,
+    modifier: Modifier = Modifier,
     currencySymbol: String = "€",
     style: TextStyle = MaterialTheme.typography.bodyLarge,
-    modifier: Modifier = Modifier,
 ) {
     val targetColor = pnlColor(value)
 

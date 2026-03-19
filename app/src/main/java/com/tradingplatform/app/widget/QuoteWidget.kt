@@ -2,6 +2,7 @@ package com.tradingplatform.app.widget
 
 import android.content.Context
 import androidx.compose.runtime.Composable
+import androidx.core.content.edit
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -87,16 +88,12 @@ class QuoteWidget : GlanceAppWidget() {
 
         fun saveConfiguredSymbol(context: Context, appWidgetId: Int, symbol: String) {
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .edit()
-                .putString("ticker_$appWidgetId", symbol)
-                .apply()
+                .edit { putString("ticker_$appWidgetId", symbol) }
         }
 
         fun clearConfiguredSymbol(context: Context, appWidgetId: Int) {
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .edit()
-                .remove("ticker_$appWidgetId")
-                .apply()
+                .edit { remove("ticker_$appWidgetId") }
         }
     }
 }

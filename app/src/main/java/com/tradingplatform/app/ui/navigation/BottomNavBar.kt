@@ -54,8 +54,8 @@ data class BottomNavItem(
 fun BottomNavBar(
     navController: NavController,
     isAdmin: Boolean,
-    unreadAlertCount: Int = 0,
     modifier: Modifier = Modifier,
+    unreadAlertCount: Int = 0,
 ) {
     val baseItems = listOf(
         BottomNavItem(

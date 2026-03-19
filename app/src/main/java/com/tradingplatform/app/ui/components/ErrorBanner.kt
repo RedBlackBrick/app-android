@@ -43,9 +43,9 @@ import com.tradingplatform.app.ui.theme.Spacing
 @Composable
 fun ErrorBanner(
     message: String,
+    modifier: Modifier = Modifier,
     onDismiss: (() -> Unit)? = null,
     onRetry: (() -> Unit)? = null,
-    modifier: Modifier = Modifier,
 ) {
     Surface(
         modifier = modifier
