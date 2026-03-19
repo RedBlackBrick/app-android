@@ -2,6 +2,7 @@ package com.tradingplatform.app.ui.screens.dashboard
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.tradingplatform.app.data.repository.WsRepository
 import com.tradingplatform.app.domain.model.NavSummary
 import com.tradingplatform.app.domain.model.PnlPeriod
 import com.tradingplatform.app.domain.model.PnlSummary
@@ -19,6 +20,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import timber.log.Timber
 import java.io.IOException
 import java.net.SocketTimeoutException
 import javax.inject.Inject
@@ -67,6 +69,7 @@ class DashboardViewModel @Inject constructor(
     private val getPortfolioNavUseCase: GetPortfolioNavUseCase,
     private val getQuoteUseCase: GetQuoteUseCase,
     private val getPortfolioIdUseCase: GetPortfolioIdUseCase,
+    private val wsRepository: WsRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(DashboardUiState())
@@ -81,11 +84,46 @@ class DashboardViewModel @Inject constructor(
             launch { fetchNav(portfolioId) }
             launch { fetchPnl(portfolioId, PnlPeriod.DAY) }
 
+            // Collect real-time portfolio updates from the private WebSocket.
+            // On chaque portfolio_update, re-fetch NAV et PnL pour avoir les données fraîches.
+            // Le polling REST ci-dessous reste actif en parallèle comme fallback.
+            collectPortfolioWsUpdates(portfolioId)
+
+            // TODO: Replace REST polling with WebSocket subscription for real-time market data.
+            //  Server supports: ws(s)://<host>/ws/public with {"action": "subscribe", "symbols": ["AAPL"]}
+            //  Message type: "market_data" with bid/ask/mid/timestamp fields.
+            //  See trading-platform2 CLAUDE.md WebSocket section for full protocol details.
+
             // Start quote polling loop — while(isActive) never uses repeatOnLifecycle
             // (which is a Lifecycle extension, not available in ViewModel)
             while (isActive) {
                 fetchQuote(DEFAULT_QUOTE_SYMBOL)
                 delay(QUOTE_POLL_INTERVAL_MS)
+            }
+        }
+    }
+
+    /**
+     * Écoute les [WsEvent.PortfolioUpdate] du WebSocket privé.
+     *
+     * Sur chaque événement, déclenche un re-fetch REST de NAV et PnL pour
+     * avoir les données fraîches avec les valeurs désérialisées proprement.
+     *
+     * Stratégie délibérée : le payload WS brut (JSONObject) n'est pas
+     * mappé directement sur [NavUiState] pour éviter de dupliquer la logique
+     * de désérialisation. Le WS sert de signal de fraîcheur, le REST fournit
+     * les données structurées. Le polling REST reste actif en fallback.
+     *
+     * Erreurs silencieuses — une update WS manquée est compensée par le
+     * prochain cycle de polling.
+     */
+    private fun collectPortfolioWsUpdates(portfolioId: String) {
+        viewModelScope.launch {
+            wsRepository.portfolioUpdates.collect {
+                Timber.d("DashboardViewModel: portfolio_update received via WS — refreshing NAV/PnL")
+                val period = _uiState.value.selectedPeriod
+                launch { fetchNav(portfolioId) }
+                launch { fetchPnl(portfolioId, period) }
             }
         }
     }

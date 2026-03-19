@@ -164,4 +164,13 @@ class AuthRepositoryImpl @Inject constructor(
         dataStore.writeString(DataStoreKeys.ACCESS_TOKEN, tokens.accessToken)
         tokens
     }
+
+    override suspend fun getWsToken(): Result<String> = runCatching {
+        val response = authApi.getWsToken()
+        if (!response.isSuccessful) {
+            error("WS token fetch failed: HTTP ${response.code()}")
+        }
+        val body = response.body() ?: error("Empty WS token response")
+        body.token
+    }
 }

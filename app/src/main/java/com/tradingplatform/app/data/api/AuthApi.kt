@@ -7,6 +7,7 @@ import com.tradingplatform.app.data.model.TokenResponseDto
 import com.tradingplatform.app.data.model.TotpVerifyRequestDto
 import com.tradingplatform.app.data.model.TotpVerifyResponseDto
 import com.tradingplatform.app.data.model.UserDto
+import com.tradingplatform.app.data.model.WsTokenResponseDto
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.GET
@@ -30,4 +31,11 @@ interface AuthApi {
 
     @GET("v1/portfolios")
     suspend fun getPortfolios(): Response<PortfolioListResponseDto>
+
+    /**
+     * Génère un JWT avec claim `type=websocket` pour authentifier la connexion WS privée.
+     * TTL contrôlé par `ws_token_ttl_seconds` côté serveur (défaut = même TTL que l'access token).
+     */
+    @POST("v1/auth/ws-token")
+    suspend fun getWsToken(): Response<WsTokenResponseDto>
 }
