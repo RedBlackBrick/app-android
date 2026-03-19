@@ -23,8 +23,20 @@ class VpnRequiredInterceptor @Inject constructor(
     private val vpnManager: WireGuardManager,
 ) : Interceptor {
 
+    companion object {
+        private val VPN_EXCLUDED_PATHS = setOf(
+            "/v1/auth/login",
+            "/v1/auth/refresh",
+            "/v1/auth/2fa/verify",
+            "/csrf-token",
+        )
+    }
+
     override fun intercept(chain: Interceptor.Chain): Response {
         if (BuildConfig.DEV_MODE) return chain.proceed(chain.request())
+        if (chain.request().url.encodedPath in VPN_EXCLUDED_PATHS) {
+            return chain.proceed(chain.request())
+        }
         if (vpnManager.state.value !is VpnState.Connected) {
             throw VpnNotConnectedException()
         }
