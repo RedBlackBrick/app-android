@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.provider.Settings
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.core.app.NotificationManagerCompat
@@ -16,6 +17,7 @@ import com.tradingplatform.app.MainActivity
 import com.tradingplatform.app.data.local.db.dao.AlertDao
 import com.tradingplatform.app.data.local.db.entity.AlertEntity
 import com.tradingplatform.app.domain.model.AlertType
+import com.tradingplatform.app.domain.usecase.notification.RegisterFcmTokenUseCase
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
 import dagger.hilt.EntryPoint
@@ -26,6 +28,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import timber.log.Timber
+import java.util.UUID
 
 class TradingFirebaseMessagingService : FirebaseMessagingService() {
 
@@ -35,6 +38,12 @@ class TradingFirebaseMessagingService : FirebaseMessagingService() {
         EntryPointAccessors
             .fromApplication(applicationContext, FcmEntryPoint::class.java)
             .alertDao()
+    }
+
+    private val registerFcmTokenUseCase: RegisterFcmTokenUseCase by lazy {
+        EntryPointAccessors
+            .fromApplication(applicationContext, FcmEntryPoint::class.java)
+            .registerFcmTokenUseCase()
     }
 
     /**
@@ -83,6 +92,17 @@ class TradingFirebaseMessagingService : FirebaseMessagingService() {
     override fun onNewToken(token: String) {
         // Token FCM renouvelé — jamais logger le token en clair
         Timber.d("FCM token renouvelé : [REDACTED]")
+
+        val deviceFingerprint = Settings.Secure.getString(
+            contentResolver,
+            Settings.Secure.ANDROID_ID,
+        )?.takeIf { it.isNotEmpty() } ?: UUID.randomUUID().toString()
+
+        serviceScope.launch {
+            registerFcmTokenUseCase(token, deviceFingerprint)
+                .onSuccess { Timber.d("FCM token enregistré auprès du backend : [REDACTED]") }
+                .onFailure { e -> Timber.w(e, "FCM token registration failed — will retry on next token refresh") }
+        }
     }
 
     private fun showNotification(title: String, body: String) {
@@ -153,4 +173,5 @@ class TradingFirebaseMessagingService : FirebaseMessagingService() {
 @InstallIn(SingletonComponent::class)
 interface FcmEntryPoint {
     fun alertDao(): AlertDao
+    fun registerFcmTokenUseCase(): RegisterFcmTokenUseCase
 }

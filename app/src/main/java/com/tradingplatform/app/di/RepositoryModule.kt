@@ -6,6 +6,7 @@ import com.tradingplatform.app.data.repository.DeviceRepositoryImpl
 import com.tradingplatform.app.data.repository.LocalMaintenanceRepositoryImpl
 import com.tradingplatform.app.data.repository.MyDevicesRepositoryImpl
 import com.tradingplatform.app.data.repository.MarketDataRepositoryImpl
+import com.tradingplatform.app.data.repository.NotificationRepositoryImpl
 import com.tradingplatform.app.data.repository.PairingRepositoryImpl
 import com.tradingplatform.app.data.repository.PortfolioRepositoryImpl
 import com.tradingplatform.app.domain.repository.AlertRepository
@@ -14,6 +15,7 @@ import com.tradingplatform.app.domain.repository.DeviceRepository
 import com.tradingplatform.app.domain.repository.LocalMaintenanceRepository
 import com.tradingplatform.app.domain.repository.MyDevicesRepository
 import com.tradingplatform.app.domain.repository.MarketDataRepository
+import com.tradingplatform.app.domain.repository.NotificationRepository
 import com.tradingplatform.app.domain.repository.PairingRepository
 import com.tradingplatform.app.domain.repository.PortfolioRepository
 import dagger.Binds
@@ -57,4 +59,8 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindLocalMaintenanceRepository(impl: LocalMaintenanceRepositoryImpl): LocalMaintenanceRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindNotificationRepository(impl: NotificationRepositoryImpl): NotificationRepository
 }
