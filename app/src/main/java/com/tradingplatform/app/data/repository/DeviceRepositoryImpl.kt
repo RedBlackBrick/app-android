@@ -1,6 +1,7 @@
 package com.tradingplatform.app.data.repository
 
 import com.tradingplatform.app.data.api.DeviceApi
+import com.tradingplatform.app.data.api.DeviceCommandRequestDto
 import com.tradingplatform.app.data.local.db.dao.DeviceDao
 import com.tradingplatform.app.data.model.toDomain
 import com.tradingplatform.app.data.model.toEntity
@@ -45,5 +46,15 @@ class DeviceRepositoryImpl @Inject constructor(
             error("Unpair device failed: HTTP ${response.code()}")
         }
         deviceDao.deleteByDeviceId(deviceId)
+    }
+
+    override suspend fun sendCommand(deviceId: String, commandType: String): Result<Unit> = runCatching {
+        val response = deviceApi.sendCommand(
+            deviceId = deviceId,
+            body = DeviceCommandRequestDto(commandType = commandType),
+        )
+        if (!response.isSuccessful) {
+            error("Send command failed: HTTP ${response.code()}")
+        }
     }
 }

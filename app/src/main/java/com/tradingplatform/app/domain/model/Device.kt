@@ -8,4 +8,11 @@ data class Device(
     val status: DeviceStatus,
     val wgIp: String,
     val lastHeartbeat: Instant?,
+    val cpuPct: Float? = null,
+    val memoryPct: Float? = null,
+    val temperature: Float? = null,
+    val diskPct: Float? = null,
+    val uptimeSeconds: Long? = null,
+    val firmwareVersion: String? = null,
+    val hostname: String? = null,
 )

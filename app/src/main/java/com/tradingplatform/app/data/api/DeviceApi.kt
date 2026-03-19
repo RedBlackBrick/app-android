@@ -1,10 +1,19 @@
 package com.tradingplatform.app.data.api
 
 import com.tradingplatform.app.data.model.DeviceListResponseDto
+import com.squareup.moshi.Json
+import com.squareup.moshi.JsonClass
 import retrofit2.Response
+import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
+import retrofit2.http.POST
 import retrofit2.http.Path
+
+@JsonClass(generateAdapter = true)
+data class DeviceCommandRequestDto(
+    @Json(name = "command_type") val commandType: String,
+)
 
 interface DeviceApi {
     @GET("v1/edge/devices")
@@ -12,4 +21,10 @@ interface DeviceApi {
 
     @DELETE("v1/edge/devices/{deviceId}")
     suspend fun unpairDevice(@Path("deviceId") deviceId: String): Response<Unit>
+
+    @POST("v1/edge-control/devices/{deviceId}/commands")
+    suspend fun sendCommand(
+        @Path("deviceId") deviceId: String,
+        @Body body: DeviceCommandRequestDto,
+    ): Response<Unit>
 }

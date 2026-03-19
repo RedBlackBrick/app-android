@@ -31,8 +31,8 @@ import com.tradingplatform.app.ui.components.VpnStatusBanner
 import com.tradingplatform.app.ui.screens.alerts.AlertListScreen
 import com.tradingplatform.app.ui.screens.auth.LoginScreen
 import com.tradingplatform.app.ui.screens.dashboard.DashboardScreen
-import com.tradingplatform.app.ui.screens.devices.DeviceDetailScreen
 import com.tradingplatform.app.ui.screens.devices.DeviceListScreen
+import com.tradingplatform.app.ui.screens.devices.EdgeDeviceDashboardScreen
 import com.tradingplatform.app.ui.screens.maintenance.LocalMaintenanceScreen
 import com.tradingplatform.app.ui.screens.pairing.PairingDoneScreen
 import com.tradingplatform.app.ui.screens.pairing.PairingProgressScreen
@@ -323,7 +323,7 @@ fun AppNavGraph(
                 ),
             ) { backStackEntry ->
                 val deviceId = backStackEntry.arguments?.getString("deviceId") ?: ""
-                DeviceDetailScreen(
+                EdgeDeviceDashboardScreen(
                     deviceId = deviceId,
                     onNavigateBack = { navController.popBackStack() },
                     onNavigateToLocalMaintenance = {

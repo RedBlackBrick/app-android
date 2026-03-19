@@ -3,6 +3,7 @@ package com.tradingplatform.app.di
 import android.content.Context
 import androidx.room.Room
 import com.tradingplatform.app.data.local.db.AppDatabase
+import com.tradingplatform.app.data.local.db.MIGRATION_2_3
 import com.tradingplatform.app.data.local.db.dao.AlertDao
 import com.tradingplatform.app.data.local.db.dao.DeviceDao
 import com.tradingplatform.app.data.local.db.dao.PnlDao
@@ -29,12 +30,12 @@ object DatabaseModule {
         AppDatabase::class.java,
         "trading_platform_db"
     )
+        .addMigrations(MIGRATION_2_3)
         .apply {
             if (BuildConfig.DEBUG) {
                 fallbackToDestructiveMigration(dropAllTables = true)
             }
             // En release, pas de fallback → crash explicite si migration manquante
-            // Ajouter addMigrations(MIGRATION_X_Y) avant chaque bump de version schema
         }
         .build()
 

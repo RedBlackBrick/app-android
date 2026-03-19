@@ -105,6 +105,13 @@ fun DeviceDto.toDomain(): Device = Device(
     status = status,
     wgIp = wgIp,
     lastHeartbeat = lastHeartbeat?.let { Instant.parse(it) },
+    cpuPct = cpuPct,
+    memoryPct = memoryPct,
+    temperature = temperature,
+    diskPct = diskPct,
+    uptimeSeconds = uptimeSeconds,
+    firmwareVersion = firmwareVersion,
+    hostname = hostname,
 )
 
 fun VpnPeerDto.toDomain(): VpnPeer = VpnPeer(
@@ -165,6 +172,13 @@ fun DeviceEntity.toDomain(): Device = Device(
     status = DeviceStatus.fromApiString(status),
     wgIp = wgIp,
     lastHeartbeat = lastHeartbeat?.let { Instant.ofEpochMilli(it) },
+    cpuPct = cpuPct,
+    memoryPct = memoryPct,
+    temperature = temperature,
+    diskPct = diskPct,
+    uptimeSeconds = uptimeSeconds,
+    firmwareVersion = firmwareVersion,
+    hostname = hostname,
 )
 
 fun QuoteEntity.toDomain(): Quote = Quote(
@@ -223,6 +237,13 @@ fun Device.toEntity(syncedAt: Long = System.currentTimeMillis()): DeviceEntity =
     wgIp = wgIp,
     lastHeartbeat = lastHeartbeat?.toEpochMilli(),
     syncedAt = syncedAt,
+    cpuPct = cpuPct,
+    memoryPct = memoryPct,
+    temperature = temperature,
+    diskPct = diskPct,
+    uptimeSeconds = uptimeSeconds,
+    firmwareVersion = firmwareVersion,
+    hostname = hostname,
 )
 
 fun Quote.toEntity(syncedAt: Long = System.currentTimeMillis()): QuoteEntity = QuoteEntity(
