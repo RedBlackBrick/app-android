@@ -38,10 +38,18 @@ class CsrfInterceptor @Inject constructor(
 
     private val csrfMethods = setOf("POST", "PUT", "DELETE", "PATCH")
 
+    // Miroir des exemptions côté VPS (csrf.py CSRF_EXEMPT_PATHS).
+    // /v1/auth/refresh n'utilise que le cookie httpOnly refresh_token — pas de CSRF requis.
+    private val csrfExemptPaths = setOf(
+        "/v1/auth/refresh",
+        "/v1/auth/login",
+        "/v1/auth/csrf-token",
+    )
+
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
 
-        if (request.method !in csrfMethods) {
+        if (request.method !in csrfMethods || request.url.encodedPath in csrfExemptPaths) {
             return chain.proceed(request)
         }
 
@@ -76,6 +84,26 @@ class CsrfInterceptor @Inject constructor(
         }
 
         return response
+    }
+
+    /**
+     * Pré-fetch le token CSRF après login pour éviter runBlocking contention
+     * lors des premières requêtes POST parallèles.
+     * No-op si un token est déjà en cache.
+     */
+    fun preFetch() {
+        if (csrfToken != null) return
+        Thread {
+            try {
+                runBlocking {
+                    mutex.withLock {
+                        if (csrfToken == null) fetchCsrfToken()
+                    }
+                }
+            } catch (e: Exception) {
+                Timber.w(e, "CsrfInterceptor: preFetch failed (non-blocking)")
+            }
+        }.apply { isDaemon = true }.start()
     }
 
     private fun fetchCsrfToken(): String {

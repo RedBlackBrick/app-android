@@ -24,6 +24,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.navigation
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.tradingplatform.app.data.session.SessionManager
 import com.tradingplatform.app.domain.usecase.auth.GetAuthContextUseCase
 import com.tradingplatform.app.vpn.VpnState
 import com.tradingplatform.app.vpn.WireGuardManager
@@ -70,6 +71,7 @@ import javax.inject.Inject
 @HiltViewModel
 class AppNavViewModel @Inject constructor(
     private val getAuthContextUseCase: GetAuthContextUseCase,
+    private val sessionManager: SessionManager,
     wireGuardManager: WireGuardManager,
 ) : ViewModel() {
 
@@ -101,6 +103,12 @@ class AppNavViewModel @Inject constructor(
                 "AppNavViewModel: isLoggedIn=${context.isLoggedIn}, " +
                     "isAdmin=${context.isAdmin}, setupCompleted=${context.setupCompleted}"
             )
+        }
+        viewModelScope.launch {
+            sessionManager.forcedLogoutEvents.collect {
+                Timber.w("AppNavViewModel: forced logout received — redirecting to Login")
+                _isLoggedIn.value = false
+            }
         }
     }
 }
@@ -172,6 +180,18 @@ fun AppNavGraph(
         Screen.SecuritySettings.route,
     )
     val showBottomBar = currentRoute in bottomBarRoutes
+
+    // Forced logout — triggered by SessionManager when TokenAuthenticator invalidates the session.
+    // When isLoggedIn transitions to false after being true (expired token, forced logout),
+    // navigate to Login and clear the entire backstack so the user can re-authenticate.
+    LaunchedEffect(isLoggedIn) {
+        if (isLoggedIn == false) {
+            navController.navigate(Screen.Login.route) {
+                popUpTo(0) { inclusive = true }
+                launchSingleTop = true
+            }
+        }
+    }
 
     // FCM deep link — read "navigate_to" extra from the host Activity
     val context = LocalContext.current
@@ -356,7 +376,7 @@ fun AppNavGraph(
                 ),
             ) {
                 composable(Screen.ScanVpsQr.route) { backStackEntry ->
-                    val pairingEntry = remember(navController) {
+                    val pairingEntry = remember(backStackEntry) {
                         navController.getBackStackEntry(PAIRING_GRAPH_ROUTE)
                     }
                     val pairingViewModel: PairingViewModel = hiltViewModel(pairingEntry)
@@ -381,8 +401,8 @@ fun AppNavGraph(
                     )
                 }
 
-                composable(Screen.ScanDeviceQr.route) {
-                    val pairingEntry = remember(navController) {
+                composable(Screen.ScanDeviceQr.route) { backStackEntry ->
+                    val pairingEntry = remember(backStackEntry) {
                         navController.getBackStackEntry(PAIRING_GRAPH_ROUTE)
                     }
                     val pairingViewModel: PairingViewModel = hiltViewModel(pairingEntry)
@@ -397,8 +417,8 @@ fun AppNavGraph(
                     )
                 }
 
-                composable(Screen.PairingProgress.route) {
-                    val pairingEntry = remember(navController) {
+                composable(Screen.PairingProgress.route) { backStackEntry ->
+                    val pairingEntry = remember(backStackEntry) {
                         navController.getBackStackEntry(PAIRING_GRAPH_ROUTE)
                     }
                     val pairingViewModel: PairingViewModel = hiltViewModel(pairingEntry)
@@ -412,8 +432,8 @@ fun AppNavGraph(
                     )
                 }
 
-                composable(Screen.PairingDone.route) {
-                    val pairingEntry = remember(navController) {
+                composable(Screen.PairingDone.route) { backStackEntry ->
+                    val pairingEntry = remember(backStackEntry) {
                         navController.getBackStackEntry(PAIRING_GRAPH_ROUTE)
                     }
                     val pairingViewModel: PairingViewModel = hiltViewModel(pairingEntry)

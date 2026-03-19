@@ -145,17 +145,14 @@ class TradingFirebaseMessagingService : FirebaseMessagingService() {
     }
 
     private fun createNotificationChannel(channelId: String) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                channelId,
-                "Alertes Trading",
-                NotificationManager.IMPORTANCE_HIGH
-            ).apply {
-                description = "Alertes de trading en temps réel"
-            }
-            val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(channel)
+        val channel = NotificationChannel(
+            channelId,
+            "Alertes Trading",
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = "Alertes de trading en temps réel"
         }
+        getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
 
     companion object {

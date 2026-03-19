@@ -1,5 +1,6 @@
 package com.tradingplatform.app.ui.components
 
+import android.os.Build
 import android.view.HapticFeedbackConstants
 import android.view.View
 import androidx.compose.runtime.Composable
@@ -18,12 +19,20 @@ class HapticFeedbackHelper(private val view: View) {
 
     /** Short confirmation tick — used on successful scan, action completion. */
     fun confirm() {
-        view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+        } else {
+            view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+        }
     }
 
     /** Error/reject feedback — used on scan failure, validation error. */
     fun reject() {
-        view.performHapticFeedback(HapticFeedbackConstants.REJECT)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            view.performHapticFeedback(HapticFeedbackConstants.REJECT)
+        } else {
+            view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+        }
     }
 
     /** Light click — used on toggle, chip selection. */

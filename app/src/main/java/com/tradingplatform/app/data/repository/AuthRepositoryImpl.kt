@@ -2,6 +2,7 @@ package com.tradingplatform.app.data.repository
 
 import com.squareup.moshi.Moshi
 import com.tradingplatform.app.data.api.AuthApi
+import com.tradingplatform.app.data.api.interceptor.CsrfInterceptor
 import com.tradingplatform.app.data.local.datastore.DataStoreKeys
 import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
 import com.tradingplatform.app.data.model.ApiErrorDto
@@ -26,6 +27,7 @@ class AuthRepositoryImpl @Inject constructor(
     private val authApi: AuthApi,
     private val dataStore: EncryptedDataStore,
     private val moshi: Moshi,
+    private val csrfInterceptor: CsrfInterceptor,
 ) : AuthRepository {
 
     override suspend fun login(email: String, password: String): Result<Pair<User, AuthTokens>> =
@@ -93,6 +95,9 @@ class AuthRepositoryImpl @Inject constructor(
             dataStore.writeLong(DataStoreKeys.USER_ID, user.id)
             dataStore.writeBoolean(DataStoreKeys.IS_ADMIN, user.isAdmin)
 
+            // Pre-fetch CSRF pour éviter runBlocking contention sur la première requête POST
+            csrfInterceptor.preFetch()
+
             Pair(user, tokens)
         }
 
@@ -127,6 +132,9 @@ class AuthRepositoryImpl @Inject constructor(
             dataStore.writeString(DataStoreKeys.ACCESS_TOKEN, tokens.accessToken)
             dataStore.writeLong(DataStoreKeys.USER_ID, user.id)
             dataStore.writeBoolean(DataStoreKeys.IS_ADMIN, user.isAdmin)
+
+            // Pre-fetch CSRF pour éviter runBlocking contention sur la première requête POST
+            csrfInterceptor.preFetch()
 
             Pair(user, tokens)
         }

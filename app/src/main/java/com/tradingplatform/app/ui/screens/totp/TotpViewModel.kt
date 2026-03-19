@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tradingplatform.app.domain.exception.InvalidTotpCodeException
 import com.tradingplatform.app.domain.exception.NoPortfolioException
+import com.tradingplatform.app.domain.usecase.auth.ApplyAdminWidgetVisibilityUseCase
 import com.tradingplatform.app.domain.usecase.auth.GetPortfoliosUseCase
 import com.tradingplatform.app.domain.usecase.auth.Verify2faUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -30,6 +31,7 @@ sealed interface TotpUiState {
 class TotpViewModel @Inject constructor(
     private val verify2faUseCase: Verify2faUseCase,
     private val getPortfoliosUseCase: GetPortfoliosUseCase,
+    private val applyAdminWidgetVisibilityUseCase: ApplyAdminWidgetVisibilityUseCase,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<TotpUiState>(TotpUiState.AwaitingInput)
@@ -88,6 +90,7 @@ class TotpViewModel @Inject constructor(
                     _uiState.value = TotpUiState.Error("Aucun portfolio trouvé")
                     return
                 }
+                applyAdminWidgetVisibilityUseCase()
                 _uiState.value = TotpUiState.Success
             }
             .onFailure { error ->

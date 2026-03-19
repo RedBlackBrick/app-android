@@ -1,60 +1,56 @@
 package com.tradingplatform.app.usecase.auth
 
-import com.tradingplatform.app.data.local.datastore.DataStoreKeys
-import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
 import com.tradingplatform.app.domain.model.Portfolio
 import com.tradingplatform.app.domain.repository.AuthRepository
 import com.tradingplatform.app.domain.usecase.auth.GetPortfoliosUseCase
 import io.mockk.coEvery
-import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
 class GetPortfoliosUseCaseTest {
     private val authRepository = mockk<AuthRepository>()
-    private val dataStore = mockk<EncryptedDataStore>(relaxed = true)
     private lateinit var useCase: GetPortfoliosUseCase
 
     private val fakePortfolio = Portfolio(id = "42", name = "Main Portfolio", currency = "EUR")
 
     @Before
     fun setUp() {
-        useCase = GetPortfoliosUseCase(authRepository, dataStore)
+        useCase = GetPortfoliosUseCase(authRepository)
     }
 
     @Test
-    fun `single portfolio stores its id`() = runTest {
+    fun `single portfolio is propagated`() = runTest {
         coEvery { authRepository.getPortfolios() } returns Result.success(listOf(fakePortfolio))
 
         val result = useCase()
 
         assertTrue(result.isSuccess)
-        coVerify { dataStore.writeString(DataStoreKeys.PORTFOLIO_ID, "42") }
+        assertEquals(listOf(fakePortfolio), result.getOrThrow())
     }
 
     @Test
-    fun `multiple portfolios stores first and returns list`() = runTest {
+    fun `multiple portfolios are propagated`() = runTest {
         val second = Portfolio(id = "99", name = "Secondary", currency = "USD")
         coEvery { authRepository.getPortfolios() } returns Result.success(listOf(fakePortfolio, second))
 
         val result = useCase()
 
         assertTrue(result.isSuccess)
-        // Must use portfolios[0] when multiple
-        coVerify { dataStore.writeString(DataStoreKeys.PORTFOLIO_ID, "42") }
+        assertEquals(2, result.getOrThrow().size)
     }
 
     @Test
-    fun `empty portfolio list does not write to datastore`() = runTest {
+    fun `empty portfolio list is propagated`() = runTest {
         coEvery { authRepository.getPortfolios() } returns Result.success(emptyList())
 
         val result = useCase()
 
         assertTrue(result.isSuccess)
-        coVerify(exactly = 0) { dataStore.writeString(any(), any()) }
+        assertTrue(result.getOrThrow().isEmpty())
     }
 
     @Test

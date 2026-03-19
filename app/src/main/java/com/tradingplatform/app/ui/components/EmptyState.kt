@@ -151,8 +151,8 @@ fun EmptyAlertsIllustration(modifier: Modifier = Modifier) {
         // Bell body (simplified arc)
         val bellPath = Path().apply {
             moveTo(cx - 20f, h * 0.55f)
-            quadraticBezierTo(cx - 22f, h * 0.25f, cx, h * 0.2f)
-            quadraticBezierTo(cx + 22f, h * 0.25f, cx + 20f, h * 0.55f)
+            quadraticTo(cx - 22f, h * 0.25f, cx, h * 0.2f)
+            quadraticTo(cx + 22f, h * 0.25f, cx + 20f, h * 0.55f)
             lineTo(cx + 25f, h * 0.6f)
             lineTo(cx - 25f, h * 0.6f)
             close()

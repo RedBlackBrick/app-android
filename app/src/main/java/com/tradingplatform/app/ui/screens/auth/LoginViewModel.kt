@@ -1,21 +1,15 @@
 package com.tradingplatform.app.ui.screens.auth
 
-import android.content.ComponentName
-import android.content.Context
-import android.content.pm.PackageManager
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tradingplatform.app.domain.exception.AccountLockedException
 import com.tradingplatform.app.domain.exception.InvalidCredentialsException
 import com.tradingplatform.app.domain.exception.NoPortfolioException
 import com.tradingplatform.app.domain.exception.TotpRequiredException
-import com.tradingplatform.app.data.local.datastore.DataStoreKeys
-import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
+import com.tradingplatform.app.domain.usecase.auth.ApplyAdminWidgetVisibilityUseCase
 import com.tradingplatform.app.domain.usecase.auth.GetPortfoliosUseCase
 import com.tradingplatform.app.domain.usecase.auth.LoginUseCase
-import com.tradingplatform.app.widget.SystemStatusWidgetReceiver
 import dagger.hilt.android.lifecycle.HiltViewModel
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -48,8 +42,7 @@ sealed interface LoginUiState {
 class LoginViewModel @Inject constructor(
     private val loginUseCase: LoginUseCase,
     private val getPortfoliosUseCase: GetPortfoliosUseCase,
-    private val dataStore: EncryptedDataStore,
-    @ApplicationContext private val context: Context,
+    private val applyAdminWidgetVisibilityUseCase: ApplyAdminWidgetVisibilityUseCase,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<LoginUiState>(LoginUiState.Idle)
@@ -116,17 +109,6 @@ class LoginViewModel @Inject constructor(
     }
 
     /**
-     * Appelé après une vérification TOTP réussie (par TotpViewModel, via navigation args).
-     * Récupère le portfolioId puis navigue vers le Dashboard.
-     */
-    fun onTotpVerified() {
-        viewModelScope.launch {
-            _uiState.value = LoginUiState.Loading
-            fetchPortfoliosAndSucceed()
-        }
-    }
-
-    /**
      * Remet le state à [LoginUiState.Idle].
      * À appeler depuis le Composable après navigation (TotpRequired ou Success)
      * pour éviter de re-déclencher la navigation lors des recompositions.
@@ -144,9 +126,8 @@ class LoginViewModel @Inject constructor(
                 }
                 // Appliquer la visibilité des widgets admin après que portfolioId est stocké.
                 // is_admin est persisté dans EncryptedDataStore par LoginUseCase — on le relit
-                // ici pour couvrir les deux chemins (login direct et TOTP-verified).
-                val isAdmin = dataStore.readBoolean(DataStoreKeys.IS_ADMIN) ?: false
-                applyAdminWidgetVisibility(isAdmin)
+                // ici pour couvrir le chemin login direct (sans TOTP).
+                applyAdminWidgetVisibilityUseCase()
                 _uiState.value = LoginUiState.Success
             }
             .onFailure { error ->
@@ -160,24 +141,4 @@ class LoginViewModel @Inject constructor(
             }
     }
 
-    /**
-     * Active ou désactive le [SystemStatusWidgetReceiver] selon le flag [isAdmin].
-     *
-     * Les widgets admin (SystemStatusWidget) ne doivent pas apparaître dans le picker
-     * de widgets pour les comptes non-admin. PackageManager persiste cet état.
-     *
-     * CLAUDE.md §2 — Fonctionnalités conditionnelles compte admin.
-     */
-    private fun applyAdminWidgetVisibility(isAdmin: Boolean) {
-        val state = if (isAdmin)
-            PackageManager.COMPONENT_ENABLED_STATE_ENABLED
-        else
-            PackageManager.COMPONENT_ENABLED_STATE_DISABLED
-
-        context.packageManager.setComponentEnabledSetting(
-            ComponentName(context, SystemStatusWidgetReceiver::class.java),
-            state,
-            PackageManager.DONT_KILL_APP,
-        )
-    }
 }

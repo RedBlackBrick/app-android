@@ -25,6 +25,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Named
 import javax.inject.Singleton
+import kotlin.math.pow
 
 /**
  * Client WebSocket privé vers `wss://{vps}/v1/ws/private`.
@@ -188,7 +189,7 @@ class PrivateWsClient @Inject constructor(
         reconnectJob?.cancel()
         val attempts = reconnectAttempts.getAndIncrement()
         val delayMs = minOf(
-            (BACKOFF_INITIAL_MS * Math.pow(BACKOFF_MULTIPLIER, attempts.toDouble())).toLong(),
+            (BACKOFF_INITIAL_MS * BACKOFF_MULTIPLIER.pow(attempts)).toLong(),
             BACKOFF_MAX_MS,
         )
 

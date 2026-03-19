@@ -2,6 +2,7 @@ package com.tradingplatform.app.di
 
 import com.tradingplatform.app.data.repository.WsRepository
 import com.tradingplatform.app.data.websocket.PrivateWsClient
+import com.tradingplatform.app.domain.repository.WsRepository as WsRepositoryInterface
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -20,7 +21,8 @@ import javax.inject.Singleton
  * [PrivateWsClient] est annoté `@Singleton @Inject constructor` — Hilt résout
  * ses dépendances directement depuis le graph (OkHttpClient principal,
  * AuthRepository, CoroutineScope, @Named("base_url") String).
- * Ce module fournit uniquement [WsRepository] qui n'a pas d'`@Inject constructor`.
+ * Ce module fournit [WsRepository] (implémentation) bindé à l'interface domain
+ * [WsRepositoryInterface] — les UseCases dépendent de l'interface, pas de l'implémentation.
  */
 @Module
 @InstallIn(SingletonComponent::class)
@@ -30,5 +32,5 @@ object WebSocketModule {
     @Singleton
     fun provideWsRepository(
         wsClient: PrivateWsClient,
-    ): WsRepository = WsRepository(wsClient)
+    ): WsRepositoryInterface = WsRepository(wsClient)
 }

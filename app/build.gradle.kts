@@ -128,6 +128,7 @@ dependencies {
     implementation(libs.compose.activity)
     implementation(libs.compose.lifecycle.runtime)
     implementation(libs.compose.viewmodel)
+    implementation(libs.lifecycle.process)
     debugImplementation(libs.compose.ui.tooling)
 
     // Hilt

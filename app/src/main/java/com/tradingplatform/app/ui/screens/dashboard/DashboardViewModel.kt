@@ -2,7 +2,6 @@ package com.tradingplatform.app.ui.screens.dashboard
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.tradingplatform.app.data.repository.WsRepository
 import com.tradingplatform.app.domain.model.NavSummary
 import com.tradingplatform.app.domain.model.PnlPeriod
 import com.tradingplatform.app.domain.model.PnlSummary
@@ -11,6 +10,7 @@ import com.tradingplatform.app.domain.usecase.auth.GetPortfolioIdUseCase
 import com.tradingplatform.app.domain.usecase.market.GetQuoteUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPnlUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPortfolioNavUseCase
+import com.tradingplatform.app.domain.usecase.portfolio.GetPortfolioWsUpdatesUseCase
 import com.tradingplatform.app.vpn.VpnNotConnectedException
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.delay
@@ -69,7 +69,7 @@ class DashboardViewModel @Inject constructor(
     private val getPortfolioNavUseCase: GetPortfolioNavUseCase,
     private val getQuoteUseCase: GetQuoteUseCase,
     private val getPortfolioIdUseCase: GetPortfolioIdUseCase,
-    private val wsRepository: WsRepository,
+    private val getPortfolioWsUpdatesUseCase: GetPortfolioWsUpdatesUseCase,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(DashboardUiState())
@@ -119,7 +119,7 @@ class DashboardViewModel @Inject constructor(
      */
     private fun collectPortfolioWsUpdates(portfolioId: String) {
         viewModelScope.launch {
-            wsRepository.portfolioUpdates.collect {
+            getPortfolioWsUpdatesUseCase().collect {
                 Timber.d("DashboardViewModel: portfolio_update received via WS — refreshing NAV/PnL")
                 val period = _uiState.value.selectedPeriod
                 launch { fetchNav(portfolioId) }
@@ -138,6 +138,7 @@ class DashboardViewModel @Inject constructor(
 
     fun refresh() {
         val portfolioId = _uiState.value.portfolioId
+        if (portfolioId.isEmpty()) return  // init not complete yet — portfolioId not loaded
         val period = _uiState.value.selectedPeriod
         viewModelScope.launch {
             launch { fetchNav(portfolioId) }
