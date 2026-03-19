@@ -1,14 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- Cleartext permis globalement pour HTTP LAN Radxa (pairing port 8099).
-         Les IPs Radxa sont RFC-1918 dynamiques, non listables statiquement
-         (Android network-security-config ne supporte pas les plages CIDR).
+    <!-- Default: block cleartext (HTTPS only for VPS traffic). -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
 
-         Securite par defense-in-depth :
-         1. VpnRequiredInterceptor bloque si VPN non connecte
-         2. isLocalNetwork() valide que l'IP est RFC-1918 avant envoi
-         3. crypto_box_seal() chiffre session_pin/local_token
+    <!-- LAN only: Radxa pairing server (HTTP:8099, RFC-1918 addresses).
+         Android <domain> does not support CIDR ranges, so common private
+         subnets are listed as best-effort hints. The real enforcement is
+         code-level: isLocalNetwork() in NetworkUtils.kt validates RFC-1918
+         before any LAN HTTP call, and crypto_box_seal() encrypts payloads.
+
+         Defense-in-depth layers:
+         1. This XML: cleartext restricted to LAN IP prefixes
+         2. VpnRequiredInterceptor blocks non-VPN traffic to VPS
+         3. isLocalNetwork() validates RFC-1918 before LAN calls
+         4. crypto_box_seal() encrypts session_pin/local_token
 
          Decision architecture C (docs/architecture-decisions.md). -->
-    <base-config cleartextTrafficPermitted="true" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">10.0.0.0</domain>
+        <domain includeSubdomains="true">172.16.0.0</domain>
+        <domain includeSubdomains="true">192.168.0.0</domain>
+    </domain-config>
 </network-security-config>

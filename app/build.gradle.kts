@@ -98,6 +98,23 @@ kotlin {
     jvmToolchain(17)
 }
 
+// ── Fail-fast: block release builds if DEV_MODE=true in local.properties ────
+// Release buildType already hardcodes DEV_MODE=false in BuildConfig, but this
+// guard catches any accidental change to that line or misconfigured CI pipeline.
+tasks.configureEach {
+    if (name.contains("Release", ignoreCase = true) && name.startsWith("assemble")) {
+        doFirst {
+            val devMode = project.findProperty("DEV_MODE")?.toString()?.toBoolean() ?: false
+            if (devMode) {
+                throw GradleException(
+                    "DEV_MODE=true is not allowed in release builds. " +
+                    "Set DEV_MODE=false in local.properties before building release."
+                )
+            }
+        }
+    }
+}
+
 dependencies {
     coreLibraryDesugaring(libs.desugar.jdk.libs)
 
