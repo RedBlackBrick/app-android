@@ -1,28 +1,23 @@
 package com.tradingplatform.app.domain.usecase.auth
 
-import android.content.ComponentName
-import android.content.Context
-import android.content.pm.PackageManager
-import com.tradingplatform.app.data.local.datastore.DataStoreKeys
-import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
-import com.tradingplatform.app.widget.SystemStatusWidgetReceiver
-import dagger.hilt.android.qualifiers.ApplicationContext
+import com.tradingplatform.app.domain.repository.AdminWidgetVisibilityManager
 import javax.inject.Inject
 
+/**
+ * Applies admin widget visibility based on the user's admin status.
+ *
+ * Delegates to [AdminWidgetVisibilityManager] — the domain layer defines the
+ * interface, the widget/data layer provides the Android implementation.
+ *
+ * Pure Kotlin UseCase — no Android API dependency.
+ */
 class ApplyAdminWidgetVisibilityUseCase @Inject constructor(
-    @ApplicationContext private val context: Context,
-    private val dataStore: EncryptedDataStore,
+    private val visibilityManager: AdminWidgetVisibilityManager,
 ) {
-    suspend operator fun invoke() {
-        val isAdmin = dataStore.readBoolean(DataStoreKeys.IS_ADMIN) ?: false
-        val state = if (isAdmin)
-            PackageManager.COMPONENT_ENABLED_STATE_ENABLED
-        else
-            PackageManager.COMPONENT_ENABLED_STATE_DISABLED
-        context.packageManager.setComponentEnabledSetting(
-            ComponentName(context, SystemStatusWidgetReceiver::class.java),
-            state,
-            PackageManager.DONT_KILL_APP,
-        )
+    /**
+     * @param isAdmin true to enable admin-only widgets, false to disable them.
+     */
+    suspend operator fun invoke(isAdmin: Boolean) {
+        visibilityManager.applyVisibility(isAdmin)
     }
 }

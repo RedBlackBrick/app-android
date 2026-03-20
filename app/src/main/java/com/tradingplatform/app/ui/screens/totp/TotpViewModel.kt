@@ -62,9 +62,9 @@ class TotpViewModel @Inject constructor(
             _uiState.value = TotpUiState.Verifying
 
             verify2faUseCase(sessionToken, totpCode)
-                .onSuccess {
+                .onSuccess { (user, _) ->
                     // Vérification réussie — récupérer le portfolioId avant de naviguer
-                    fetchPortfoliosAndSucceed()
+                    fetchPortfoliosAndSucceed(user.isAdmin)
                 }
                 .onFailure { error ->
                     when (error) {
@@ -91,14 +91,14 @@ class TotpViewModel @Inject constructor(
         }
     }
 
-    private suspend fun fetchPortfoliosAndSucceed() {
+    private suspend fun fetchPortfoliosAndSucceed(isAdmin: Boolean) {
         getPortfoliosUseCase()
             .onSuccess { portfolios ->
                 if (portfolios.isEmpty()) {
                     _uiState.value = TotpUiState.Error("Aucun portfolio trouvé")
                     return
                 }
-                applyAdminWidgetVisibilityUseCase()
+                applyAdminWidgetVisibilityUseCase(isAdmin)
                 _uiState.value = TotpUiState.Success
             }
             .onFailure { error ->
