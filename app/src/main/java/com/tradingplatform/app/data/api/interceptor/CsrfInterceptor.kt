@@ -7,9 +7,14 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import okhttp3.Interceptor
+import okhttp3.MediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
 import okhttp3.Response
+import okio.Buffer
+import okio.BufferedSink
+import okio.ByteString
 import org.json.JSONObject
 import timber.log.Timber
 import java.io.IOException
@@ -61,6 +66,16 @@ class CsrfInterceptor @Inject constructor(
             return chain.proceed(request)
         }
 
+        // Buffer the request body upfront so it can be replayed on 403 retry.
+        // OkHttp request bodies are one-shot by default — once consumed by chain.proceed(),
+        // the body cannot be read again. We snapshot the bytes once and reuse them.
+        val bufferedBody = request.body?.let { originalBody ->
+            val buffer = Buffer()
+            originalBody.writeTo(buffer)
+            val snapshot = buffer.snapshot()
+            ReplayableRequestBody(snapshot, originalBody.contentType(), originalBody.contentLength())
+        }
+
         val token = runBlocking {
             mutex.withLock {
                 csrfToken ?: fetchCsrfToken()
@@ -69,6 +84,7 @@ class CsrfInterceptor @Inject constructor(
 
         val response = chain.proceed(
             request.newBuilder()
+                .method(request.method, bufferedBody ?: request.body)
                 .header("X-CSRF-Token", token)
                 .header("Cookie", "csrf_token=$token")
                 .build()
@@ -85,6 +101,7 @@ class CsrfInterceptor @Inject constructor(
             }
             return chain.proceed(
                 request.newBuilder()
+                    .method(request.method, bufferedBody ?: request.body)
                     .header("X-CSRF-Token", newToken)
                     .header("Cookie", "csrf_token=$newToken")
                     .build()
@@ -92,6 +109,21 @@ class CsrfInterceptor @Inject constructor(
         }
 
         return response
+    }
+
+    /**
+     * A [RequestBody] backed by a [ByteString] snapshot, allowing the body to be
+     * written multiple times (replayed) without consuming the original stream.
+     */
+    private class ReplayableRequestBody(
+        private val data: ByteString,
+        private val mediaType: MediaType?,
+        private val length: Long,
+    ) : RequestBody() {
+        override fun contentType(): MediaType? = mediaType
+        override fun contentLength(): Long = length
+        override fun isOneShot(): Boolean = false
+        override fun writeTo(sink: BufferedSink) { sink.write(data) }
     }
 
     /**
