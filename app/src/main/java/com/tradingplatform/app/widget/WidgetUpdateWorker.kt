@@ -107,6 +107,8 @@ class WidgetUpdateWorker @AssistedInject constructor(
             anyRetryNeeded = true
         } catch (e: VpnNotConnectedException) {
             Timber.tag(TAG).d("WidgetUpdateWorker — VPN disconnected during positions sync")
+        } catch (e: android.database.SQLException) {
+            Timber.tag(TAG).e(e, "WidgetUpdateWorker — positions sync Room error (non-retryable)")
         }
 
         // 2b. Sync PnL — indépendant des positions et des autres blocs
@@ -117,6 +119,8 @@ class WidgetUpdateWorker @AssistedInject constructor(
             anyRetryNeeded = true
         } catch (e: VpnNotConnectedException) {
             Timber.tag(TAG).d("WidgetUpdateWorker — VPN disconnected during PnL sync")
+        } catch (e: android.database.SQLException) {
+            Timber.tag(TAG).e(e, "WidgetUpdateWorker — PnL sync Room error (non-retryable)")
         }
 
         // 3. Sync quotes — indépendant du portfolio
@@ -131,6 +135,8 @@ class WidgetUpdateWorker @AssistedInject constructor(
             anyRetryNeeded = true
         } catch (e: VpnNotConnectedException) {
             Timber.tag(TAG).d("WidgetUpdateWorker — VPN disconnected during quotes sync")
+        } catch (e: android.database.SQLException) {
+            Timber.tag(TAG).e(e, "WidgetUpdateWorker — quotes sync Room error (non-retryable)")
         }
 
         // 4. Purge des alertes (30 jours / 500 max) — local uniquement, jamais réseau

@@ -115,7 +115,7 @@ class DashboardViewModel @Inject constructor(
     }
 
     /**
-     * Écoute les [WsEvent.PortfolioUpdate] du WebSocket privé.
+     * Écoute les [WsUpdate.PortfolioUpdate] du WebSocket privé.
      *
      * Sur chaque événement, déclenche un re-fetch REST de NAV et PnL pour
      * avoir les données fraîches avec les valeurs désérialisées proprement.
