@@ -10,6 +10,8 @@ import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.sample
 import java.math.BigDecimal
 import javax.inject.Inject
 
@@ -31,14 +33,20 @@ class PublicWsRepositoryImpl @Inject constructor(
     private val wsClient: PublicWsClient,
 ) : PublicWsRepository {
 
+    @OptIn(FlowPreview::class)
     override fun quoteUpdates(symbol: String): Flow<Quote> {
         val upper = symbol.uppercase()
         return wsClient.events
             .filterIsInstance<PublicWsEvent.MarketData>()
             .filter { it.symbol == upper }
             .map { event -> event.toQuote() }
+            .sample(QUOTE_SAMPLE_INTERVAL_MS)
             .onStart { wsClient.subscribe(upper) }
             .onCompletion { wsClient.unsubscribe(upper) }
+    }
+
+    companion object {
+        private const val QUOTE_SAMPLE_INTERVAL_MS = 250L
     }
 
     // ── Conversion MarketData → Quote ──────────────────────────────────────────

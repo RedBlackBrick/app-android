@@ -3,6 +3,7 @@ package com.tradingplatform.app.data.api.interceptor
 import com.tradingplatform.app.data.api.AuthApi
 import com.tradingplatform.app.data.local.datastore.DataStoreKeys
 import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
+import com.tradingplatform.app.data.local.db.AppDatabase
 import com.tradingplatform.app.data.session.SessionManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
@@ -37,6 +38,7 @@ class TokenAuthenticator @Inject constructor(
     private val dataStore: EncryptedDataStore,
     private val authApi: dagger.Lazy<AuthApi>,
     private val sessionManager: SessionManager,
+    private val appDatabase: AppDatabase,
 ) : Authenticator {
 
     companion object {
@@ -106,6 +108,7 @@ class TokenAuthenticator @Inject constructor(
 
     private fun handleLogout() {
         runBlocking {
+            try { appDatabase.clearAllTables() } catch (_: Exception) {}
             dataStore.clearAll()  // efface tous les tokens, cookies, is_admin, portfolio_id
         }
         Timber.tag(TAG).w("TokenAuthenticator: forced logout — all session data cleared")

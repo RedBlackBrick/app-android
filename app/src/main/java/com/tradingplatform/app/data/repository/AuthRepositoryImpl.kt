@@ -17,7 +17,10 @@ import com.tradingplatform.app.domain.exception.TotpRequiredException
 import com.tradingplatform.app.domain.model.AuthTokens
 import com.tradingplatform.app.domain.model.Portfolio
 import com.tradingplatform.app.domain.model.User
+import com.tradingplatform.app.domain.model.WsTokenInfo
 import com.tradingplatform.app.domain.repository.AuthRepository
+import java.time.Instant
+import okhttp3.OkHttpClient
 import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -28,6 +31,7 @@ class AuthRepositoryImpl @Inject constructor(
     private val dataStore: EncryptedDataStore,
     private val moshi: Moshi,
     private val csrfInterceptor: CsrfInterceptor,
+    private val okHttpClient: OkHttpClient,
 ) : AuthRepository {
 
     companion object {
@@ -79,6 +83,8 @@ class AuthRepositoryImpl @Inject constructor(
         } catch (e: Exception) {
             Timber.tag(TAG).e(e, "AuthRepository: clearAll failed during logout — session data may be stale")
         }
+        csrfInterceptor.clearToken()
+        try { okHttpClient.cache?.evictAll() } catch (_: Exception) {}
     }
 
     override suspend fun verify2fa(sessionToken: String, totpCode: String): Result<Pair<User, AuthTokens>> =
@@ -180,12 +186,15 @@ class AuthRepositoryImpl @Inject constructor(
         tokens
     }
 
-    override suspend fun getWsToken(): Result<String> = runCatching {
+    override suspend fun getWsToken(): Result<WsTokenInfo> = runCatching {
         val response = authApi.getWsToken()
         if (!response.isSuccessful) {
             error("WS token fetch failed: HTTP ${response.code()}")
         }
         val body = response.body() ?: error("Empty WS token response")
-        body.token
+        WsTokenInfo(
+            token = body.token,
+            expiresAt = Instant.parse(body.expiresAt),
+        )
     }
 }

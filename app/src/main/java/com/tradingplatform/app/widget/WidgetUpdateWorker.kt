@@ -8,6 +8,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.tradingplatform.app.data.local.datastore.DataStoreKeys
 import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
+import com.tradingplatform.app.data.local.db.AppDatabase
 import com.tradingplatform.app.data.local.db.dao.AlertDao
 import com.tradingplatform.app.data.local.db.dao.PnlDao
 import com.tradingplatform.app.data.local.db.dao.PositionDao
@@ -56,6 +57,7 @@ class WidgetUpdateWorker @AssistedInject constructor(
     private val pnlDao: PnlDao,
     private val alertDao: AlertDao,
     private val quoteDao: QuoteDao,
+    private val appDatabase: AppDatabase,
 ) : CoroutineWorker(context, workerParams) {
 
     companion object {
@@ -94,6 +96,7 @@ class WidgetUpdateWorker @AssistedInject constructor(
         val portfolioId = dataStore.readString(DataStoreKeys.PORTFOLIO_ID)
         if (portfolioId == null) {
             Timber.tag(TAG).d("WidgetUpdateWorker — portfolioId not found in DataStore, skipping sync")
+            try { appDatabase.clearAllTables() } catch (_: Exception) {}
             return Result.success()
         }
 

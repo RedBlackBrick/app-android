@@ -14,6 +14,8 @@ import androidx.core.app.NotificationManagerCompat
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import com.tradingplatform.app.MainActivity
+import com.tradingplatform.app.data.local.datastore.DataStoreKeys
+import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
 import com.tradingplatform.app.data.local.db.dao.AlertDao
 import com.tradingplatform.app.data.local.db.entity.AlertEntity
 import com.tradingplatform.app.domain.model.AlertType
@@ -44,6 +46,12 @@ class TradingFirebaseMessagingService : FirebaseMessagingService() {
         EntryPointAccessors
             .fromApplication(applicationContext, FcmEntryPoint::class.java)
             .registerFcmTokenUseCase()
+    }
+
+    private val encryptedDataStore: EncryptedDataStore by lazy {
+        EntryPointAccessors
+            .fromApplication(applicationContext, FcmEntryPoint::class.java)
+            .encryptedDataStore()
     }
 
     /**
@@ -98,10 +106,23 @@ class TradingFirebaseMessagingService : FirebaseMessagingService() {
             Settings.Secure.ANDROID_ID,
         )?.takeIf { it.isNotEmpty() } ?: UUID.randomUUID().toString()
 
+        // Write-ahead: persist token + fingerprint BEFORE attempting registration.
+        // On crash/kill between write-ahead and registration, TradingApplication.onCreate()
+        // will detect the pending keys and schedule a WorkManager retry.
         serviceScope.launch {
+            encryptedDataStore.writeString(DataStoreKeys.PENDING_FCM_TOKEN, token)
+            encryptedDataStore.writeString(DataStoreKeys.PENDING_FCM_FINGERPRINT, deviceFingerprint)
+
             registerFcmTokenUseCase(token, deviceFingerprint)
-                .onSuccess { Timber.tag(TAG).d("FCM token enregistré auprès du backend : [REDACTED]") }
-                .onFailure { e -> Timber.tag(TAG).w(e, "FCM token registration failed — will retry on next token refresh") }
+                .onSuccess {
+                    Timber.tag(TAG).d("FCM token enregistré auprès du backend : [REDACTED]")
+                    encryptedDataStore.remove(DataStoreKeys.PENDING_FCM_TOKEN)
+                    encryptedDataStore.remove(DataStoreKeys.PENDING_FCM_FINGERPRINT)
+                }
+                .onFailure { e ->
+                    Timber.tag(TAG).w(e, "FCM registration failed — scheduling retry")
+                    FcmTokenRegistrationWorker.enqueue(applicationContext)
+                }
         }
     }
 
@@ -172,4 +193,5 @@ class TradingFirebaseMessagingService : FirebaseMessagingService() {
 interface FcmEntryPoint {
     fun alertDao(): AlertDao
     fun registerFcmTokenUseCase(): RegisterFcmTokenUseCase
+    fun encryptedDataStore(): EncryptedDataStore
 }

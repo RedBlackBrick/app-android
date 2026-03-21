@@ -1,5 +1,7 @@
 package com.tradingplatform.app.data.api.interceptor
 
+import com.tradingplatform.app.data.local.datastore.DataStoreKeys
+import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -40,6 +42,7 @@ class CsrfInterceptor @Inject constructor(
     @Named("bare") private val bareHttpClient: OkHttpClient,
     @Named("base_url") private val baseUrl: String,
     private val applicationScope: CoroutineScope,
+    private val dataStore: EncryptedDataStore,
 ) : Interceptor {
 
     companion object {
@@ -78,7 +81,7 @@ class CsrfInterceptor @Inject constructor(
 
         val token = runBlocking {
             mutex.withLock {
-                csrfToken ?: fetchCsrfToken()
+                csrfToken ?: loadFromStore() ?: fetchCsrfToken()
             }
         }
 
@@ -96,6 +99,7 @@ class CsrfInterceptor @Inject constructor(
             val newToken = runBlocking {
                 mutex.withLock {
                     csrfToken = null
+                    clearFromStore()
                     fetchCsrfToken()
                 }
             }
@@ -143,7 +147,23 @@ class CsrfInterceptor @Inject constructor(
         }
     }
 
-    private fun fetchCsrfToken(): String {
+    fun clearToken() {
+        csrfToken = null
+    }
+
+    private suspend fun loadFromStore(): String? {
+        return dataStore.readString(DataStoreKeys.CSRF_TOKEN)?.also { csrfToken = it }
+    }
+
+    private suspend fun persistToStore(token: String) {
+        try { dataStore.writeString(DataStoreKeys.CSRF_TOKEN, token) } catch (_: Exception) {}
+    }
+
+    private suspend fun clearFromStore() {
+        try { dataStore.remove(DataStoreKeys.CSRF_TOKEN) } catch (_: Exception) {}
+    }
+
+    private suspend fun fetchCsrfToken(): String {
         Timber.tag(TAG).d("CsrfInterceptor: fetching new CSRF token")
         val req = Request.Builder()
             .url("$baseUrl/csrf-token")
@@ -173,6 +193,7 @@ class CsrfInterceptor @Inject constructor(
             throw IOException("Failed to fetch CSRF token")
         }
         csrfToken = token
+        persistToStore(token)
         return token
     }
 }

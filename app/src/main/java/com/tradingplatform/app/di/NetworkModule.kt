@@ -14,6 +14,7 @@ import com.tradingplatform.app.data.api.PortfolioApi
 import com.tradingplatform.app.data.api.interceptor.AuthInterceptor
 import com.tradingplatform.app.data.api.interceptor.CsrfInterceptor
 import com.tradingplatform.app.data.api.interceptor.EncryptedCookieJar
+import com.tradingplatform.app.data.api.interceptor.TimeoutInterceptor
 import com.tradingplatform.app.data.api.interceptor.TokenAuthenticator
 import com.tradingplatform.app.data.api.interceptor.UpgradeRequiredInterceptor
 import com.tradingplatform.app.data.api.interceptor.VpnRequiredInterceptor
@@ -21,15 +22,19 @@ import com.tradingplatform.app.data.model.BigDecimalAdapter
 import com.tradingplatform.app.data.model.InstantAdapter
 import com.tradingplatform.app.domain.model.DeviceStatus
 import com.tradingplatform.app.domain.model.PositionStatus
+import android.content.Context
 import com.tradingplatform.app.security.CertificatePinnerProvider
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import okhttp3.Cache
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
+import java.io.File
 import java.util.concurrent.TimeUnit
 import javax.inject.Named
 import javax.inject.Singleton
@@ -92,12 +97,14 @@ object NetworkModule {
 
     // ── OkHttpClient principal ─────────────────────────────────────────────────
     // Chaîne d'intercepteurs (ordre obligatoire CLAUDE.md §3 + fix 426) :
-    // UpgradeRequired → CSRF → VPN → Auth → (TokenAuthenticator) → Logging
-    // UpgradeRequired est en première position pour intercepter 426 sur toute requête.
+    // Timeout → UpgradeRequired → CSRF → VPN → Auth → (TokenAuthenticator) → Logging
+    // Timeout est en première position pour appliquer les timeouts par endpoint avant toute exécution.
 
     @Provides
     @Singleton
     fun provideMainOkHttpClient(
+        @ApplicationContext context: Context,
+        timeoutInterceptor: TimeoutInterceptor,
         upgradeRequiredInterceptor: UpgradeRequiredInterceptor,
         csrfInterceptor: CsrfInterceptor,
         vpnRequiredInterceptor: VpnRequiredInterceptor,
@@ -117,7 +124,14 @@ object NetworkModule {
             redactHeader("X-CSRF-Token")
         }
 
+        val cache = Cache(
+            directory = File(context.cacheDir, "http_cache"),
+            maxSize = 10L * 1024L * 1024L,
+        )
+
         val builder = OkHttpClient.Builder()
+            .cache(cache)
+            .addInterceptor(timeoutInterceptor)
             .addInterceptor(upgradeRequiredInterceptor)
             .addInterceptor(csrfInterceptor)
             .addInterceptor(vpnRequiredInterceptor)

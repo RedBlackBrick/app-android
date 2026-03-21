@@ -30,6 +30,10 @@ object DataStoreKeys {
     val WG_TUNNEL_IP = stringPreferencesKey("wg_tunnel_ip")
     val WG_DNS = stringPreferencesKey("wg_dns")
     val SETUP_COMPLETED = booleanPreferencesKey("setup_completed")
+    val CSRF_TOKEN = stringPreferencesKey("csrf_token")
+    // FCM token registration retry (write-ahead)
+    val PENDING_FCM_TOKEN = stringPreferencesKey("pending_fcm_token")
+    val PENDING_FCM_FINGERPRINT = stringPreferencesKey("pending_fcm_fingerprint")
     // Cookies : clé dynamique "cookie_${name}"
 }
 

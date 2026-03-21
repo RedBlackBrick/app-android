@@ -9,6 +9,7 @@ import androidx.work.WorkManager
 import com.tradingplatform.app.data.local.datastore.DataStoreKeys
 import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
 import com.tradingplatform.app.data.websocket.PrivateWsClient
+import com.tradingplatform.app.fcm.FcmTokenRegistrationWorker
 import com.tradingplatform.app.widget.WidgetUpdateWorker
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
@@ -35,6 +36,7 @@ class TradingApplication : Application() {
         super.onCreate()
         initTimber()
         scheduleWidgetUpdateWorker()
+        retryPendingFcmTokenIfNeeded()
         connectWsIfAuthenticated()
     }
 
@@ -51,6 +53,20 @@ class TradingApplication : Application() {
                 privateWsClient.connect()
             } else {
                 Timber.d("TradingApplication: no access token — WS will connect after login")
+            }
+        }
+    }
+
+    /**
+     * Crash recovery: if the app was killed between write-ahead (persisting the FCM token
+     * to EncryptedDataStore) and successful registration, a pending token will still be
+     * present. Schedule a WorkManager retry to complete the registration.
+     */
+    private fun retryPendingFcmTokenIfNeeded() {
+        appScope.launch {
+            if (encryptedDataStore.readString(DataStoreKeys.PENDING_FCM_TOKEN) != null) {
+                Timber.d("Pending FCM token found — scheduling retry")
+                FcmTokenRegistrationWorker.enqueue(applicationContext)
             }
         }
     }
