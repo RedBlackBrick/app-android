@@ -135,18 +135,22 @@ object NetworkModule {
 
     // ── OkHttpClient @Named("lan") ─────────────────────────────────────────────
     // Utilisé par PairingRepositoryImpl pour les appels HTTP vers la Radxa (LAN, port 8099).
-    // Aucun intercepteur VPS : pas de CSRF, Auth, ni VPN check.
+    // Pas de CSRF ni Auth interceptors (LAN, pas VPS).
+    // VpnRequiredInterceptor est inclus : la connexion vers radxa_ip:8099 exige VPN actif
+    // (CLAUDE.md §8 : "La connexion vers radxa_ip:8099 doit être faite uniquement si VpnState.Connected").
     // La validation isLocalNetwork() est effectuée dans PairingRepositoryImpl.
-    // HTTP non chiffré accepté : LAN uniquement, TTL 120s, 3 tentatives VPS (CLAUDE.md §8).
 
     @Provides
     @Singleton
     @Named("lan")
-    fun provideLanOkHttpClient(): OkHttpClient = OkHttpClient.Builder()
+    fun provideLanOkHttpClient(
+        vpnRequiredInterceptor: VpnRequiredInterceptor,
+    ): OkHttpClient = OkHttpClient.Builder()
+        .addInterceptor(vpnRequiredInterceptor)
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
         // Pas de CertificatePinner — HTTP non chiffré (LAN local uniquement)
-        // Pas d'intercepteurs VPS (CSRF, Auth, VPN)
+        // Pas d'intercepteurs VPS (CSRF, Auth) — LAN only
         .build()
 
     // ── Retrofit principal (VPS) ───────────────────────────────────────────────

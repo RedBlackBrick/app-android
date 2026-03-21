@@ -32,7 +32,9 @@ class EncryptedCookieJar @Inject constructor(
                 .filter { it.name == "refresh_token" }  // filtrer sur le nom exact
                 .forEach { cookie ->
                     Timber.d("EncryptedCookieJar: saving refresh_token cookie")
-                    runBlocking { dataStore.saveCookie(cookie.name, cookie.toString()) }
+                    // Store only the cookie value — Cookie.toString() produces a debug format
+                    // that Cookie.parse() cannot reliably round-trip.
+                    runBlocking { dataStore.saveCookie(cookie.name, cookie.value) }
                 }
         }
     }
@@ -41,8 +43,22 @@ class EncryptedCookieJar @Inject constructor(
         if (url.encodedPath != REFRESH_PATH) return emptyList()
 
         return runBlocking { dataStore.loadCookies() }
-            .mapNotNull { cookieStr ->
-                Cookie.parse(url, cookieStr)
+            .mapNotNull { cookieValue ->
+                // Reconstruct cookie from stored value using Builder
+                // instead of Cookie.parse() which expects Set-Cookie header format
+                try {
+                    Cookie.Builder()
+                        .name("refresh_token")
+                        .value(cookieValue)
+                        .domain(url.host)
+                        .path("/")
+                        .httpOnly()
+                        .secure()
+                        .build()
+                } catch (e: Exception) {
+                    Timber.e(e, "EncryptedCookieJar: failed to reconstruct cookie")
+                    null
+                }
             }
     }
 }

@@ -60,7 +60,11 @@ class TokenAuthenticator @Inject constructor(
                 if (existing != null) {
                     // Un refresh est déjà en vol — réutiliser son résultat
                     Timber.tag(TAG).d("TokenAuthenticator: reusing in-flight refresh")
-                    existing.await()
+                    try {
+                        existing.await()
+                    } finally {
+                        refreshDeferred = null
+                    }
                 } else {
                     val deferred = applicationScope.async { doRefresh() }
                     refreshDeferred = deferred

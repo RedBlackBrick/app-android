@@ -80,7 +80,7 @@ class LoginViewModel @Inject constructor(
                         return@launch
                     }
                     // Pas de TOTP — récupérer le portfolioId puis naviguer vers Dashboard
-                    fetchPortfoliosAndSucceed()
+                    fetchPortfoliosAndSucceed(user.isAdmin)
                 }
                 .onFailure { error ->
                     when (error) {
@@ -121,7 +121,7 @@ class LoginViewModel @Inject constructor(
         _uiState.value = LoginUiState.Idle
     }
 
-    private suspend fun fetchPortfoliosAndSucceed() {
+    private suspend fun fetchPortfoliosAndSucceed(isAdmin: Boolean) {
         getPortfoliosUseCase()
             .onSuccess { portfolios ->
                 if (portfolios.isEmpty()) {
@@ -129,9 +129,7 @@ class LoginViewModel @Inject constructor(
                     return
                 }
                 // Appliquer la visibilité des widgets admin après que portfolioId est stocké.
-                // is_admin est persisté dans EncryptedDataStore par LoginUseCase — on le relit
-                // ici pour couvrir le chemin login direct (sans TOTP).
-                applyAdminWidgetVisibilityUseCase()
+                applyAdminWidgetVisibilityUseCase(isAdmin)
                 _uiState.value = LoginUiState.Success
             }
             .onFailure { error ->
