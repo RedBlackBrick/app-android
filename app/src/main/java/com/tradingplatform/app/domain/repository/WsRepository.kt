@@ -26,6 +26,12 @@ interface WsRepository {
     /** Notifications utilisateur (alertes, événements stratégie). */
     val notifications: Flow<WsUpdate.Notification>
 
+    /** Mises à jour d'ordres en temps réel (statut, fill). */
+    val orderUpdates: Flow<WsUpdate.OrderUpdate>
+
+    /** Signaux de stratégie en temps réel (informatif). */
+    val strategySignals: Flow<WsUpdate.StrategySignal>
+
     /**
      * Etat de la connexion WebSocket privee (F5).
      *

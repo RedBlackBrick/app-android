@@ -8,4 +8,7 @@ import retrofit2.http.Path
 interface MarketDataApi {
     @GET("v1/market-data/quote/{symbol}")
     suspend fun getQuote(@Path("symbol") symbol: String): Response<QuoteDto>
+
+    @GET("v1/market-data/symbols")
+    suspend fun getSymbols(): Response<List<String>>
 }

@@ -2,6 +2,7 @@ package com.tradingplatform.app.ui.navigation
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Settings
@@ -38,14 +39,15 @@ data class BottomNavItem(
 )
 
 /**
- * Bottom navigation bar with 4 standard tabs and 1 conditional admin tab.
+ * Bottom navigation bar with 5 standard tabs and 1 conditional admin tab.
  *
  * Tabs (in order):
  * 1. Dashboard
- * 2. Positions
- * 3. Alertes
- * 4. Devices  — visible only when [isAdmin] is true
- * 5. Paramètres
+ * 2. Marchés
+ * 3. Positions
+ * 4. Alertes
+ * 5. Devices  — visible only when [isAdmin] is true
+ * 6. Paramètres
  *
  * Navigation is performed by replacing the back stack up to the selected root
  * destination (launchSingleTop + restoreState) to avoid duplicate entries.
@@ -62,6 +64,11 @@ fun BottomNavBar(
             screen = Screen.Dashboard,
             label = "Dashboard",
             icon = Icons.Filled.Home,
+        ),
+        BottomNavItem(
+            screen = Screen.MarketData,
+            label = "March\u00e9s",
+            icon = Icons.Filled.ShowChart,
         ),
         BottomNavItem(
             screen = Screen.Positions,

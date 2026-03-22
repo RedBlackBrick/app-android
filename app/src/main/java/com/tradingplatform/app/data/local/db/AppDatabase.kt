@@ -9,11 +9,13 @@ import com.tradingplatform.app.data.local.db.dao.DeviceDao
 import com.tradingplatform.app.data.local.db.dao.PnlDao
 import com.tradingplatform.app.data.local.db.dao.PositionDao
 import com.tradingplatform.app.data.local.db.dao.QuoteDao
+import com.tradingplatform.app.data.local.db.dao.WatchlistDao
 import com.tradingplatform.app.data.local.db.entity.AlertEntity
 import com.tradingplatform.app.data.local.db.entity.DeviceEntity
 import com.tradingplatform.app.data.local.db.entity.PnlSnapshotEntity
 import com.tradingplatform.app.data.local.db.entity.PositionEntity
 import com.tradingplatform.app.data.local.db.entity.QuoteEntity
+import com.tradingplatform.app.data.local.db.entity.WatchlistEntity
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // HISTORIQUE DES VERSIONS DE SCHÉMA
@@ -25,6 +27,7 @@ import com.tradingplatform.app.data.local.db.entity.QuoteEntity
 //                firmware_version, hostname)
 // v4           : ajout index sur synced_at (positions, quotes, alerts, devices,
 //               pnl_snapshots) et received_at (alerts) pour optimiser les purges
+// v5           : ajout table watchlist (symboles favoris de l'utilisateur)
 //
 // STRATÉGIE DE MIGRATION — RÈGLES IMPÉRATIVES
 // ───────────────────────────────────────────────────────────────────────────────
@@ -74,6 +77,18 @@ val MIGRATION_3_4 = object : Migration(3, 4) {
     }
 }
 
+// ── Migration 4 → 5 : ajout table watchlist ────────────────────────────────
+val MIGRATION_4_5 = object : Migration(4, 5) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        database.execSQL(
+            "CREATE TABLE IF NOT EXISTS watchlist (" +
+                "symbol TEXT NOT NULL PRIMARY KEY, " +
+                "added_at INTEGER NOT NULL" +
+                ")"
+        )
+    }
+}
+
 @Database(
     entities = [
         PositionEntity::class,
@@ -81,8 +96,9 @@ val MIGRATION_3_4 = object : Migration(3, 4) {
         AlertEntity::class,
         DeviceEntity::class,
         QuoteEntity::class,
+        WatchlistEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -91,4 +107,5 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun alertDao(): AlertDao
     abstract fun deviceDao(): DeviceDao
     abstract fun quoteDao(): QuoteDao
+    abstract fun watchlistDao(): WatchlistDao
 }

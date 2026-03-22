@@ -8,6 +8,8 @@ import com.tradingplatform.app.domain.model.PnlPeriod
 import com.tradingplatform.app.domain.model.PnlSummary
 import com.tradingplatform.app.domain.model.Quote
 import com.tradingplatform.app.domain.model.WsConnectionState
+import com.tradingplatform.app.domain.model.ActivityItem
+import com.tradingplatform.app.domain.usecase.activity.GetActivityFeedUseCase
 import com.tradingplatform.app.domain.usecase.auth.GetPortfolioIdUseCase
 import com.tradingplatform.app.domain.usecase.market.GetQuoteStreamUseCase
 import com.tradingplatform.app.domain.usecase.market.GetQuoteUseCase
@@ -27,6 +29,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
@@ -94,6 +97,9 @@ private const val TAG = "DashboardViewModel"
 /** Debounce avant d'afficher "Deconnecte" pour eviter le flicker (F5). */
 private const val WS_STATE_DEBOUNCE_MS = 2_000L
 
+/** Maximum number of activity items retained in the feed. */
+private const val ACTIVITY_FEED_MAX_ITEMS = 12
+
 @HiltViewModel
 class DashboardViewModel @Inject constructor(
     private val getPnlUseCase: GetPnlUseCase,
@@ -103,6 +109,7 @@ class DashboardViewModel @Inject constructor(
     private val getPortfolioIdUseCase: GetPortfolioIdUseCase,
     private val getPortfolioWsUpdatesUseCase: GetPortfolioWsUpdatesUseCase,
     getWsConnectionStateUseCase: GetWsConnectionStateUseCase,
+    private val getActivityFeedUseCase: GetActivityFeedUseCase,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(DashboardUiState())
@@ -128,6 +135,25 @@ class DashboardViewModel @Inject constructor(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000L),
             initialValue = WsConnectionState.Connecting,
+        )
+
+    // ── Activity feed (real-time merged WS events) ────────────────────────────
+
+    private val _activityItems = MutableStateFlow<List<ActivityItem>>(emptyList())
+
+    /** Immutable activity feed exposed to the UI — max [ACTIVITY_FEED_MAX_ITEMS] items. */
+    val activityItems: StateFlow<List<ActivityItem>> = _activityItems.asStateFlow()
+
+    /**
+     * Whether the WebSocket is live (Connected). Derived from [wsConnectionState] so
+     * the activity card can show a "En direct" badge when true.
+     */
+    val isWsLive: StateFlow<Boolean> = wsConnectionState
+        .map { it == WsConnectionState.Connected }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000L),
+            initialValue = false,
         )
 
     /**
@@ -179,6 +205,10 @@ class DashboardViewModel @Inject constructor(
         // Si le WS échoue (erreur de connexion, VPN coupé), le fallback polling REST
         // prend le relais via startPollingFallback().
         startWsQuoteSubscription(AppDefaults.DEFAULT_QUOTE_SYMBOL)
+
+        // Collect merged activity feed from all WS streams.
+        // New items are prepended; list is capped at ACTIVITY_FEED_MAX_ITEMS.
+        startActivityFeedCollection()
     }
 
     /**
@@ -317,6 +347,28 @@ class DashboardViewModel @Inject constructor(
                 fetchQuote(symbol)
                 delay(QUOTE_POLL_INTERVAL_MS)
             }
+        }
+    }
+
+    /**
+     * Collects the merged activity feed from [GetActivityFeedUseCase].
+     *
+     * New items are prepended to the list so the most recent appear first.
+     * The list is capped at [ACTIVITY_FEED_MAX_ITEMS] to avoid unbounded growth.
+     * Errors are silently caught and logged — the activity feed is non-critical
+     * and should not degrade the rest of the Dashboard.
+     */
+    private fun startActivityFeedCollection() {
+        viewModelScope.launch {
+            getActivityFeedUseCase()
+                .catch { e ->
+                    Timber.tag(TAG).w(e, "DashboardViewModel: activity feed flow error — ignoring")
+                }
+                .collect { item ->
+                    _activityItems.update { current ->
+                        (listOf(item) + current).take(ACTIVITY_FEED_MAX_ITEMS)
+                    }
+                }
         }
     }
 

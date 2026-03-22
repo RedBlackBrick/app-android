@@ -16,6 +16,9 @@ interface AlertDao {
     @Query("SELECT * FROM alerts ORDER BY received_at DESC")
     fun getAllFlow(): Flow<List<AlertEntity>>
 
+    @Query("SELECT * FROM alerts WHERE type IN (:types) ORDER BY received_at DESC")
+    fun getByTypesFlow(types: List<String>): Flow<List<AlertEntity>>
+
     @Query("SELECT * FROM alerts ORDER BY received_at DESC")
     suspend fun getAll(): List<AlertEntity>
 

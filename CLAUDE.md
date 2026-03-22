@@ -50,36 +50,41 @@ Instructions pour Claude Code lors du travail sur ce projet.
 com.tradingplatform.app/
 ├── di/                    # Hilt modules (AppModule, NetworkModule, VpnModule, SecurityModule, WebSocketModule)
 ├── data/
-│   ├── api/               # Interfaces Retrofit (AuthApi, PortfolioApi, DeviceApi, PairingApi, LocalMaintenanceApi, NotificationApi)
+│   ├── api/               # Interfaces Retrofit (AuthApi, PortfolioApi, MarketDataApi, DeviceApi, PairingApi, LocalMaintenanceApi, NotificationApi)
 │   ├── repository/        # Implémentations des Repository interfaces du domaine
 │   ├── local/
-│   │   ├── db/            # Room : AppDatabase, DAOs, Entities
+│   │   ├── db/            # Room : AppDatabase, DAOs, Entities (dont WatchlistEntity)
 │   │   └── datastore/     # EncryptedDataStore (tokens, config WireGuard)
 │   ├── model/             # Data Transfer Objects (DTOs) JSON ↔ API
-│   └── websocket/         # PrivateWsClient, WsEvent, WsRepository
+│   └── websocket/         # PrivateWsClient, PublicWsClient, WsEvent, WsRepository
 ├── domain/
 │   ├── model/             # Domain models (purs Kotlin, sans annotations Android/Retrofit/Room)
+│   │                      # Inclut : PerformanceMetrics, ActivityItem, WsUpdate (OrderUpdate, StrategySignal)
 │   ├── repository/        # Interfaces Repository (définies dans domain, implémentées dans data)
-│   │                      # LocalMaintenanceRepository.kt inclus
+│   │                      # Inclut : WatchlistRepository, LocalMaintenanceRepository
 │   └── usecase/
 │       ├── auth/          # LoginUseCase, LogoutUseCase
-│       ├── portfolio/     # GetPortfolioUseCase, GetPositionsUseCase
+│       ├── portfolio/     # GetPortfolioUseCase, GetPositionsUseCase, GetPositionWsUpdatesUseCase, GetPerformanceUseCase
+│       ├── market/        # GetQuoteUseCase, GetQuoteStreamUseCase, GetAvailableSymbolsUseCase, GetWatchlistUseCase, AddToWatchlistUseCase, RemoveFromWatchlistUseCase
+│       ├── activity/      # GetActivityFeedUseCase
 │       ├── device/        # GetDevicesUseCase, GetDeviceStatusUseCase, SendDeviceCommandUseCase
-│       ├── alerts/        # GetAlertsUseCase, MarkAlertReadUseCase
+│       ├── alerts/        # GetAlertsUseCase, GetFilteredAlertsUseCase, MarkAlertReadUseCase
 │       ├── maintenance/   # SendLocalCommandUseCase, GetLocalStatusUseCase
 │       ├── notification/  # RegisterFcmTokenUseCase
 │       └── pairing/       # ParseVpsQrUseCase, ScanDeviceQrUseCase, SendPinToDeviceUseCase, ConfirmPairingUseCase, ParseSetupQrUseCase
 ├── ui/
 │   ├── theme/             # Color.kt, Theme.kt, Type.kt (Material 3)
 │   ├── navigation/        # AppNavGraph.kt — navigation globale
-│   ├── components/        # Composables partagés (LoadingOverlay, ErrorBanner, etc.)
+│   ├── components/        # Composables partagés (LoadingOverlay, ErrorBanner, MetricsComponents, etc.)
 │   └── screens/
 │       ├── auth/          # LoginScreen + LoginViewModel
-│       ├── dashboard/     # DashboardScreen + DashboardViewModel
+│       ├── dashboard/     # DashboardScreen + DashboardViewModel + ActivityFeedCard
+│       ├── market/        # MarketDataScreen + MarketDataViewModel + SymbolPickerSheet
 │       ├── portfolio/     # PositionsScreen, PositionDetailScreen + ViewModels
+│       ├── performance/   # PerformanceScreen + PerformanceViewModel
 │       ├── devices/       # DeviceListScreen, EdgeDeviceDashboardScreen + ViewModels
 │       ├── pairing/       # ScanVpsQrScreen, ScanDeviceQrScreen, PairingProgressScreen, PairingDoneScreen + PairingViewModel
-│       ├── alerts/        # AlertListScreen + AlertsViewModel
+│       ├── alerts/        # AlertListScreen + AlertsViewModel + AlertFilterBar
 │       ├── totp/          # TotpScreen + TotpViewModel (2FA post-login)
 │       ├── setup/         # SetupScreen + SetupViewModel (onboarding QR mobile)
 │       ├── maintenance/   # LocalMaintenanceScreen + LocalMaintenanceViewModel
@@ -134,9 +139,12 @@ Le flag `is_admin` (champ `user` dans la réponse login / `/auth/me`) conditionn
 
 | Feature | Compte standard | Compte admin |
 |---------|-----------------|--------------|
-| Dashboard (P&L, positions) | ✅ | ✅ |
-| Alertes (FCM → Room) | ✅ | ✅ |
-| Device list + detail | ❌ masqué | ✅ |
+| Dashboard (P&L, positions, activity feed) | ✅ | ✅ |
+| Marchés (watchlist, cours temps réel WS public) | ✅ | ✅ |
+| Positions (cours live via WS privé) | ✅ | ✅ |
+| Performance (Sharpe, Sortino, drawdown, etc.) | ✅ | ✅ |
+| Alertes (FCM → Room, filtrage par type) | ✅ | ✅ |
+| Device list + detail (métriques santé CPU/RAM/temp) | ❌ masqué | ✅ |
 | Pairing workflow | ❌ masqué | ✅ |
 | `SystemStatusWidget` | ❌ masqué | ✅ |
 | `DevicesWidget` (si créé) | ❌ masqué | ✅ |
@@ -216,9 +224,10 @@ affichent le cache daté sans déclencher d'erreur bloquante.
 |------------|---------------|-------------|
 | `positions` | 5 min | PositionsScreen offline, PositionsWidget |
 | `pnl_snapshots` | 5 min | DashboardScreen, PnlWidget |
-| `alerts` | permanent | AlertListScreen, AlertsWidget |
+| `alerts` | permanent | AlertListScreen (filtrable par type), AlertsWidget |
 | `devices` | 1 min | DeviceListScreen offline (admin) |
-| `quotes` | 10 min | QuoteWidget (offline-first cohérent) |
+| `quotes` | 10 min | QuoteWidget, MarketDataScreen (offline-first cohérent) |
+| `watchlist` | permanent | MarketDataScreen (symboles suivis par l'utilisateur) |
 
 Le timestamp de dernière sync est stocké avec chaque entité (`synced_at: Long`).
 L'UI affiche "Données du HH:mm" si le cache a plus de 10 min.
@@ -236,6 +245,7 @@ sans indication est trompeur.
 | `positions` | Supprimer les entrées dont `synced_at < now - 5 min` (remplacées à chaque sync) |
 | `pnl_snapshots` | Supprimer les entrées dont `synced_at < now - 5 min` |
 | `devices` | Supprimer les entrées dont `synced_at < now - 1 min` |
+| `watchlist` | Pas de purge — persistance permanente (symboles gérés par l'utilisateur) |
 
 La purge est exécutée **après** chaque sync réussie — jamais avant. Purger avant les appels
 réseau crée un gap : si le Worker est tué pendant la sync, les tables sont vides. Utiliser
@@ -301,11 +311,15 @@ section a eu une erreur réseau transitoire.
 
 ### Données de marché — stratégie
 
-- **Cours** : polling REST — `GET /v1/market-data/quote/{symbol}` toutes les **30 secondes** via `while(isActive)` dans `viewModelScope`
+- **Cours (Dashboard)** : polling REST — `GET /v1/market-data/quote/{symbol}` toutes les **30 secondes** via `while(isActive)` dans `viewModelScope`
+- **Cours (MarketDataScreen)** : souscription WebSocket public `wss://vps/ws/public` par symbole de la watchlist, throttle `Flow.sample(250ms)`, avec fallback REST
 - **Portfolio (P&L, positions)** : mises à jour temps réel via `WsRepository` (WebSocket `wss://vps/v1/ws/private`) en complément du polling REST
+- **Positions live** : les `position_update` du WS privé sont mergés dans `PositionsViewModel` pour mettre à jour `currentPrice` et `unrealizedPnl` en temps réel (affichage via `AnimatedPnlText`)
 - **Widgets** : rafraîchissement inclus dans le cycle WorkManager **5 min**
+- **Symboles disponibles** : `GET /v1/market-data/symbols` retourne la liste des symboles trackés par le backend
 
-La table Room `quotes` persiste le dernier cours connu (TTL 10 min) pour le `QuoteWidget`.
+La table Room `quotes` persiste le dernier cours connu (TTL 10 min) pour le `QuoteWidget` et le `MarketDataScreen`.
+La table Room `watchlist` persiste les symboles suivis par l'utilisateur (pas de TTL).
 L'écran Dashboard ne persiste pas les cours — il affiche uniquement les données live ou rien.
 
 **Gestion des exceptions dans le polling Dashboard** — trois cas distincts à traiter dans le ViewModel.
@@ -349,7 +363,7 @@ val quoteState by viewModel.quoteState.collectAsStateWithLifecycle()
 
 `PrivateWsClient` se connecte à `wss://vps/v1/ws/private` avec un JWT dont le claim `"websocket"` est obtenu via `POST /v1/auth/ws-token`. Il implémente `DefaultLifecycleObserver` : la connexion est établie en foreground et fermée en arrière-plan.
 
-`WsRepository` expose des `Flow` pour les événements WS : `portfolioUpdates`, `positionUpdates`, `notifications`, etc. `DashboardViewModel` collecte `WsRepository.portfolioUpdates` en complément du polling REST — le WS prend le dessus en temps réel, le polling assure la cohérence.
+`WsRepository` expose des `Flow` pour les événements WS : `portfolioUpdates`, `positionUpdates`, `orderUpdates`, `strategySignals`, `notifications`. `DashboardViewModel` collecte `portfolioUpdates` en complément du polling REST et `GetActivityFeedUseCase` merge les 4 flux (`orderUpdates`, `strategySignals`, `notifications`, `portfolioUpdates`) dans un feed d'activité temps réel affiché sur le Dashboard via `ActivityFeedCard`. `PositionsViewModel` collecte `positionUpdates` pour mettre à jour les prix en temps réel.
 
 Le token WS est distinct de l'access token — obtenir via `POST /v1/auth/ws-token` avant chaque connexion. `WebSocketModule` dans `di/` fournit les bindings Hilt.
 
@@ -358,12 +372,15 @@ Le token WS est distinct de l'access token — obtenir via `POST /v1/auth/ws-tok
 Les alertes proviennent exclusivement de notifications FCM persistées localement :
 - À la réception d'un FCM, stocker dans la table Room `alerts`
 - `AlertListScreen` et `AlertsWidget` lisent `alerts` en local (fonctionne offline)
+- `AlertListScreen` supporte le filtrage par type via `AlertFilterBar` (chips Material 3 multi-sélection)
+- Le filtrage est effectué au niveau SQL (query Room `WHERE type IN (...)`) pour la performance
 - Pas d'endpoint VPS de listing — historique local uniquement
 
 ```
 domain/usecase/alerts/
-├── GetAlertsUseCase    — Flow<List<Alert>> depuis Room
-└── MarkAlertReadUseCase — marque une alerte comme lue (Room update)
+├── GetAlertsUseCase          — Flow<List<Alert>> depuis Room (non filtré)
+├── GetFilteredAlertsUseCase  — Flow<List<Alert>> filtré par Set<AlertType> (query Room)
+└── MarkAlertReadUseCase      — marque une alerte comme lue (Room update)
 ```
 
 ### Pattern Result<T> — Repository et UseCase (obligatoire)
@@ -580,7 +597,10 @@ fun isLocalNetwork(ip: String): Boolean {
 | Police Inter | Configurée dans `TradingTypography` — s'applique automatiquement |
 | Valeurs monétaires | `jetBrainsMonoFamily` + `fontFeatureSettings = "tnum"`, aligné à droite |
 | P&L positif/négatif | `LocalExtendedColors.current.pnlPositive/pnlNegative` selon signe `BigDecimal` |
+| P&L animé | Utiliser `AnimatedPnlText` pour les valeurs mises à jour en temps réel (flash 500ms vert/rouge) |
 | Spacing | `Spacing.lg` (16dp) par défaut — via `Spacing.*` (jamais de `.dp` hardcodé) |
+| Métriques santé device | Utiliser les composants partagés `MetricsComponents.kt` : `metricColor()`, `CompactHealthBar`, `HealthStatusBadge`, `MetricRow` |
+| Seuils métriques | CPU/RAM warn 70% crit 90%, Temp warn 60°C crit 75°C, Disk warn 70% crit 85% — définis dans `MetricsComponents.kt` |
 | Dark mode | Tester chaque composant en light et dark avant de le merger |
 | DynamicColor | Désactivé — thème fixe pour cohérence avec le web |
 

@@ -9,6 +9,7 @@ import com.tradingplatform.app.data.repository.MarketDataRepositoryImpl
 import com.tradingplatform.app.data.repository.NotificationRepositoryImpl
 import com.tradingplatform.app.data.repository.PairingRepositoryImpl
 import com.tradingplatform.app.data.repository.PortfolioRepositoryImpl
+import com.tradingplatform.app.data.repository.WatchlistRepositoryImpl
 import com.tradingplatform.app.domain.repository.AdminWidgetVisibilityManager
 import com.tradingplatform.app.domain.repository.AlertRepository
 import com.tradingplatform.app.domain.repository.AuthRepository
@@ -19,6 +20,7 @@ import com.tradingplatform.app.domain.repository.MarketDataRepository
 import com.tradingplatform.app.domain.repository.NotificationRepository
 import com.tradingplatform.app.domain.repository.PairingRepository
 import com.tradingplatform.app.domain.repository.PortfolioRepository
+import com.tradingplatform.app.domain.repository.WatchlistRepository
 import com.tradingplatform.app.widget.AdminWidgetVisibilityManagerImpl
 import dagger.Binds
 import dagger.Module
@@ -65,6 +67,10 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindNotificationRepository(impl: NotificationRepositoryImpl): NotificationRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindWatchlistRepository(impl: WatchlistRepositoryImpl): WatchlistRepository
 
     @Binds
     @Singleton

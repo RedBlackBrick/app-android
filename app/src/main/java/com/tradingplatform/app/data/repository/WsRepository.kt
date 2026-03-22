@@ -48,10 +48,6 @@ class WsRepository(
             )
         }
 
-    /** Toutes les mises à jour d'ordres (data-layer only — non exposé au domaine). */
-    val orderUpdates: Flow<WsEvent.OrderUpdate> =
-        wsClient.events.filterIsInstance()
-
     /** Notifications utilisateur (alertes, événements stratégie). */
     override val notifications: Flow<WsUpdate.Notification> =
         wsClient.events.filterIsInstance<WsEvent.Notification>().map { event ->
@@ -62,9 +58,31 @@ class WsRepository(
             )
         }
 
-    /** Signaux de stratégie (pour information — ordres gérés côté serveur). */
-    val strategySignals: Flow<WsEvent.StrategySignal> =
-        wsClient.events.filterIsInstance()
+    /** Mises à jour d'ordres en temps réel — mappé vers le domain model. */
+    override val orderUpdates: Flow<WsUpdate.OrderUpdate> =
+        wsClient.events.filterIsInstance<WsEvent.OrderUpdate>().map { event ->
+            WsUpdate.OrderUpdate(
+                orderId = event.data.optString("order_id", null),
+                symbol = event.data.optString("symbol", null),
+                side = event.data.optString("side", null),
+                status = event.data.optString("status", null),
+                quantity = event.data.optIntOrNull("quantity"),
+                fillPrice = event.data.optDoubleOrNull("fill_price"),
+            )
+        }
+
+    /** Signaux de stratégie en temps réel — mappé vers le domain model. */
+    override val strategySignals: Flow<WsUpdate.StrategySignal> =
+        wsClient.events.filterIsInstance<WsEvent.StrategySignal>().map { event ->
+            WsUpdate.StrategySignal(
+                signalId = event.data.optString("signal_id", null),
+                strategyId = event.data.optString("strategy_id", null),
+                symbol = event.data.optString("symbol", null),
+                action = event.data.optString("action", null),
+                confidence = event.data.optDoubleOrNull("confidence"),
+                strategyType = event.data.optString("strategy_type", null),
+            )
+        }
 
     /** Événements catalyst (earnings, spinoff). */
     val catalystEvents: Flow<WsEvent.CatalystEvent> =
@@ -83,3 +101,10 @@ class WsRepository(
  */
 private fun org.json.JSONObject.optDoubleOrNull(key: String): Double? =
     if (has(key) && !isNull(key)) optDouble(key).takeIf { !it.isNaN() } else null
+
+/**
+ * Extension to safely extract a nullable Int from JSONObject.
+ * Returns null if the key is missing or the value is not a number.
+ */
+private fun org.json.JSONObject.optIntOrNull(key: String): Int? =
+    if (has(key) && !isNull(key)) optInt(key, Int.MIN_VALUE).takeIf { it != Int.MIN_VALUE } else null

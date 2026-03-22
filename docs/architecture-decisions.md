@@ -103,3 +103,38 @@ uniquement par le canal visuel (écran PC → caméra mobile).
 Flux : `SetupScreen → scan QR → configureFromSetupQr() → VPN connect → LoginScreen`
 
 Voir `ui/screens/setup/SetupScreen.kt` et `domain/usecase/pairing/ParseSetupQrUseCase.kt`.
+
+## L — Watchlist → persistance Room locale
+
+La watchlist des symboles suivis est persistée dans une table Room `watchlist(symbol TEXT PK, added_at LONG)`.
+Pas de synchronisation avec le backend — la watchlist est locale à l'appareil. Les cours temps réel
+sont obtenus via le WebSocket public (`wss://vps/ws/public`) avec souscription par symbole et
+throttle `Flow.sample(250ms)`. Fallback REST toutes les 30s si le WS est indisponible.
+
+## M — Activity feed → merge de flows WS privé
+
+Le feed d'activité temps réel du Dashboard est construit par `GetActivityFeedUseCase` qui merge
+4 flows du `WsRepository` : `orderUpdates`, `strategySignals`, `notifications`, `portfolioUpdates`.
+Chaque événement est mappé vers un `ActivityItem` (sealed class domaine). Le ViewModel maintient
+un buffer de 12 items max (prepend + drop). Pas de persistance Room — le feed est éphémère
+(reconstruit à chaque ouverture du Dashboard).
+
+## N — Positions live → WS privé position_update
+
+Les `position_update` du WebSocket privé sont collectés dans `PositionsViewModel` via
+`GetPositionWsUpdatesUseCase` et mergés dans la liste de positions existante (matching par
+`symbol`). L'affichage utilise `AnimatedPnlText` (flash 500ms) pour signaler visuellement
+les changements de prix.
+
+## O — Métriques device → composants partagés MetricsComponents
+
+Les seuils de santé device (CPU, RAM, température, disque) sont centralisés dans
+`ui/components/MetricsComponents.kt` avec des composants réutilisables : `MetricRow`,
+`CompactHealthBar`, `HealthStatusBadge`, `metricColor()`. Utilisés par `DeviceListScreen`
+(vue compacte) et `EdgeDeviceDashboardScreen` (vue détaillée).
+
+## P — Filtrage alertes → query Room SQL
+
+Le filtrage des alertes par type utilise une query Room `WHERE type IN (:types)` plutôt qu'un
+filtrage en mémoire. Le `AlertsViewModel` expose un `selectedTypes: StateFlow<Set<AlertType>>`
+et utilise `flatMapLatest` pour basculer entre la query filtrée et la query complète.

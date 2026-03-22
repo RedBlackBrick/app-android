@@ -11,6 +11,7 @@ import com.tradingplatform.app.domain.model.AuthTokens
 import com.tradingplatform.app.domain.model.Device
 import com.tradingplatform.app.domain.model.DeviceStatus
 import com.tradingplatform.app.domain.model.NavSummary
+import com.tradingplatform.app.domain.model.PerformanceMetrics
 import com.tradingplatform.app.domain.model.PnlPeriod
 import com.tradingplatform.app.domain.model.PnlSummary
 import com.tradingplatform.app.domain.model.Portfolio
@@ -57,6 +58,19 @@ fun PositionDto.toDomain(): Position = Position(
     unrealizedPnlPercent = unrealizedPnlPercent,
     status = status,
     openedAt = Instant.parse(openedAt),
+)
+
+fun PerformanceResponseDto.toPerformanceMetrics(): PerformanceMetrics = PerformanceMetrics(
+    totalReturn = totalReturn,
+    totalReturnPct = totalReturnPct,
+    sharpeRatio = sharpeRatio,
+    sortinoRatio = sortinoRatio,
+    maxDrawdown = maxDrawdown,
+    volatility = volatility,
+    cagr = cagr,
+    winRate = winRate,
+    profitFactor = profitFactor,
+    avgTradeReturn = avgTradeReturn,
 )
 
 fun PerformanceResponseDto.toDomain(): PnlSummary = PnlSummary(

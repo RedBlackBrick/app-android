@@ -1,6 +1,7 @@
 package com.tradingplatform.app.domain.repository
 
 import com.tradingplatform.app.domain.model.NavSummary
+import com.tradingplatform.app.domain.model.PerformanceMetrics
 import com.tradingplatform.app.domain.model.PnlPeriod
 import com.tradingplatform.app.domain.model.PnlSummary
 import com.tradingplatform.app.domain.model.Position
@@ -11,6 +12,7 @@ interface PortfolioRepository {
     suspend fun getPositions(portfolioId: String, status: PositionStatus): Result<List<Position>>
     suspend fun getPosition(portfolioId: String, positionId: Int): Result<Position>
     suspend fun getPnl(portfolioId: String, period: PnlPeriod): Result<PnlSummary>
+    suspend fun getPerformance(portfolioId: String): Result<PerformanceMetrics>
     suspend fun getNav(portfolioId: String): Result<NavSummary>
     suspend fun getTransactions(
         portfolioId: String,

@@ -36,6 +36,8 @@ import com.tradingplatform.app.ui.screens.dashboard.DashboardScreen
 import com.tradingplatform.app.ui.screens.devices.DeviceListScreen
 import com.tradingplatform.app.ui.screens.devices.EdgeDeviceDashboardScreen
 import com.tradingplatform.app.ui.screens.maintenance.LocalMaintenanceScreen
+import com.tradingplatform.app.ui.screens.market.MarketDataScreen
+import com.tradingplatform.app.ui.screens.performance.PerformanceScreen
 import com.tradingplatform.app.ui.screens.pairing.PairingDoneScreen
 import com.tradingplatform.app.ui.screens.pairing.PairingProgressScreen
 import com.tradingplatform.app.ui.screens.pairing.PairingViewModel
@@ -297,6 +299,7 @@ fun AppNavGraph(
     // Routes where the BottomNavBar is shown
     val bottomBarRoutes = setOf(
         Screen.Dashboard.route,
+        Screen.MarketData.route,
         Screen.Positions.route,
         Screen.Alerts.route,
         Screen.Devices.route,
@@ -428,7 +431,20 @@ fun AppNavGraph(
                     onNavigateToPositions = {
                         navController.navigate(Screen.Positions.route)
                     },
+                    onNavigateToPerformance = {
+                        navController.navigate(Screen.Performance.route)
+                    },
                 )
+            }
+
+            composable(Screen.Performance.route) {
+                PerformanceScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                )
+            }
+
+            composable(Screen.MarketData.route) {
+                MarketDataScreen()
             }
 
             composable(Screen.Positions.route) {

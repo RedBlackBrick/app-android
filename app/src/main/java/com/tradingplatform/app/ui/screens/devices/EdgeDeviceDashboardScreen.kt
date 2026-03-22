@@ -1,6 +1,5 @@
 package com.tradingplatform.app.ui.screens.devices
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,7 +23,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -40,8 +38,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -49,20 +45,18 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tradingplatform.app.domain.model.Device
 import com.tradingplatform.app.domain.model.DeviceStatus
 import com.tradingplatform.app.ui.components.CacheTimestamp
+import com.tradingplatform.app.ui.components.CPU_THRESHOLDS
+import com.tradingplatform.app.ui.components.DISK_THRESHOLDS
 import com.tradingplatform.app.ui.components.ErrorBanner
 import com.tradingplatform.app.ui.components.LoadingOverlay
+import com.tradingplatform.app.ui.components.MEMORY_THRESHOLDS
+import com.tradingplatform.app.ui.components.MetricRow
 import com.tradingplatform.app.ui.components.OfflineBadge
 import com.tradingplatform.app.ui.components.OnlineBadge
+import com.tradingplatform.app.ui.components.TEMPERATURE_THRESHOLDS
 import com.tradingplatform.app.ui.components.rememberHapticFeedback
-import com.tradingplatform.app.ui.theme.Amber400
-import com.tradingplatform.app.ui.theme.Amber600
-import com.tradingplatform.app.ui.theme.Emerald400
-import com.tradingplatform.app.ui.theme.Emerald600
 import com.tradingplatform.app.ui.theme.LocalExtendedColors
-import com.tradingplatform.app.ui.theme.Rose400
-import com.tradingplatform.app.ui.theme.Rose600
 import com.tradingplatform.app.ui.theme.Spacing
-import kotlin.math.roundToInt
 
 /**
  * Ecran dashboard riche pour un device Radxa (admin uniquement).
@@ -512,7 +506,7 @@ private fun DashboardContent(
                         label = "CPU",
                         value = device.cpuPct,
                         unit = "%",
-                        thresholds = MetricThresholds(warn = 70f, crit = 90f),
+                        thresholds = CPU_THRESHOLDS,
                         progressMax = 100f,
                     )
                     Spacer(modifier = Modifier.height(Spacing.md))
@@ -520,7 +514,7 @@ private fun DashboardContent(
                         label = "Mémoire",
                         value = device.memoryPct,
                         unit = "%",
-                        thresholds = MetricThresholds(warn = 70f, crit = 90f),
+                        thresholds = MEMORY_THRESHOLDS,
                         progressMax = 100f,
                     )
                     Spacer(modifier = Modifier.height(Spacing.md))
@@ -528,7 +522,7 @@ private fun DashboardContent(
                         label = "Température",
                         value = device.temperature,
                         unit = "°C",
-                        thresholds = MetricThresholds(warn = 60f, crit = 75f),
+                        thresholds = TEMPERATURE_THRESHOLDS,
                         progressMax = 100f,
                     )
                     Spacer(modifier = Modifier.height(Spacing.md))
@@ -536,7 +530,7 @@ private fun DashboardContent(
                         label = "Disque",
                         value = device.diskPct,
                         unit = "%",
-                        thresholds = MetricThresholds(warn = 70f, crit = 85f),
+                        thresholds = DISK_THRESHOLDS,
                         progressMax = 100f,
                     )
                 }
@@ -674,72 +668,6 @@ private fun DashboardInfoRow(
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurface,
         )
-    }
-}
-
-// ── Ligne métrique avec barre de progression ───────────────────────────────────
-
-private data class MetricThresholds(
-    val warn: Float,   // orange si >= warn
-    val crit: Float,   // rouge si >= crit
-)
-
-@Composable
-private fun MetricRow(
-    label: String,
-    value: Float?,
-    unit: String,
-    thresholds: MetricThresholds,
-    progressMax: Float,
-    modifier: Modifier = Modifier,
-) {
-    val valueText = if (value != null) "${value.roundToInt()}$unit" else "—"
-    val color = metricColor(value, thresholds)
-    val progress = if (value != null) (value / progressMax).coerceIn(0f, 1f) else 0f
-
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .semantics {
-                contentDescription = "$label : $valueText"
-            },
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                text = valueText,
-                style = MaterialTheme.typography.labelMedium,
-                color = if (value != null) color else MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        if (value != null) {
-            Spacer(modifier = Modifier.height(Spacing.xs))
-            LinearProgressIndicator(
-                progress = { progress },
-                modifier = Modifier.fillMaxWidth(),
-                color = color,
-                trackColor = color.copy(alpha = 0.15f),
-                strokeCap = StrokeCap.Round,
-            )
-        }
-    }
-}
-
-@Composable
-private fun metricColor(value: Float?, thresholds: MetricThresholds): Color {
-    if (value == null) return MaterialTheme.colorScheme.onSurfaceVariant
-    return when {
-        value >= thresholds.crit -> if (isSystemInDarkTheme()) Rose400 else Rose600
-        value >= thresholds.warn -> if (isSystemInDarkTheme()) Amber400 else Amber600
-        else -> if (isSystemInDarkTheme()) Emerald400 else Emerald600
     }
 }
 

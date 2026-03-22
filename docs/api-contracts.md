@@ -258,6 +258,37 @@ Auth : JWT Bearer. Appelé depuis `TradingFirebaseMessagingService.onNewToken()`
 }
 ```
 
+### GET /v1/market-data/symbols
+
+Retourne la liste de tous les symboles trackés par le backend.
+
+**Response 200 :**
+```json
+["CAC40", "SP500", "NASDAQ", "DOW", "SBF120"]
+```
+
+### GET /v1/portfolios/{portfolio_id}/performance
+
+Retourne les métriques de performance calculées côté serveur.
+
+**Response 200 :**
+```json
+{
+  "total_return": "5250.00",
+  "total_return_pct": 10.5,
+  "sharpe_ratio": 1.45,
+  "sortino_ratio": 2.1,
+  "max_drawdown": 8.3,
+  "volatility": 15.2,
+  "cagr": 12.5,
+  "win_rate": 0.65,
+  "profit_factor": 2.3,
+  "avg_trade_return": "125.00"
+}
+```
+
+Tous les champs sont nullable (retournent `null` si données insuffisantes).
+
 ---
 
 ## Devices Edge

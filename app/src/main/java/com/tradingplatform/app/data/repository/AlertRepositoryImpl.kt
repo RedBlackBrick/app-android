@@ -4,6 +4,7 @@ import com.tradingplatform.app.data.local.db.dao.AlertDao
 import com.tradingplatform.app.data.model.toDomain
 import com.tradingplatform.app.data.model.toEntity
 import com.tradingplatform.app.domain.model.Alert
+import com.tradingplatform.app.domain.model.AlertType
 import com.tradingplatform.app.domain.repository.AlertRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -25,6 +26,13 @@ class AlertRepositoryImpl @Inject constructor(
      */
     override fun getAlerts(): Flow<List<Alert>> =
         alertDao.getAllFlow().map { entities -> entities.map { it.toDomain() } }
+
+    /**
+     * Flow des alertes filtrées par types depuis Room.
+     * Utilise une requête SQL IN pour filtrer côté base de données.
+     */
+    override fun getAlertsByTypes(types: Set<AlertType>): Flow<List<Alert>> =
+        alertDao.getByTypesFlow(types.map { it.name }).map { entities -> entities.map { it.toDomain() } }
 
     override suspend fun markRead(alertId: Long): Result<Unit> = runCatching {
         alertDao.markRead(alertId)

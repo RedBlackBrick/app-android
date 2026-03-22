@@ -4,11 +4,14 @@ import app.cash.turbine.test
 import com.tradingplatform.app.domain.model.Position
 import com.tradingplatform.app.domain.model.PositionStatus
 import com.tradingplatform.app.domain.usecase.auth.GetPortfolioIdUseCase
+import com.tradingplatform.app.domain.usecase.portfolio.GetPositionWsUpdatesUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPositionsUseCase
 import com.tradingplatform.app.util.MainDispatcherRule
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -27,6 +30,7 @@ class PositionsViewModelTest {
 
     private val getPositionsUseCase = mockk<GetPositionsUseCase>()
     private val getPortfolioIdUseCase = mockk<GetPortfolioIdUseCase>()
+    private val getPositionWsUpdatesUseCase = mockk<GetPositionWsUpdatesUseCase>()
 
     private lateinit var viewModel: PositionsViewModel
 
@@ -50,11 +54,13 @@ class PositionsViewModelTest {
     fun setUp() {
         coEvery { getPortfolioIdUseCase() } returns "1"
         coEvery { getPositionsUseCase(any(), any()) } returns Result.success(fakePositions)
+        every { getPositionWsUpdatesUseCase() } returns emptyFlow()
     }
 
     private fun createViewModel(): PositionsViewModel = PositionsViewModel(
         getPositionsUseCase = getPositionsUseCase,
         getPortfolioIdUseCase = getPortfolioIdUseCase,
+        getPositionWsUpdatesUseCase = getPositionWsUpdatesUseCase,
     )
 
     // ── Success ───────────────────────────────────────────────────────────────

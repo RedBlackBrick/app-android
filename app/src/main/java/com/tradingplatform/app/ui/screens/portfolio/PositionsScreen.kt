@@ -42,7 +42,7 @@ import com.tradingplatform.app.ui.components.EmptyPositionsIllustration
 import com.tradingplatform.app.ui.components.EmptyState
 import com.tradingplatform.app.ui.components.MoneyText
 import com.tradingplatform.app.ui.components.OpenPositionBadge
-import com.tradingplatform.app.ui.components.PnlText
+import com.tradingplatform.app.ui.components.AnimatedPnlText
 import com.tradingplatform.app.ui.components.SkeletonPositionCard
 import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.Spacing
@@ -238,8 +238,8 @@ private fun PositionCard(
                 horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.spacedBy(Spacing.xs),
             ) {
-                // P&L amount — most prominent
-                PnlText(
+                // P&L amount — most prominent, animated for live WS updates
+                AnimatedPnlText(
                     value = position.unrealizedPnl,
                     style = MaterialTheme.typography.titleMedium.copy(
                         fontWeight = FontWeight.Bold,

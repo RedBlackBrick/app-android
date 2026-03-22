@@ -52,11 +52,14 @@ import java.time.format.DateTimeFormatter
 @Composable
 fun DashboardScreen(
     onNavigateToPositions: () -> Unit,
+    onNavigateToPerformance: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: DashboardViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val wsState by viewModel.wsConnectionState.collectAsStateWithLifecycle()
+    val activityItems by viewModel.activityItems.collectAsStateWithLifecycle()
+    val isWsLive by viewModel.isWsLive.collectAsStateWithLifecycle()
     val haptic = rememberHapticFeedback()
 
     val isInitialLoading = uiState.navSummary is NavUiState.Loading &&
@@ -154,6 +157,12 @@ fun DashboardScreen(
                     // ── Quote ────────────────────────────────────────────────────
                     QuoteSection(quoteState = uiState.quote)
 
+                    // ── Activity feed ─────────────────────────────────────────
+                    ActivityFeedCard(
+                        items = activityItems,
+                        isLive = isWsLive,
+                    )
+
                     // ── Navigation ──────────────────────────────────────────────
                     Spacer(modifier = Modifier.height(Spacing.sm))
                     Button(
@@ -161,6 +170,12 @@ fun DashboardScreen(
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text("Voir positions")
+                    }
+                    Button(
+                        onClick = onNavigateToPerformance,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Voir performance")
                     }
                 }
             }

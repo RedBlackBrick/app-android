@@ -53,8 +53,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tradingplatform.app.domain.model.Device
 import com.tradingplatform.app.domain.model.DeviceStatus
 import com.tradingplatform.app.ui.components.CacheTimestamp
+import com.tradingplatform.app.ui.components.CompactHealthBar
 import com.tradingplatform.app.ui.components.EmptyDevicesIllustration
 import com.tradingplatform.app.ui.components.EmptyState
+import com.tradingplatform.app.ui.components.HealthStatusBadge
 import com.tradingplatform.app.ui.components.OfflineBadge
 import com.tradingplatform.app.ui.components.OnlineBadge
 import com.tradingplatform.app.ui.components.SkeletonDeviceCard
@@ -263,9 +265,22 @@ private fun DeviceCard(
                     )
                 }
 
-                when (device.status) {
-                    DeviceStatus.ONLINE -> OnlineBadge()
-                    DeviceStatus.OFFLINE -> OfflineBadge()
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (device.status == DeviceStatus.ONLINE) {
+                        HealthStatusBadge(
+                            cpuPct = device.cpuPct,
+                            memoryPct = device.memoryPct,
+                            temperature = device.temperature,
+                            diskPct = device.diskPct,
+                        )
+                    }
+                    when (device.status) {
+                        DeviceStatus.ONLINE -> OnlineBadge()
+                        DeviceStatus.OFFLINE -> OfflineBadge()
+                    }
                 }
             }
 
@@ -291,6 +306,16 @@ private fun DeviceCard(
                     contentDescription = "Dernier heartbeat : $heartbeatFormatted"
                 },
             )
+
+            // Health metrics bars — only for ONLINE devices with available metrics
+            if (device.status == DeviceStatus.ONLINE) {
+                Spacer(modifier = Modifier.height(Spacing.sm))
+                CompactHealthBar(
+                    cpuPct = device.cpuPct,
+                    memoryPct = device.memoryPct,
+                    temperature = device.temperature,
+                )
+            }
         }
     }
 }

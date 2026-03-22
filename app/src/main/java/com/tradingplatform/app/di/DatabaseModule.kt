@@ -5,11 +5,13 @@ import androidx.room.Room
 import com.tradingplatform.app.data.local.db.AppDatabase
 import com.tradingplatform.app.data.local.db.MIGRATION_2_3
 import com.tradingplatform.app.data.local.db.MIGRATION_3_4
+import com.tradingplatform.app.data.local.db.MIGRATION_4_5
 import com.tradingplatform.app.data.local.db.dao.AlertDao
 import com.tradingplatform.app.data.local.db.dao.DeviceDao
 import com.tradingplatform.app.data.local.db.dao.PnlDao
 import com.tradingplatform.app.data.local.db.dao.PositionDao
 import com.tradingplatform.app.data.local.db.dao.QuoteDao
+import com.tradingplatform.app.data.local.db.dao.WatchlistDao
 import com.tradingplatform.app.BuildConfig
 import dagger.Module
 import dagger.Provides
@@ -31,7 +33,7 @@ object DatabaseModule {
         AppDatabase::class.java,
         "trading_platform_db"
     )
-        .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
+        .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
         .apply {
             if (BuildConfig.DEBUG) {
                 fallbackToDestructiveMigration(dropAllTables = true)
@@ -54,4 +56,7 @@ object DatabaseModule {
 
     @Provides
     fun provideQuoteDao(db: AppDatabase): QuoteDao = db.quoteDao()
+
+    @Provides
+    fun provideWatchlistDao(db: AppDatabase): WatchlistDao = db.watchlistDao()
 }

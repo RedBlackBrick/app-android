@@ -39,4 +39,24 @@ sealed class WsUpdate {
         val title: String,
         val body: String,
     ) : WsUpdate()
+
+    /** Real-time order update (status change, fill event). */
+    data class OrderUpdate(
+        val orderId: String? = null,
+        val symbol: String? = null,
+        val side: String? = null,
+        val status: String? = null,
+        val quantity: Int? = null,
+        val fillPrice: Double? = null,
+    ) : WsUpdate()
+
+    /** Real-time strategy signal (informational — orders managed server-side). */
+    data class StrategySignal(
+        val signalId: String? = null,
+        val strategyId: String? = null,
+        val symbol: String? = null,
+        val action: String? = null,
+        val confidence: Double? = null,
+        val strategyType: String? = null,
+    ) : WsUpdate()
 }

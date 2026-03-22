@@ -24,6 +24,7 @@ object NavTransitions {
     // Routes considered as top-level tabs (crossfade only)
     private val TAB_ROUTES = setOf(
         Screen.Dashboard.route,
+        Screen.MarketData.route,
         Screen.Positions.route,
         Screen.Alerts.route,
         Screen.Devices.route,

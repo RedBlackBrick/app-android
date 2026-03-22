@@ -73,6 +73,7 @@ fun AlertListScreen(
     viewModel: AlertsViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val selectedTypes by viewModel.selectedTypes.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -82,45 +83,57 @@ fun AlertListScreen(
         },
         modifier = modifier,
     ) { innerPadding ->
-        // Alerts are sourced exclusively from FCM → Room (no network endpoint).
-        // The Room Flow updates reactively — no pull-to-refresh needed.
-        when (val state = uiState) {
-            is AlertsUiState.Loading -> {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(innerPadding),
-                    contentPadding = PaddingValues(Spacing.lg),
-                    verticalArrangement = Arrangement.spacedBy(Spacing.sm),
-                ) {
-                    items(6) {
-                        SkeletonAlertCard()
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding),
+        ) {
+            // Filter bar — always visible between TopAppBar and list content
+            AlertFilterBar(
+                selectedTypes = selectedTypes,
+                onToggleType = { type ->
+                    val current = selectedTypes
+                    val updated = if (type in current) current - type else current + type
+                    viewModel.setTypeFilter(updated)
+                },
+            )
+
+            // Alerts are sourced exclusively from FCM → Room (no network endpoint).
+            // The Room Flow updates reactively — no pull-to-refresh needed.
+            when (val state = uiState) {
+                is AlertsUiState.Loading -> {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(Spacing.lg),
+                        verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+                    ) {
+                        items(6) {
+                            SkeletonAlertCard()
+                        }
                     }
                 }
-            }
 
-            is AlertsUiState.Success -> {
-                AlertListContent(
-                    alerts = state.alerts,
-                    unreadCount = state.unreadCount,
-                    onMarkAsRead = viewModel::markAsRead,
-                    modifier = Modifier.padding(innerPadding),
-                )
-            }
-
-            is AlertsUiState.Error -> {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(innerPadding)
-                        .padding(Spacing.lg),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    EmptyState(
-                        illustration = { EmptyAlertsIllustration() },
-                        title = "Erreur de chargement",
-                        message = state.message,
+                is AlertsUiState.Success -> {
+                    AlertListContent(
+                        alerts = state.alerts,
+                        unreadCount = state.unreadCount,
+                        onMarkAsRead = viewModel::markAsRead,
                     )
+                }
+
+                is AlertsUiState.Error -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(Spacing.lg),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        EmptyState(
+                            illustration = { EmptyAlertsIllustration() },
+                            title = "Erreur de chargement",
+                            message = state.message,
+                        )
+                    }
                 }
             }
         }

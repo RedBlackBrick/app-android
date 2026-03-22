@@ -79,4 +79,12 @@ class MarketDataRepositoryImpl @Inject constructor(
 
         return result
     }
+
+    override suspend fun getAvailableSymbols(): Result<List<String>> = runCatching {
+        val response = marketDataApi.getSymbols()
+        if (!response.isSuccessful) {
+            error("Get symbols failed: HTTP ${response.code()}")
+        }
+        response.body() ?: emptyList()
+    }
 }

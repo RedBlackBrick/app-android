@@ -6,6 +6,7 @@ import com.tradingplatform.app.domain.model.NavSummary
 import com.tradingplatform.app.domain.model.PnlPeriod
 import com.tradingplatform.app.domain.model.PnlSummary
 import com.tradingplatform.app.domain.model.Quote
+import com.tradingplatform.app.domain.usecase.activity.GetActivityFeedUseCase
 import com.tradingplatform.app.domain.usecase.auth.GetPortfolioIdUseCase
 import com.tradingplatform.app.domain.usecase.market.GetQuoteStreamUseCase
 import com.tradingplatform.app.domain.usecase.market.GetQuoteUseCase
@@ -50,6 +51,7 @@ class DashboardViewModelTest {
     private val getPortfolioIdUseCase = mockk<GetPortfolioIdUseCase>()
     private val getPortfolioWsUpdatesUseCase = mockk<GetPortfolioWsUpdatesUseCase>()
     private val getWsConnectionStateUseCase = mockk<GetWsConnectionStateUseCase>()
+    private val getActivityFeedUseCase = mockk<GetActivityFeedUseCase>()
 
     private lateinit var viewModel: DashboardViewModel
 
@@ -99,6 +101,8 @@ class DashboardViewModelTest {
         every { getWsConnectionStateUseCase() } returns MutableStateFlow(WsConnectionState.Connected)
         // WS public — par défaut, échec immédiat → déclenche le fallback polling REST
         every { getQuoteStreamUseCase(any()) } returns flow { throw IOException("WS not available in tests") }
+        // Activity feed — empty flow by default (not the focus of these tests)
+        every { getActivityFeedUseCase() } returns emptyFlow()
     }
 
     private fun createViewModel(): DashboardViewModel = DashboardViewModel(
@@ -109,6 +113,7 @@ class DashboardViewModelTest {
         getPortfolioIdUseCase = getPortfolioIdUseCase,
         getPortfolioWsUpdatesUseCase = getPortfolioWsUpdatesUseCase,
         getWsConnectionStateUseCase = getWsConnectionStateUseCase,
+        getActivityFeedUseCase = getActivityFeedUseCase,
     ).also { viewModel = it }
 
     // ── portfolioId ───────────────────────────────────────────────────────────

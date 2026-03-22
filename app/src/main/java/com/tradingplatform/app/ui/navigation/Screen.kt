@@ -20,7 +20,12 @@ sealed class Screen(val route: String) {
 
     data object Dashboard : Screen("dashboard")
 
+    data object MarketData : Screen("market-data")
+
     data object Positions : Screen("positions")
+
+    /** Detailed portfolio performance metrics (Sharpe, Sortino, drawdown, etc.). */
+    data object Performance : Screen("performance")
 
     data object PositionDetail : Screen("position/{positionId}") {
         fun createRoute(positionId: Int): String = "position/$positionId"
