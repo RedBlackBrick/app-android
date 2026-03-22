@@ -82,6 +82,40 @@ private fun UpgradeRequiredDialog() {
     )
 }
 
+// ── KeystoreCorruptionDialog (R1 fix) ────────────────────────────────────────
+
+/**
+ * Dialog affiché quand le Keystore Android est corrompu (clés invalides après
+ * reboot sur certains devices Samsung/Xiaomi, suppression de la biométrie, etc.).
+ *
+ * Distinct du logout normal : explique la cause technique et propose de se
+ * reconnecter. Non-dismissable pour éviter que l'app reste dans un état
+ * indéterminé avec des clés nulles (CLAUDE.md §4).
+ */
+@Composable
+private fun KeystoreCorruptionDialog(
+    onAcknowledge: () -> Unit,
+) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = { /* non-dismissable */ },
+        title = {
+            androidx.compose.material3.Text("Donnees de session corrompues")
+        },
+        text = {
+            androidx.compose.material3.Text(
+                "Les donnees de session ont ete invalidees par le systeme " +
+                    "(redemarrage, mise a jour de securite ou changement biometrique). " +
+                    "Veuillez vous reconnecter."
+            )
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = onAcknowledge) {
+                androidx.compose.material3.Text("Se reconnecter")
+            }
+        },
+    )
+}
+
 // ── AppNavViewModel ────────────────────────────────────────────────────────────
 
 /**
@@ -114,6 +148,16 @@ class AppNavViewModel @Inject constructor(
 
     private val _showUpgradeRequired = MutableStateFlow(false)
     val showUpgradeRequired: StateFlow<Boolean> = _showUpgradeRequired.asStateFlow()
+
+    /**
+     * True quand le Keystore est corrompu (R1 fix).
+     * L'UI affiche un dialog explicatif distinct du logout normal :
+     * "Donnees de session corrompues. Veuillez vous reconnecter."
+     * Le dialog propose un bouton "Se reconnecter" qui clear les donnees et
+     * redirige vers LoginScreen.
+     */
+    private val _showKeystoreCorruption = MutableStateFlow(false)
+    val showKeystoreCorruption: StateFlow<Boolean> = _showKeystoreCorruption.asStateFlow()
 
     /**
      * Tri-state:
@@ -177,6 +221,18 @@ class AppNavViewModel @Inject constructor(
                 _showUpgradeRequired.value = true
             }
         }
+        viewModelScope.launch {
+            sessionManager.keystoreCorruptionEvents.collect {
+                Timber.e("AppNavViewModel: Keystore corruption detected — showing corruption dialog")
+                _showKeystoreCorruption.value = true
+                _isLoggedIn.value = false
+            }
+        }
+    }
+
+    /** Called by the UI when the user acknowledges the Keystore corruption dialog. */
+    fun onKeystoreCorruptionAcknowledged() {
+        _showKeystoreCorruption.value = false
     }
 }
 
@@ -219,6 +275,7 @@ fun AppNavGraph(
     val isSetupCompleted by appNavViewModel.isSetupCompleted.collectAsStateWithLifecycle()
     val vpnState by appNavViewModel.vpnState.collectAsStateWithLifecycle()
     val showUpgradeRequired by appNavViewModel.showUpgradeRequired.collectAsStateWithLifecycle()
+    val showKeystoreCorruption by appNavViewModel.showKeystoreCorruption.collectAsStateWithLifecycle()
     val biometricLocked by appNavViewModel.biometricLocked.collectAsStateWithLifecycle()
 
     // Wait until all datastore checks complete before rendering anything.
@@ -290,6 +347,15 @@ fun AppNavGraph(
         // HTTP 426 — dialog non-dismissable affiché par-dessus tout le contenu
         if (showUpgradeRequired) {
             UpgradeRequiredDialog()
+        }
+
+        // Keystore corruption (R1 fix) — dialog explicatif distinct du logout normal.
+        // Affiché quand EncryptedDataStore est illisible suite à une invalidation Keystore
+        // (reboot Samsung/Xiaomi, suppression biométrie, reset device).
+        if (showKeystoreCorruption) {
+            KeystoreCorruptionDialog(
+                onAcknowledge = { appNavViewModel.onKeystoreCorruptionAcknowledged() },
+            )
         }
 
         Column(modifier = Modifier.padding(innerPadding)) {

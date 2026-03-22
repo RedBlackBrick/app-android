@@ -4,14 +4,18 @@ import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import com.tradingplatform.app.BuildConfig
+import com.tradingplatform.app.domain.model.WsConnectionState
 import com.tradingplatform.app.domain.repository.AuthRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -20,11 +24,13 @@ import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import org.json.JSONObject
 import timber.log.Timber
+import java.time.Instant
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Named
 import javax.inject.Singleton
+import kotlin.math.max
 import kotlin.math.pow
 
 /**
@@ -70,6 +76,10 @@ class PrivateWsClient @Inject constructor(
     )
     val events: SharedFlow<WsEvent> = _events.asSharedFlow()
 
+    // ── Etat de connexion expose a l'UI (F5) ────────────────────────────────────
+    private val _connectionState = MutableStateFlow(WsConnectionState.Disconnected)
+    val connectionState: StateFlow<WsConnectionState> = _connectionState.asStateFlow()
+
     // ── État interne ───────────────────────────────────────────────────────────
     @Volatile private var webSocket: WebSocket? = null
     private val isConnected = AtomicBoolean(false)
@@ -81,8 +91,18 @@ class PrivateWsClient @Inject constructor(
     /** Job du timer de reconnexion en cours — annulé si connect() est rappelé. */
     @Volatile private var reconnectJob: Job? = null
 
+    /** Job du refresh proactif du token WS — annulé à la déconnexion. */
+    @Volatile private var tokenRefreshJob: Job? = null
+
     /** True si l'app est visible (foreground). Mis à jour par ProcessLifecycleOwner. */
     @Volatile private var isAppForeground = false
+
+    /**
+     * Expiration du token WS en cours — utilisé pour détecter si le token a expiré
+     * pendant que l'app était en background (R2 race condition fix).
+     * Mis à jour dans [WsListener.onOpen] et [refreshWsToken].
+     */
+    @Volatile private var currentTokenExpiresAt: Instant? = null
 
     // URL WebSocket dérivée de baseUrl : https://… → wss://…/ws/private
     private val wsUrl: String
@@ -96,6 +116,12 @@ class PrivateWsClient @Inject constructor(
         private const val BACKOFF_INITIAL_MS = 5_000L
         private const val BACKOFF_MAX_MS = 300_000L
         private const val BACKOFF_MULTIPLIER = 2.0
+
+        /** Refresh le token WS à 80% de son TTL (même stratégie que le frontend SvelteKit). */
+        private const val TOKEN_REFRESH_RATIO = 0.80
+
+        /** Délai minimum avant un refresh proactif (10 secondes). */
+        private const val TOKEN_REFRESH_MIN_MS = 10_000L
     }
 
     // ── Lifecycle app ──────────────────────────────────────────────────────────
@@ -111,19 +137,37 @@ class PrivateWsClient @Inject constructor(
 
     override fun onStart(owner: LifecycleOwner) {
         isAppForeground = true
-        // L'app revient en foreground : connecter si pas déjà connecté
-        if (!isConnected.get() && !isConnecting.get()) {
+
+        if (isConnected.get()) {
+            // La connexion est encore ouverte — vérifier si le token WS a expiré
+            // pendant le background. Si oui, le serveur va fermer avec 4001 à tout moment.
+            // Proactive refresh évite le backoff exponentiel (5-300s sans données).
+            val expiresAt = currentTokenExpiresAt
+            if (expiresAt != null && Instant.now().isAfter(expiresAt)) {
+                Timber.tag(TAG).d("onStart — WS token expired during background, refreshing proactively")
+                appScope.launch(Dispatchers.IO) { refreshWsToken() }
+            } else {
+                // Token encore valide — relancer le timer de refresh proactif
+                // (il a pu être annulé ou expirer pendant le background)
+                if (expiresAt != null) {
+                    scheduleTokenRefresh(expiresAt)
+                }
+            }
+        } else if (!isConnecting.get()) {
+            // Pas connecté — reconnecter normalement
             connect()
         }
     }
 
     override fun onStop(owner: LifecycleOwner) {
         isAppForeground = false
-        // App en background : annuler le timer de reconnexion pour économiser la batterie.
+        // App en background : annuler les timers pour économiser la batterie.
         // La connexion existante reste ouverte — elle sera fermée par le serveur (idle timeout).
         reconnectJob?.cancel()
         reconnectJob = null
-        Timber.tag(TAG).d("App went to background — reconnect timer cancelled")
+        tokenRefreshJob?.cancel()
+        tokenRefreshJob = null
+        Timber.tag(TAG).d("App went to background — reconnect and token refresh timers cancelled")
     }
 
     // ── API publique ───────────────────────────────────────────────────────────
@@ -139,6 +183,7 @@ class PrivateWsClient @Inject constructor(
             Timber.tag(TAG).d("connect() — already connected or connecting, skipping")
             return
         }
+        _connectionState.value = WsConnectionState.Connecting
         appScope.launch(Dispatchers.IO) { openWebSocket() }
     }
 
@@ -148,13 +193,17 @@ class PrivateWsClient @Inject constructor(
      */
     fun disconnect() {
         Timber.tag(TAG).d("disconnect() — closing WebSocket gracefully")
+        tokenRefreshJob?.cancel()
+        tokenRefreshJob = null
         reconnectJob?.cancel()
         reconnectJob = null
         reconnectAttempts.set(0)
+        currentTokenExpiresAt = null
         webSocket?.close(1000, "Client disconnecting")
         webSocket = null
         isConnected.set(false)
         isConnecting.set(false)
+        _connectionState.value = WsConnectionState.Disconnected
     }
 
     // ── Connexion interne ──────────────────────────────────────────────────────
@@ -162,8 +211,8 @@ class PrivateWsClient @Inject constructor(
     private suspend fun openWebSocket() {
         if (!isConnecting.compareAndSet(false, true)) return
 
-        // Obtenir le token WS (POST /v1/auth/ws-token)
-        val token = authRepository.getWsToken()
+        // Obtenir le token WS + expiration (POST /v1/auth/ws-token)
+        val wsTokenInfo = authRepository.getWsToken()
             .onFailure { e ->
                 Timber.tag(TAG).w(e, "Failed to fetch WS token — will retry")
                 isConnecting.set(false)
@@ -171,13 +220,25 @@ class PrivateWsClient @Inject constructor(
             }
             .getOrNull() ?: return
 
-        val request = Request.Builder()
-            .url(wsUrl)
-            .build()
+        try {
+            val request = Request.Builder()
+                .url(wsUrl)
+                .build()
 
-        Timber.tag(TAG).d("Opening WS connection to $wsUrl")
-        webSocket = okHttpClient.newWebSocket(request, WsListener(token))
-        // isConnecting reste true jusqu'à onOpen ou onFailure
+            Timber.tag(TAG).d("Opening WS connection to $wsUrl")
+            webSocket = okHttpClient.newWebSocket(request, WsListener(wsTokenInfo.token, wsTokenInfo.expiresAt))
+            // isConnecting reste true jusqu'à onOpen ou onFailure du WsListener
+        } catch (e: Exception) {
+            // Rethrow CancellationException to preserve structured concurrency — catching it
+            // would prevent coroutine cancellation from propagating correctly.
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            // newWebSocket() peut échouer immédiatement (ex: IllegalStateException si le client
+            // est shutdown, ou SecurityException). Sans ce catch, isConnecting reste true → plus
+            // aucune reconnexion possible.
+            Timber.tag(TAG).w(e, "openWebSocket() failed immediately — resetting isConnecting")
+            isConnecting.set(false)
+            scheduleReconnect()
+        }
     }
 
     // ── Reconnexion avec backoff ───────────────────────────────────────────────
@@ -196,6 +257,8 @@ class PrivateWsClient @Inject constructor(
         )
 
         Timber.tag(TAG).d("Scheduling reconnect in ${delayMs}ms (attempt #${attempts + 1})")
+        // Transition a Connecting pour l'UI (F5) — le debounce ViewModel evite le flicker
+        _connectionState.value = WsConnectionState.Connecting
         reconnectJob = appScope.launch(Dispatchers.IO) {
             delay(delayMs)
             if (isAppForeground && !isConnected.get() && !isConnecting.get()) {
@@ -204,21 +267,91 @@ class PrivateWsClient @Inject constructor(
         }
     }
 
+    // ── Refresh proactif du token WS ──────────────────────────────────────────
+
+    /**
+     * Planifie un refresh proactif du token WS à 80% de son TTL.
+     *
+     * Même stratégie que le frontend SvelteKit : envoyer un message
+     * `{"action": "refresh_token", "token": "<new_jwt>"}` sur le WebSocket existant,
+     * sans avoir à se reconnecter.
+     *
+     * @param expiresAt Instant d'expiration du token WS courant.
+     */
+    private fun scheduleTokenRefresh(expiresAt: Instant) {
+        tokenRefreshJob?.cancel()
+
+        val now = Instant.now()
+        val ttlMs = java.time.Duration.between(now, expiresAt).toMillis()
+        val delayMs = max((ttlMs * TOKEN_REFRESH_RATIO).toLong(), TOKEN_REFRESH_MIN_MS)
+
+        Timber.tag(TAG).d("Token refresh scheduled in ${delayMs / 1000}s (TTL=${ttlMs / 1000}s)")
+
+        tokenRefreshJob = appScope.launch(Dispatchers.IO) {
+            delay(delayMs)
+            if (isConnected.get()) {
+                refreshWsToken()
+            }
+        }
+    }
+
+    /**
+     * Exécute le refresh proactif : obtient un nouveau token via l'API REST,
+     * puis l'envoie au serveur sur la connexion WebSocket existante.
+     *
+     * En cas d'échec : log warning sans retry. Le serveur fermera la connexion
+     * à l'expiration du token (code 4001) et le mécanisme de reconnexion standard prendra le relais.
+     */
+    private suspend fun refreshWsToken() {
+        val wsTokenInfo = authRepository.getWsToken()
+            .onFailure { e ->
+                Timber.tag(TAG).w(e, "Proactive WS token refresh failed — server will close at expiry")
+            }
+            .getOrNull() ?: return
+
+        val refreshPayload = JSONObject().apply {
+            put("action", "refresh_token")
+            put("token", wsTokenInfo.token)
+        }.toString()
+
+        val sent = webSocket?.send(refreshPayload) ?: false
+        if (sent) {
+            Timber.tag(TAG).d("WS token refresh message sent — scheduling next refresh")
+            // Mettre à jour l'expiration pour le check foreground (R2 race condition fix)
+            currentTokenExpiresAt = wsTokenInfo.expiresAt
+            // Reset backoff — la connexion est saine après un refresh réussi
+            reconnectAttempts.set(0)
+            scheduleTokenRefresh(wsTokenInfo.expiresAt)
+        } else {
+            Timber.tag(TAG).w("WS token refresh send failed — connection may be closing")
+        }
+    }
+
     // ── WebSocketListener ──────────────────────────────────────────────────────
 
-    private inner class WsListener(private val authToken: String) : WebSocketListener() {
+    private inner class WsListener(
+        private val authToken: String,
+        private val tokenExpiresAt: Instant,
+    ) : WebSocketListener() {
 
         override fun onOpen(webSocket: WebSocket, response: Response) {
             Timber.tag(TAG).i("WS onOpen — sending auth token [REDACTED]")
             isConnecting.set(false)
             isConnected.set(true)
             reconnectAttempts.set(0)
+            _connectionState.value = WsConnectionState.Connected
 
             // Premier message : authentification
             val authPayload = JSONObject().apply {
                 put("token", authToken)
             }.toString()
             webSocket.send(authPayload)
+
+            // Mémoriser l'expiration pour le check foreground (R2 race condition fix)
+            currentTokenExpiresAt = tokenExpiresAt
+
+            // Planifier le refresh proactif du token avant son expiration
+            scheduleTokenRefresh(tokenExpiresAt)
 
             emit(WsEvent.Connected)
         }
@@ -234,9 +367,13 @@ class PrivateWsClient @Inject constructor(
 
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
             Timber.tag(TAG).i("WS onClosed code=$code reason=$reason")
+            tokenRefreshJob?.cancel()
+            tokenRefreshJob = null
+            currentTokenExpiresAt = null
             isConnected.set(false)
             isConnecting.set(false)
             this@PrivateWsClient.webSocket = null
+            _connectionState.value = WsConnectionState.Disconnected
             emit(WsEvent.Disconnected(reason = reason.ifBlank { null }))
 
             // Reconnexion automatique sauf fermeture normale intentionnelle (1000 depuis disconnect())
@@ -247,9 +384,13 @@ class PrivateWsClient @Inject constructor(
 
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
             Timber.tag(TAG).w(t, "WS onFailure — ${response?.code}")
+            tokenRefreshJob?.cancel()
+            tokenRefreshJob = null
+            currentTokenExpiresAt = null
             isConnected.set(false)
             isConnecting.set(false)
             this@PrivateWsClient.webSocket = null
+            _connectionState.value = WsConnectionState.Disconnected
             emit(WsEvent.Disconnected(reason = t.message))
             scheduleReconnect()
         }
@@ -289,7 +430,7 @@ class PrivateWsClient @Inject constructor(
             "error"            -> {
                 val code = json.optString("code", "")
                 val msg  = json.optString("message", "")
-                Timber.tag(TAG).w("WS server error code=$code message=$msg")
+                Timber.tag(TAG).w("WS server error code=%s message=%s", code, msg)
             }
             else -> {
                 if (BuildConfig.DEBUG) {

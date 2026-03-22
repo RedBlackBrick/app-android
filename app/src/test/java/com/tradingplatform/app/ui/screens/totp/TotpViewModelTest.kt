@@ -1,14 +1,17 @@
 package com.tradingplatform.app.ui.screens.totp
 
 import app.cash.turbine.test
+import com.tradingplatform.app.data.session.SessionManager
 import com.tradingplatform.app.domain.exception.InvalidTotpCodeException
 import com.tradingplatform.app.domain.model.AuthTokens
 import com.tradingplatform.app.domain.model.Portfolio
 import com.tradingplatform.app.domain.model.User
 import com.tradingplatform.app.domain.usecase.auth.GetPortfoliosUseCase
 import com.tradingplatform.app.domain.usecase.auth.Verify2faUseCase
+import com.tradingplatform.app.domain.usecase.auth.ApplyAdminWidgetVisibilityUseCase
 import com.tradingplatform.app.util.MainDispatcherRule
 import io.mockk.coEvery
+import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
@@ -27,6 +30,8 @@ class TotpViewModelTest {
 
     private val verify2faUseCase = mockk<Verify2faUseCase>()
     private val getPortfoliosUseCase = mockk<GetPortfoliosUseCase>()
+    private val applyAdminWidgetVisibilityUseCase = mockk<ApplyAdminWidgetVisibilityUseCase>(relaxed = true)
+    private val sessionManager = mockk<SessionManager>()
     private lateinit var viewModel: TotpViewModel
 
     private val fakeUser = User(
@@ -48,7 +53,8 @@ class TotpViewModelTest {
 
     @Before
     fun setUp() {
-        viewModel = TotpViewModel(verify2faUseCase, getPortfoliosUseCase)
+        every { sessionManager.consumePendingTotpToken() } returns sessionToken
+        viewModel = TotpViewModel(verify2faUseCase, getPortfoliosUseCase, applyAdminWidgetVisibilityUseCase, sessionManager)
     }
 
     // -- Cas nominal : verification reussie -> Success ---
@@ -62,7 +68,7 @@ class TotpViewModelTest {
         viewModel.uiState.test {
             assertEquals(TotpUiState.AwaitingInput, awaitItem()) // initial state
 
-            viewModel.verify(sessionToken, validCode)
+            viewModel.verify(validCode)
 
             // Note: Verifying may be conflated by StateFlow + UnconfinedTestDispatcher
             assertEquals(TotpUiState.Success, awaitItem())
@@ -81,7 +87,7 @@ class TotpViewModelTest {
         viewModel.uiState.test {
             assertEquals(TotpUiState.AwaitingInput, awaitItem())
 
-            viewModel.verify(sessionToken, "999999")
+            viewModel.verify("999999")
 
             // Note: Verifying may be conflated by StateFlow + UnconfinedTestDispatcher
             val state = awaitItem()
@@ -102,7 +108,7 @@ class TotpViewModelTest {
         viewModel.uiState.test {
             assertEquals(TotpUiState.AwaitingInput, awaitItem())
 
-            viewModel.verify(sessionToken, validCode)
+            viewModel.verify(validCode)
 
             // Note: Verifying may be conflated by StateFlow + UnconfinedTestDispatcher
             val state = awaitItem()
@@ -123,7 +129,7 @@ class TotpViewModelTest {
         viewModel.uiState.test {
             assertEquals(TotpUiState.AwaitingInput, awaitItem())
 
-            viewModel.verify(sessionToken, validCode)
+            viewModel.verify(validCode)
 
             // Note: Verifying may be conflated by StateFlow + UnconfinedTestDispatcher
             val state = awaitItem()
@@ -145,7 +151,7 @@ class TotpViewModelTest {
         viewModel.uiState.test {
             assertEquals(TotpUiState.AwaitingInput, awaitItem())
 
-            viewModel.verify(sessionToken, validCode)
+            viewModel.verify(validCode)
 
             // Note: Verifying may be conflated by StateFlow + UnconfinedTestDispatcher
             val state = awaitItem()
@@ -165,7 +171,7 @@ class TotpViewModelTest {
         viewModel.uiState.test {
             assertEquals(TotpUiState.AwaitingInput, awaitItem())
 
-            viewModel.verify(sessionToken, "000000")
+            viewModel.verify("000000")
 
             // Note: Verifying may be conflated by StateFlow + UnconfinedTestDispatcher
             assertTrue(awaitItem() is TotpUiState.Error)
@@ -206,11 +212,11 @@ class TotpViewModelTest {
         viewModel.uiState.test {
             assertEquals(TotpUiState.AwaitingInput, awaitItem())
 
-            viewModel.verify(sessionToken, validCode)
+            viewModel.verify(validCode)
             assertEquals(TotpUiState.Verifying, awaitItem())
 
             // Second call while Verifying — ignored
-            viewModel.verify(sessionToken, validCode)
+            viewModel.verify(validCode)
 
             // We expect Success directly (no double Verifying)
             assertEquals(TotpUiState.Success, awaitItem())

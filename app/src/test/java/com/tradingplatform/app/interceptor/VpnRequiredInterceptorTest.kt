@@ -33,9 +33,7 @@ class VpnRequiredInterceptorTest {
     }
 
     private fun buildInterceptor(): VpnRequiredInterceptor {
-        return VpnRequiredInterceptor(vpnManager).also {
-            it.bypassInDebug = false // disable debug bypass for testing
-        }
+        return VpnRequiredInterceptor(vpnManager)
     }
 
     @Test

@@ -1,5 +1,6 @@
 package com.tradingplatform.app.ui.screens.dashboard
 
+import androidx.lifecycle.viewModelScope
 import app.cash.turbine.test
 import com.tradingplatform.app.domain.model.NavSummary
 import com.tradingplatform.app.domain.model.PnlPeriod
@@ -10,17 +11,22 @@ import com.tradingplatform.app.domain.usecase.market.GetQuoteStreamUseCase
 import com.tradingplatform.app.domain.usecase.market.GetQuoteUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPnlUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPortfolioNavUseCase
+import com.tradingplatform.app.domain.model.WsConnectionState
 import com.tradingplatform.app.domain.usecase.portfolio.GetPortfolioWsUpdatesUseCase
+import com.tradingplatform.app.domain.usecase.portfolio.GetWsConnectionStateUseCase
 import com.tradingplatform.app.util.MainDispatcherRule
 import com.tradingplatform.app.vpn.VpnNotConnectedException
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runTest
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -43,6 +49,7 @@ class DashboardViewModelTest {
     private val getQuoteStreamUseCase = mockk<GetQuoteStreamUseCase>()
     private val getPortfolioIdUseCase = mockk<GetPortfolioIdUseCase>()
     private val getPortfolioWsUpdatesUseCase = mockk<GetPortfolioWsUpdatesUseCase>()
+    private val getWsConnectionStateUseCase = mockk<GetWsConnectionStateUseCase>()
 
     private lateinit var viewModel: DashboardViewModel
 
@@ -88,6 +95,8 @@ class DashboardViewModelTest {
         coEvery { getQuoteUseCase(any()) } returns Result.success(fakeQuote)
         // Portfolio WS updates — flux vide par défaut (le WS privé n'est pas l'objet des tests ici)
         every { getPortfolioWsUpdatesUseCase() } returns emptyFlow()
+        // WS connection state — Connected par défaut
+        every { getWsConnectionStateUseCase() } returns MutableStateFlow(WsConnectionState.Connected)
         // WS public — par défaut, échec immédiat → déclenche le fallback polling REST
         every { getQuoteStreamUseCase(any()) } returns flow { throw IOException("WS not available in tests") }
     }
@@ -99,50 +108,56 @@ class DashboardViewModelTest {
         getQuoteStreamUseCase = getQuoteStreamUseCase,
         getPortfolioIdUseCase = getPortfolioIdUseCase,
         getPortfolioWsUpdatesUseCase = getPortfolioWsUpdatesUseCase,
-    )
+        getWsConnectionStateUseCase = getWsConnectionStateUseCase,
+    ).also { viewModel = it }
 
     // ── portfolioId ───────────────────────────────────────────────────────────
 
     @Test
     fun `portfolioId is read from dataStore on init`() = runTest {
-        viewModel = createViewModel()
+        createViewModel()
         assertEquals("1", viewModel.uiState.value.portfolioId)
+        viewModel.viewModelScope.cancel()
     }
 
     // ── NavUiState ────────────────────────────────────────────────────────────
 
     @Test
     fun `navSummary emits Success when use case returns data`() = runTest {
-        viewModel = createViewModel()
+        createViewModel()
         val state = viewModel.uiState.value.navSummary
         assertTrue("Expected Success, got $state", state is NavUiState.Success)
         assertEquals(fakeNav, (state as NavUiState.Success).data)
+        viewModel.viewModelScope.cancel()
     }
 
     @Test
     fun `navSummary emits Error when use case fails`() = runTest {
         coEvery { getPortfolioNavUseCase(any()) } returns Result.failure(RuntimeException("Network error"))
-        viewModel = createViewModel()
+        createViewModel()
         val state = viewModel.uiState.value.navSummary
         assertTrue("Expected Error, got $state", state is NavUiState.Error)
+        viewModel.viewModelScope.cancel()
     }
 
     // ── PnlUiState ────────────────────────────────────────────────────────────
 
     @Test
     fun `pnlSummary emits Success when use case returns data`() = runTest {
-        viewModel = createViewModel()
+        createViewModel()
         val state = viewModel.uiState.value.pnlSummary
         assertTrue("Expected Success, got $state", state is PnlUiState.Success)
         assertEquals(fakePnl, (state as PnlUiState.Success).data)
+        viewModel.viewModelScope.cancel()
     }
 
     @Test
     fun `pnlSummary emits Error when use case fails`() = runTest {
         coEvery { getPnlUseCase(any(), any()) } returns Result.failure(RuntimeException("PnL error"))
-        viewModel = createViewModel()
+        createViewModel()
         val state = viewModel.uiState.value.pnlSummary
         assertTrue("Expected Error, got $state", state is PnlUiState.Error)
+        viewModel.viewModelScope.cancel()
     }
 
     // ── QuoteUiState — via polling REST fallback ───────────────────────────────
@@ -150,10 +165,11 @@ class DashboardViewModelTest {
 
     @Test
     fun `quote emits Success when REST use case returns data`() = runTest {
-        viewModel = createViewModel()
+        createViewModel()
         val state = viewModel.uiState.value.quote
         assertTrue("Expected Success, got $state", state is QuoteUiState.Success)
         assertEquals(fakeQuote, (state as QuoteUiState.Success).data)
+        viewModel.viewModelScope.cancel()
     }
 
     @Test
@@ -164,7 +180,7 @@ class DashboardViewModelTest {
             Result.failure(VpnNotConnectedException()),
         )
 
-        viewModel = createViewModel()
+        createViewModel()
 
         // After init, state should be Success
         assertTrue(viewModel.uiState.value.quote is QuoteUiState.Success)
@@ -175,6 +191,7 @@ class DashboardViewModelTest {
         val state = viewModel.uiState.value.quote
         assertTrue("Expected Stale after VPN disconnect, got $state", state is QuoteUiState.Stale)
         assertEquals(fakeQuote, (state as QuoteUiState.Stale).data)
+        viewModel.viewModelScope.cancel()
     }
 
     @Test
@@ -182,7 +199,7 @@ class DashboardViewModelTest {
         // All calls fail with VPN exception from the start
         coEvery { getQuoteUseCase(any()) } returns Result.failure(VpnNotConnectedException())
 
-        viewModel = createViewModel()
+        createViewModel()
 
         val state = viewModel.uiState.value.quote
         // Should remain Loading (not transition to Stale since there's no previous data)
@@ -190,6 +207,7 @@ class DashboardViewModelTest {
             "Expected Loading or non-Stale state, got $state",
             state !is QuoteUiState.Stale,
         )
+        viewModel.viewModelScope.cancel()
     }
 
     @Test
@@ -199,7 +217,7 @@ class DashboardViewModelTest {
             Result.failure(java.io.IOException("Timeout")),
         )
 
-        viewModel = createViewModel()
+        createViewModel()
 
         // First poll: success
         assertTrue(viewModel.uiState.value.quote is QuoteUiState.Success)
@@ -210,21 +228,23 @@ class DashboardViewModelTest {
         // Should still be Success (IOException kept previous state)
         val state = viewModel.uiState.value.quote
         assertTrue("Expected Success to be kept on IOException, got $state", state is QuoteUiState.Success)
+        viewModel.viewModelScope.cancel()
     }
 
     @Test
     fun `unknown exception transitions to Error`() = runTest {
         coEvery { getQuoteUseCase(any()) } returns Result.failure(IllegalStateException("Unknown"))
-        viewModel = createViewModel()
+        createViewModel()
         val state = viewModel.uiState.value.quote
         assertTrue("Expected Error on unknown exception, got $state", state is QuoteUiState.Error)
+        viewModel.viewModelScope.cancel()
     }
 
     // ── selectPeriod ──────────────────────────────────────────────────────────
 
     @Test
     fun `selectPeriod updates selectedPeriod and re-fetches PnL`() = runTest {
-        viewModel = createViewModel()
+        createViewModel()
 
         // Default period is DAY
         assertEquals(PnlPeriod.DAY, viewModel.uiState.value.selectedPeriod)
@@ -232,13 +252,14 @@ class DashboardViewModelTest {
         viewModel.selectPeriod(PnlPeriod.MONTH)
 
         assertEquals(PnlPeriod.MONTH, viewModel.uiState.value.selectedPeriod)
+        viewModel.viewModelScope.cancel()
     }
 
     // ── Turbine StateFlow test ────────────────────────────────────────────────
 
     @Test
     fun `uiState emits non-Loading navSummary after data arrives`() = runTest {
-        viewModel = createViewModel()
+        createViewModel()
 
         viewModel.uiState.test {
             // Since UnconfinedTestDispatcher runs coroutines eagerly,
@@ -256,11 +277,12 @@ class DashboardViewModelTest {
             )
             cancelAndIgnoreRemainingEvents()
         }
+        viewModel.viewModelScope.cancel()
     }
 
     @Test
     fun `refresh triggers re-fetch of all data`() = runTest {
-        viewModel = createViewModel()
+        createViewModel()
 
         // All use cases already return success
         viewModel.refresh()
@@ -268,6 +290,7 @@ class DashboardViewModelTest {
         val state = viewModel.uiState.value
         assertNotNull(state)
         assertTrue(state.navSummary is NavUiState.Success || state.navSummary is NavUiState.Loading)
+        viewModel.viewModelScope.cancel()
     }
 
     // ── WS public quote subscription ──────────────────────────────────────────
@@ -278,10 +301,11 @@ class DashboardViewModelTest {
         // WS stream retourne un quote immédiatement — pas d'erreur
         every { getQuoteStreamUseCase(any()) } returns flow { emit(wsQuote) }
 
-        viewModel = createViewModel()
+        createViewModel()
 
         val state = viewModel.uiState.value.quote
         assertTrue("Expected Success from WS, got $state", state is QuoteUiState.Success)
         assertEquals("ws_public", (state as QuoteUiState.Success).data.source)
+        viewModel.viewModelScope.cancel()
     }
 }

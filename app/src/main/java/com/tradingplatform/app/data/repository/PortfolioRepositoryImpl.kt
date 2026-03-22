@@ -41,8 +41,10 @@ class PortfolioRepositoryImpl @Inject constructor(
             }
             val positions = response.body()?.positions?.map { it.toDomain() } ?: emptyList()
             val now = System.currentTimeMillis()
-            positionDao.upsertAll(positions.map { it.toEntity(syncedAt = now) })
-            positionDao.deleteOlderThan(now - POSITION_TTL_MS)
+            positionDao.upsertAllAndPurge(
+                positions.map { it.toEntity(syncedAt = now) },
+                cutoffMillis = now - POSITION_TTL_MS,
+            )
 
             positions.find { it.id == positionId }
                 ?: error("Position $positionId not found")
@@ -57,9 +59,12 @@ class PortfolioRepositoryImpl @Inject constructor(
             val positions = response.body()?.positions?.map { it.toDomain() } ?: emptyList()
 
             // Purge Room APRÈS sync réussie — jamais avant (CLAUDE.md §2 Politique de rétention)
+            // Transaction atomique : upsert + purge en un seul commit SQLite
             val now = System.currentTimeMillis()
-            positionDao.upsertAll(positions.map { it.toEntity(syncedAt = now) })
-            positionDao.deleteOlderThan(now - POSITION_TTL_MS)
+            positionDao.upsertAllAndPurge(
+                positions.map { it.toEntity(syncedAt = now) },
+                cutoffMillis = now - POSITION_TTL_MS,
+            )
 
             positions
         }
@@ -72,10 +77,12 @@ class PortfolioRepositoryImpl @Inject constructor(
             }
             val pnl = response.body()?.toDomain() ?: error("Empty performance response")
 
-            // Purge Room APRÈS sync réussie
+            // Purge Room APRÈS sync réussie — transaction atomique
             val now = System.currentTimeMillis()
-            pnlDao.upsert(pnl.toEntity(period, syncedAt = now))
-            pnlDao.deleteOlderThan(now - PNL_TTL_MS)
+            pnlDao.upsertAndPurge(
+                pnl.toEntity(period, syncedAt = now),
+                cutoffMillis = now - PNL_TTL_MS,
+            )
 
             pnl
         }

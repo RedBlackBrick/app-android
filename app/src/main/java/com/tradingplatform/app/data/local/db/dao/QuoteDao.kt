@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import com.tradingplatform.app.data.local.db.entity.QuoteEntity
 
 @Dao
@@ -19,4 +20,14 @@ interface QuoteDao {
 
     @Query("DELETE FROM quotes WHERE synced_at < :cutoffMillis")
     suspend fun deleteOlderThan(cutoffMillis: Long)
+
+    /**
+     * Upsert + purge en une seule transaction Room.
+     * Garantit l'atomicité : pas d'état intermédiaire visible par les lecteurs.
+     */
+    @Transaction
+    suspend fun upsertAndPurge(quote: QuoteEntity, cutoffMillis: Long) {
+        upsert(quote)
+        deleteOlderThan(cutoffMillis)
+    }
 }

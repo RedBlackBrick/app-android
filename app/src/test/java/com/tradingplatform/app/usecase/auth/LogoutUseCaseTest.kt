@@ -1,6 +1,7 @@
 package com.tradingplatform.app.usecase.auth
 
 import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
+import com.tradingplatform.app.data.local.db.AppDatabase
 import com.tradingplatform.app.domain.repository.AuthRepository
 import com.tradingplatform.app.domain.usecase.auth.LogoutUseCase
 import io.mockk.coEvery
@@ -14,11 +15,12 @@ import org.junit.Test
 class LogoutUseCaseTest {
     private val authRepository = mockk<AuthRepository>()
     private val dataStore = mockk<EncryptedDataStore>(relaxed = true)
+    private val appDatabase = mockk<AppDatabase>(relaxed = true)
     private lateinit var useCase: LogoutUseCase
 
     @Before
     fun setUp() {
-        useCase = LogoutUseCase(authRepository, dataStore)
+        useCase = LogoutUseCase(authRepository, dataStore, appDatabase)
     }
 
     @Test

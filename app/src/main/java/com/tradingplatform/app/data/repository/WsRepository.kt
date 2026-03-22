@@ -2,9 +2,11 @@ package com.tradingplatform.app.data.repository
 
 import com.tradingplatform.app.data.websocket.PrivateWsClient
 import com.tradingplatform.app.data.websocket.WsEvent
+import com.tradingplatform.app.domain.model.WsConnectionState
 import com.tradingplatform.app.domain.model.WsUpdate
 import com.tradingplatform.app.domain.repository.WsRepository as WsRepositoryInterface
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.map
 
@@ -70,6 +72,9 @@ class WsRepository(
 
     /** Changements d'état de la connexion (Connected / Disconnected). */
     val connectionEvents: Flow<WsEvent> = wsClient.events
+
+    /** Etat de connexion WS prive expose a l'UI (F5). */
+    override val connectionState: StateFlow<WsConnectionState> = wsClient.connectionState
 }
 
 /**

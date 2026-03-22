@@ -26,10 +26,12 @@ class DeviceRepositoryImpl @Inject constructor(
         }
         val devices = response.body()?.devices?.map { it.toDomain() } ?: emptyList()
 
-        // Purge Room APRÈS sync réussie — jamais avant
+        // Purge Room APRÈS sync réussie — transaction atomique
         val now = System.currentTimeMillis()
-        deviceDao.upsertAll(devices.map { it.toEntity(syncedAt = now) })
-        deviceDao.deleteOlderThan(now - DEVICE_TTL_MS)
+        deviceDao.upsertAllAndPurge(
+            devices.map { it.toEntity(syncedAt = now) },
+            cutoffMillis = now - DEVICE_TTL_MS,
+        )
 
         devices
     }
@@ -52,8 +54,10 @@ class DeviceRepositoryImpl @Inject constructor(
         val devices = response.body()?.devices?.map { it.toDomain() } ?: emptyList()
 
         val now = System.currentTimeMillis()
-        deviceDao.upsertAll(devices.map { it.toEntity(syncedAt = now) })
-        deviceDao.deleteOlderThan(now - DEVICE_TTL_MS)
+        deviceDao.upsertAllAndPurge(
+            devices.map { it.toEntity(syncedAt = now) },
+            cutoffMillis = now - DEVICE_TTL_MS,
+        )
 
         devices.firstOrNull { it.id == deviceId }
             ?: error("Device $deviceId not found")

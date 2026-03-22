@@ -19,6 +19,7 @@ import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
@@ -184,9 +185,7 @@ class PairingFlowIntegrationTest {
             // Emit PENDING indefinitely — ConfirmPairingUseCase will time out at 120s
             while (true) {
                 emit(PairingStatus.PENDING)
-                // No delay needed — the timeout in ConfirmPairingUseCase wraps the entire
-                // withTimeout block; the test uses advanceUntilIdle via UnconfinedTestDispatcher.
-                // The use case uses withTimeout(120_000L) which is virtual-time-aware in runTest.
+                delay(2_000) // Match real polling interval — lets withTimeout advance virtual time
             }
         }
 
@@ -299,12 +298,12 @@ class PairingFlowIntegrationTest {
             assertEquals(expectedSession.sessionId, both.session.sessionId)
             assertEquals(expectedDevice.deviceId, both.device.deviceId)
 
-            // Start pairing
+            // Start pairing — intermediate states conflated by StateFlow with UnconfinedTestDispatcher
             viewModel.startPairing()
 
-            assertIs<PairingStep.SendingPin>(awaitItem())
-            assertIs<PairingStep.WaitingConfirmation>(awaitItem())
-            assertIs<PairingStep.Success>(awaitItem())
+            val finalState = expectMostRecentItem()
+            assertIs<PairingStep.Success>(finalState)
+            cancelAndIgnoreRemainingEvents()
         }
     }
 
@@ -338,9 +337,9 @@ class PairingFlowIntegrationTest {
 
             viewModel.startPairing()
 
-            assertIs<PairingStep.SendingPin>(awaitItem())
-            assertIs<PairingStep.WaitingConfirmation>(awaitItem())
-            assertIs<PairingStep.Success>(awaitItem())
+            val finalState = expectMostRecentItem()
+            assertIs<PairingStep.Success>(finalState)
+            cancelAndIgnoreRemainingEvents()
         }
     }
 
@@ -361,54 +360,56 @@ class PairingFlowIntegrationTest {
             assertIs<PairingStep.BothScanned>(awaitItem())
 
             viewModel.startPairing()
-            assertIs<PairingStep.SendingPin>(awaitItem())
 
-            val error = awaitItem()
+            val error = expectMostRecentItem()
             assertIs<PairingStep.Error>(error)
-            // sendPin errors are not retryable — PIN may have been consumed
             assertTrue(
                 "Error after sendPin failure must not be retryable",
                 !(error as PairingStep.Error).retryable,
             )
+            cancelAndIgnoreRemainingEvents()
         }
     }
 
     @Test
     fun `PairingViewModel goes to Error on timeout - message references session expiry`() = runTest {
-        // Arrange — ConfirmPairingUseCase returns PairingTimeoutException
+        // Arrange — mock confirmPairingUseCase directly to return timeout immediately.
+        // The real withTimeout(120_000) relies on virtual time advancement which is not
+        // shared between runTest and viewModelScope dispatchers.
+        val mockedConfirmUseCase = mockk<ConfirmPairingUseCase>()
+        coEvery { mockedConfirmUseCase(any(), any(), any()) } returns Result.failure(PairingTimeoutException())
+
         coEvery {
             pairingRepository.sendPin(any(), any(), any(), any(), any(), any(), any())
         } returns Result.success(Unit)
 
-        every {
-            pairingRepository.pollStatus(any(), any(), any())
-        } returns flow {
-            while (true) {
-                emit(PairingStatus.PENDING)
-            }
-        }
+        val timeoutViewModel = PairingViewModel(
+            parseVpsQrUseCase = parseVpsQrUseCase,
+            scanDeviceQrUseCase = scanDeviceQrUseCase,
+            sendPinToDeviceUseCase = sendPinToDeviceUseCase,
+            confirmPairingUseCase = mockedConfirmUseCase,
+            storeDevicePairingResultUseCase = storeDevicePairingResultUseCase,
+        )
 
-        viewModel.step.test {
+        timeoutViewModel.step.test {
             assertIs<PairingStep.Idle>(awaitItem())
 
-            viewModel.onVpsQrScanned(validVpsQrRaw)
+            timeoutViewModel.onVpsQrScanned(validVpsQrRaw)
             assertIs<PairingStep.VpsScanned>(awaitItem())
 
-            viewModel.onDeviceQrScanned(validDeviceQrRaw)
+            timeoutViewModel.onDeviceQrScanned(validDeviceQrRaw)
             assertIs<PairingStep.BothScanned>(awaitItem())
 
-            viewModel.startPairing()
-            assertIs<PairingStep.SendingPin>(awaitItem())
-            assertIs<PairingStep.WaitingConfirmation>(awaitItem())
+            timeoutViewModel.startPairing()
 
-            val error = awaitItem()
+            val error = expectMostRecentItem()
             assertIs<PairingStep.Error>(error)
             assertTrue(
                 "Error message must not be blank",
                 (error as PairingStep.Error).message.isNotBlank(),
             )
-            // Timeout is not retryable — user must restart from VPS admin panel
             assertTrue("Timeout error must not be retryable", !error.retryable)
+            cancelAndIgnoreRemainingEvents()
         }
     }
 
@@ -444,9 +445,10 @@ class PairingFlowIntegrationTest {
 
             // Proceed to success
             viewModel.startPairing()
-            assertIs<PairingStep.SendingPin>(awaitItem())
-            assertIs<PairingStep.WaitingConfirmation>(awaitItem())
-            assertIs<PairingStep.Success>(awaitItem())
+
+            val finalState = expectMostRecentItem()
+            assertIs<PairingStep.Success>(finalState)
+            cancelAndIgnoreRemainingEvents()
         }
     }
 

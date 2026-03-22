@@ -4,11 +4,11 @@ import app.cash.turbine.test
 import com.tradingplatform.app.domain.model.DevicePairingInfo
 import com.tradingplatform.app.domain.model.PairingSession
 import com.tradingplatform.app.domain.model.PairingStatus
-import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
 import com.tradingplatform.app.domain.usecase.pairing.ConfirmPairingUseCase
 import com.tradingplatform.app.domain.usecase.pairing.ParseVpsQrUseCase
 import com.tradingplatform.app.domain.usecase.pairing.ScanDeviceQrUseCase
 import com.tradingplatform.app.domain.usecase.pairing.SendPinToDeviceUseCase
+import com.tradingplatform.app.domain.usecase.pairing.StoreDevicePairingResultUseCase
 import com.tradingplatform.app.domain.usecase.pairing.UnrecognizedQrException
 import com.tradingplatform.app.util.MainDispatcherRule
 import io.mockk.coEvery
@@ -33,8 +33,7 @@ class PairingViewModelTest {
     private val scanDeviceQrUseCase = mockk<ScanDeviceQrUseCase>()
     private val sendPinToDeviceUseCase = mockk<SendPinToDeviceUseCase>()
     private val confirmPairingUseCase = mockk<ConfirmPairingUseCase>()
-    private val dataStore = mockk<EncryptedDataStore>(relaxed = true)
-
+    private val storeDevicePairingResultUseCase = mockk<StoreDevicePairingResultUseCase>()
     private lateinit var viewModel: PairingViewModel
 
     private val fakeSession = PairingSession(
@@ -54,12 +53,13 @@ class PairingViewModelTest {
 
     @Before
     fun setUp() {
+        coEvery { storeDevicePairingResultUseCase(any(), any(), any(), any()) } returns Result.success(Unit)
         viewModel = PairingViewModel(
             parseVpsQrUseCase = parseVpsQrUseCase,
             scanDeviceQrUseCase = scanDeviceQrUseCase,
             sendPinToDeviceUseCase = sendPinToDeviceUseCase,
             confirmPairingUseCase = confirmPairingUseCase,
-            dataStore = dataStore,
+            storeDevicePairingResultUseCase = storeDevicePairingResultUseCase,
         )
     }
 
@@ -203,9 +203,11 @@ class PairingViewModelTest {
 
             viewModel.startPairing()
 
-            assertIs<PairingStep.SendingPin>(awaitItem())
-            assertIs<PairingStep.WaitingConfirmation>(awaitItem())
-            assertIs<PairingStep.Success>(awaitItem())
+            // Intermediate states (SendingPin, WaitingConfirmation) are conflated by StateFlow
+            // with UnconfinedTestDispatcher — assert the final settled state.
+            val finalState = expectMostRecentItem()
+            assertIs<PairingStep.Success>(finalState)
+            cancelAndIgnoreRemainingEvents()
         }
     }
 
@@ -227,11 +229,10 @@ class PairingViewModelTest {
 
             viewModel.startPairing()
 
-            assertIs<PairingStep.SendingPin>(awaitItem())
-
-            val next = awaitItem()
-            assertIs<PairingStep.Error>(next)
-            assertFalse("Error from sendPin should not be retryable", (next as PairingStep.Error).retryable)
+            val finalState = expectMostRecentItem()
+            assertIs<PairingStep.Error>(finalState)
+            assertFalse("Error from sendPin should not be retryable", (finalState as PairingStep.Error).retryable)
+            cancelAndIgnoreRemainingEvents()
         }
     }
 
@@ -253,11 +254,9 @@ class PairingViewModelTest {
 
             viewModel.startPairing()
 
-            assertIs<PairingStep.SendingPin>(awaitItem())
-            assertIs<PairingStep.WaitingConfirmation>(awaitItem())
-
-            val next = awaitItem()
-            assertIs<PairingStep.Error>(next)
+            val finalState = expectMostRecentItem()
+            assertIs<PairingStep.Error>(finalState)
+            cancelAndIgnoreRemainingEvents()
         }
     }
 
@@ -280,11 +279,14 @@ class PairingViewModelTest {
 
             viewModel.startPairing()
 
-            assertIs<PairingStep.SendingPin>(awaitItem())
-            assertIs<PairingStep.WaitingConfirmation>(awaitItem())
-
-            val next = awaitItem()
-            assertIs<PairingStep.Error>(next)
+            val finalState = expectMostRecentItem()
+            assertIs<PairingStep.Error>(finalState)
+            assertTrue(
+                "Error message must not be blank",
+                (finalState as PairingStep.Error).message.isNotBlank(),
+            )
+            assertTrue("Timeout error must not be retryable", !finalState.retryable)
+            cancelAndIgnoreRemainingEvents()
         }
     }
 

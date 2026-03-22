@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import com.tradingplatform.app.data.local.db.entity.PositionEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -26,4 +27,18 @@ interface PositionDao {
 
     @Query("DELETE FROM positions")
     suspend fun deleteAll()
+
+    /**
+     * Upsert + purge en une seule transaction Room.
+     * Garantit qu'aucune lecture concurrente ne voit un état intermédiaire
+     * (positions insérées mais anciennes pas encore purgées, ou inversement).
+     *
+     * WAL mode (défaut Room) : les lectures UI via [getAllFlow] ne sont pas
+     * bloquées par cette transaction — elles lisent le snapshot pré-transaction.
+     */
+    @Transaction
+    suspend fun upsertAllAndPurge(positions: List<PositionEntity>, cutoffMillis: Long) {
+        upsertAll(positions)
+        deleteOlderThan(cutoffMillis)
+    }
 }

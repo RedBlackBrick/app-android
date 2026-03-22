@@ -8,6 +8,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.Interceptor
 import okhttp3.MediaType
 import okhttp3.OkHttpClient
@@ -47,6 +48,19 @@ class CsrfInterceptor @Inject constructor(
 
     companion object {
         private const val TAG = "CsrfInterceptor"
+
+        /**
+         * Timeout global pour chaque runBlocking (mutex acquisition + fetch réseau).
+         *
+         * 10s est suffisant car :
+         * - Le bareHttpClient a des timeouts de 5s connect + 5s read = 10s max pour le fetch HTTP.
+         * - Le mutex.withLock n'ajoute du temps que si un autre fetch est déjà en vol (rare grâce
+         *   au preFetch() post-login).
+         * - Sur réseau très lent (VPN 4G), un timeout CSRF ne force PAS de logout : la requête
+         *   est envoyée sans header CSRF → le serveur retourne 403 → pas de retry (le 2e runBlocking
+         *   pour le retry 403 a son propre budget de 10s).
+         */
+        private const val CSRF_TIMEOUT_MS = 10_000L
     }
 
     private val mutex = Mutex()
@@ -80,9 +94,23 @@ class CsrfInterceptor @Inject constructor(
         }
 
         val token = runBlocking {
-            mutex.withLock {
-                csrfToken ?: loadFromStore() ?: fetchCsrfToken()
+            withTimeoutOrNull(CSRF_TIMEOUT_MS) {
+                mutex.withLock {
+                    csrfToken ?: loadFromStore() ?: fetchCsrfToken()
+                }
             }
+        }
+
+        if (token == null) {
+            // Timeout atteint : envoyer la requête sans CSRF header.
+            // Le serveur retournera 403 — pas de retry ici (le 403 handler ci-dessous
+            // tentera un nouveau fetch avec son propre budget de timeout).
+            Timber.tag(TAG).w("CsrfInterceptor: timeout after ${CSRF_TIMEOUT_MS}ms — proceeding without CSRF token")
+            return chain.proceed(
+                request.newBuilder()
+                    .method(request.method, bufferedBody ?: request.body)
+                    .build()
+            )
         }
 
         val response = chain.proceed(
@@ -97,12 +125,26 @@ class CsrfInterceptor @Inject constructor(
         if (response.code == 403) {
             response.close()
             val newToken = runBlocking {
-                mutex.withLock {
-                    csrfToken = null
-                    clearFromStore()
-                    fetchCsrfToken()
+                withTimeoutOrNull(CSRF_TIMEOUT_MS) {
+                    mutex.withLock {
+                        csrfToken = null
+                        clearFromStore()
+                        fetchCsrfToken()
+                    }
                 }
             }
+
+            if (newToken == null) {
+                // Timeout sur le retry CSRF — abandonner. La requête échouera en 403
+                // côté appelant, qui pourra retry manuellement.
+                Timber.tag(TAG).w("CsrfInterceptor: timeout on 403 retry — giving up")
+                return chain.proceed(
+                    request.newBuilder()
+                        .method(request.method, bufferedBody ?: request.body)
+                        .build()
+                )
+            }
+
             return chain.proceed(
                 request.newBuilder()
                     .method(request.method, bufferedBody ?: request.body)

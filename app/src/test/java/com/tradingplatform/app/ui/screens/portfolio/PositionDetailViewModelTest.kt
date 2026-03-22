@@ -5,7 +5,7 @@ import com.tradingplatform.app.domain.model.Position
 import com.tradingplatform.app.domain.model.PositionStatus
 import com.tradingplatform.app.domain.model.Transaction
 import com.tradingplatform.app.domain.usecase.auth.GetPortfolioIdUseCase
-import com.tradingplatform.app.domain.usecase.portfolio.GetPositionsUseCase
+import com.tradingplatform.app.domain.usecase.portfolio.GetPositionUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetTransactionsUseCase
 import com.tradingplatform.app.util.MainDispatcherRule
 import io.mockk.coEvery
@@ -28,7 +28,7 @@ class PositionDetailViewModelTest {
     @get:Rule
     val mainDispatcherRule = MainDispatcherRule()
 
-    private val getPositionsUseCase = mockk<GetPositionsUseCase>()
+    private val getPositionUseCase = mockk<GetPositionUseCase>()
     private val getTransactionsUseCase = mockk<GetTransactionsUseCase>()
     private val getPortfolioIdUseCase = mockk<GetPortfolioIdUseCase>()
 
@@ -62,13 +62,13 @@ class PositionDetailViewModelTest {
     @Before
     fun setUp() {
         coEvery { getPortfolioIdUseCase() } returns "1"
-        coEvery { getPositionsUseCase(any(), any()) } returns Result.success(listOf(fakePosition))
+        coEvery { getPositionUseCase(any(), any()) } returns Result.success(fakePosition)
         coEvery { getTransactionsUseCase(any(), any(), any(), any()) } returns
             Result.success(listOf(fakeTransaction))
     }
 
     private fun createViewModel(): PositionDetailViewModel = PositionDetailViewModel(
-        getPositionsUseCase = getPositionsUseCase,
+        getPositionUseCase = getPositionUseCase,
         getTransactionsUseCase = getTransactionsUseCase,
         getPortfolioIdUseCase = getPortfolioIdUseCase,
         savedStateHandle = savedStateHandle,
@@ -107,10 +107,10 @@ class PositionDetailViewModelTest {
     // ── Error — position not found ─────────────────────────────────────────────
 
     @Test
-    fun `uiState emits Error when position is not found in list`() = runTest {
-        // Return a list that does not contain the requested positionId
-        val otherPosition = fakePosition.copy(id = 999)
-        coEvery { getPositionsUseCase(any(), any()) } returns Result.success(listOf(otherPosition))
+    fun `uiState emits Error when position is not found`() = runTest {
+        // GetPositionUseCase returns Result<Position> — failure means position not found
+        coEvery { getPositionUseCase(any(), any()) } returns
+            Result.failure(NoSuchElementException("Position introuvable"))
 
         val viewModel = createViewModel()
 
@@ -121,8 +121,8 @@ class PositionDetailViewModelTest {
     }
 
     @Test
-    fun `uiState emits Error when getPositionsUseCase fails`() = runTest {
-        coEvery { getPositionsUseCase(any(), any()) } returns
+    fun `uiState emits Error when getPositionUseCase fails`() = runTest {
+        coEvery { getPositionUseCase(any(), any()) } returns
             Result.failure(RuntimeException("Network error"))
 
         val viewModel = createViewModel()
@@ -158,14 +158,14 @@ class PositionDetailViewModelTest {
         viewModel.refresh()
 
         // Use case should have been called at least twice: once on init, once on refresh
-        coVerify(atLeast = 2) { getPositionsUseCase(any(), any()) }
+        coVerify(atLeast = 2) { getPositionUseCase(any(), any()) }
     }
 
     @Test
     fun `refresh recovers from previous error`() = runTest {
-        coEvery { getPositionsUseCase(any(), any()) } returnsMany listOf(
+        coEvery { getPositionUseCase(any(), any()) } returnsMany listOf(
             Result.failure(RuntimeException("First error")),
-            Result.success(listOf(fakePosition)),
+            Result.success(fakePosition),
         )
 
         val viewModel = createViewModel()
@@ -189,7 +189,7 @@ class PositionDetailViewModelTest {
         coEvery { getPortfolioIdUseCase() } returns "7"
         val viewModel = createViewModel()
 
-        coVerify { getPositionsUseCase("7", any()) }
+        coVerify { getPositionUseCase("7", any()) }
     }
 
     @Test
@@ -197,6 +197,6 @@ class PositionDetailViewModelTest {
         coEvery { getPortfolioIdUseCase() } returns ""
         val viewModel = createViewModel()
 
-        coVerify { getPositionsUseCase("", any()) }
+        coVerify { getPositionUseCase("", any()) }
     }
 }

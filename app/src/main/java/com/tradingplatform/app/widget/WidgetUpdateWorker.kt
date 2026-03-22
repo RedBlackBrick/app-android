@@ -8,10 +8,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.tradingplatform.app.data.local.datastore.DataStoreKeys
 import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
-import com.tradingplatform.app.data.local.db.AppDatabase
 import com.tradingplatform.app.data.local.db.dao.AlertDao
-import com.tradingplatform.app.data.local.db.dao.PnlDao
-import com.tradingplatform.app.data.local.db.dao.PositionDao
 import com.tradingplatform.app.data.local.db.dao.QuoteDao
 import com.tradingplatform.app.domain.model.AppDefaults
 import com.tradingplatform.app.domain.model.PnlPeriod
@@ -53,18 +50,12 @@ class WidgetUpdateWorker @AssistedInject constructor(
     private val getPositionsUseCase: GetPositionsUseCase,
     private val getPnlUseCase: GetPnlUseCase,
     private val getQuoteUseCase: GetQuoteUseCase,
-    private val positionDao: PositionDao,
-    private val pnlDao: PnlDao,
     private val alertDao: AlertDao,
     private val quoteDao: QuoteDao,
-    private val appDatabase: AppDatabase,
 ) : CoroutineWorker(context, workerParams) {
 
     companion object {
         private const val TAG = "WidgetUpdateWorker"
-        private const val POSITION_TTL_MS = 5 * 60 * 1000L            // 5 min
-        private const val PNL_TTL_MS = 5 * 60 * 1000L                 // 5 min
-        private const val QUOTE_TTL_MS = 10 * 60 * 1000L              // 10 min
         private const val ALERT_RETENTION_MS = 30L * 24 * 60 * 60 * 1000L  // 30 jours
 
         // SharedPreferences — données non sensibles (timestamp d'UI uniquement)
@@ -95,8 +86,16 @@ class WidgetUpdateWorker @AssistedInject constructor(
 
         val portfolioId = dataStore.readString(DataStoreKeys.PORTFOLIO_ID)
         if (portfolioId == null) {
-            Timber.tag(TAG).d("WidgetUpdateWorker — portfolioId not found in DataStore, skipping sync")
-            try { appDatabase.clearAllTables() } catch (_: Exception) {}
+            // R5 fix — ne PAS appeler clearAllTables() si portfolioId est null.
+            // Un portfolioId null indique une corruption DataStore (Keystore invalidé, reboot,
+            // suppression biométrie), pas un logout intentionnel. Effacer Room dans ce cas
+            // détruirait le cache offline (positions, PnL, alertes) sans possibilité de le
+            // reconstruire tant que l'utilisateur ne se reconnecte pas.
+            // Le cache existant reste affiché avec son timestamp "Données du HH:mm".
+            Timber.tag(TAG).w(
+                "WidgetUpdateWorker — portfolioId null in DataStore (possible corruption) — " +
+                    "skipping sync, retaining existing Room cache"
+            )
             return Result.success()
         }
 
@@ -164,23 +163,16 @@ class WidgetUpdateWorker @AssistedInject constructor(
 
     /**
      * Synchronise les positions du portfolio.
-     * Purge Room APRÈS sync réussie — jamais avant.
-     *
-     * Note : le Repository gère l'upsert via OnConflictStrategy.REPLACE.
-     * La purge ici est redondante avec celle du Repository mais garantit
-     * la cohérence quand le Worker est le seul appelant (widgets offline-first).
+     * L'upsert + purge sont atomiques dans le Repository (via [PositionDao.upsertAllAndPurge]).
+     * Le Worker n'a plus besoin de purger séparément.
      *
      * @throws IOException en cas d'erreur réseau transitoire
      * @throws VpnNotConnectedException si le VPN est coupé pendant la sync
      */
     private suspend fun syncPositions(portfolioId: String) {
-        val now = System.currentTimeMillis()
-
         getPositionsUseCase(portfolioId)
             .onSuccess { positions ->
                 Timber.tag(TAG).d("WidgetUpdateWorker — positions synced: ${positions.size} items")
-                // Purge après upsert réussi (le Repository a déjà fait l'upsert)
-                positionDao.deleteOlderThan(now - POSITION_TTL_MS)
             }
             .onFailure { e ->
                 when (e) {
@@ -195,19 +187,15 @@ class WidgetUpdateWorker @AssistedInject constructor(
 
     /**
      * Synchronise le PnL du portfolio (période journalière pour les widgets).
-     * Purge Room APRÈS sync réussie — jamais avant.
+     * L'upsert + purge sont atomiques dans le Repository (via [PnlDao.upsertAndPurge]).
      *
      * @throws IOException en cas d'erreur réseau transitoire
      * @throws VpnNotConnectedException si le VPN est coupé pendant la sync
      */
     private suspend fun syncPnl(portfolioId: String) {
-        val now = System.currentTimeMillis()
-
         getPnlUseCase(portfolioId, PnlPeriod.DAY)
             .onSuccess {
                 Timber.tag(TAG).d("WidgetUpdateWorker — PnL DAY synced")
-                // Purge après upsert réussi
-                pnlDao.deleteOlderThan(now - PNL_TTL_MS)
             }
             .onFailure { e ->
                 when (e) {
@@ -223,7 +211,7 @@ class WidgetUpdateWorker @AssistedInject constructor(
     /**
      * Synchronise les quotes pour tous les symboles connus dans Room.
      * Si la table quotes est vide (premier démarrage), sync le symbole par défaut.
-     * Purge Room APRÈS toutes les syncs.
+     * L'upsert + purge sont atomiques dans le Repository (via [QuoteDao.upsertAndPurge]).
      *
      * Un échec sur un symbole isolé ne bloque pas les autres — la boucle continue.
      * Retourne true si au moins un symbole a échoué avec une IOException (pour que
@@ -233,8 +221,6 @@ class WidgetUpdateWorker @AssistedInject constructor(
      * @return true si au moins un symbole a échoué, false si tous ont réussi
      */
     private suspend fun syncQuotes(): Boolean {
-        val now = System.currentTimeMillis()
-
         // Récupérer les symboles actuellement en cache pour les rafraîchir
         val cachedSymbols = quoteDao.getAllSymbols()
         val symbolsToSync = if (cachedSymbols.isEmpty()) listOf(AppDefaults.DEFAULT_QUOTE_SYMBOL) else cachedSymbols
@@ -257,10 +243,6 @@ class WidgetUpdateWorker @AssistedInject constructor(
                 }
         }
 
-        // Purge après toutes les syncs (même partielle — au moins un symbole réussi suffit)
-        quoteDao.deleteOlderThan(now - QUOTE_TTL_MS)
-        Timber.tag(TAG).d("WidgetUpdateWorker — quotes purged (TTL ${QUOTE_TTL_MS / 60_000} min)")
-
         return anySymbolFailed
     }
 
@@ -268,12 +250,12 @@ class WidgetUpdateWorker @AssistedInject constructor(
 
     /**
      * Purge les alertes expirées (30 jours) et au-delà des 500 dernières.
+     * Les deux DELETE sont atomiques via [AlertDao.purgeExpired] (@Transaction).
      * Les alertes viennent de FCM → Room uniquement, pas de sync réseau ici.
      */
     private suspend fun purgeExpiredAlerts() {
         val cutoff = System.currentTimeMillis() - ALERT_RETENTION_MS
-        alertDao.deleteOlderThan(cutoff)
-        alertDao.keepOnlyLatest500()
+        alertDao.purgeExpired(cutoff)
         Timber.tag(TAG).d("WidgetUpdateWorker — alerts purged (30 days / 500 max)")
     }
 

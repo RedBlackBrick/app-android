@@ -91,6 +91,45 @@ class EncryptedDataStore(
         }
     }
 
+    /**
+     * Lecture avec distinction des 3 cas : valeur presente, absente, ou corrompue (R1 fix).
+     *
+     * Contrairement a [readString] qui retourne null dans tous les cas d'echec,
+     * cette methode permet a l'appelant de distinguer "jamais ecrit" de "Keystore invalide"
+     * et d'afficher un message adapte a l'utilisateur.
+     *
+     * Backward-compatible : le code existant continue d'utiliser [readString].
+     * Seuls les chemins critiques (AuthInterceptor, SessionManager) migrent vers cette methode.
+     *
+     * @return [SecureReadResult.Found] si la valeur existe, [SecureReadResult.NotFound] si absente,
+     *         [SecureReadResult.Corrupted] si le Keystore est invalide ou le fichier corrompu.
+     */
+    suspend fun readStringSafe(
+        key: Preferences.Key<String>,
+    ): SecureReadResult<String> = withContext(Dispatchers.IO) {
+        val prefs = sharedPreferences
+        if (prefs == null) {
+            // Le store n'a pas pu etre initialise (MasterKey creation failure)
+            return@withContext SecureReadResult.Corrupted(
+                IllegalStateException("EncryptedDataStore unavailable — MasterKey creation failed")
+            )
+        }
+        try {
+            val value = prefs.getString(key.name, null)
+            if (value != null) {
+                SecureReadResult.Found(value)
+            } else {
+                SecureReadResult.NotFound
+            }
+        } catch (e: IOException) {
+            Timber.e(e, "EncryptedDataStore readStringSafe — file corrupted")
+            SecureReadResult.Corrupted(e)
+        } catch (e: GeneralSecurityException) {
+            Timber.e(e, "EncryptedDataStore readStringSafe — Keystore invalidated")
+            SecureReadResult.Corrupted(e)
+        }
+    }
+
     suspend fun readLong(key: Preferences.Key<Long>): Long? = withContext(Dispatchers.IO) {
         val prefs = sharedPreferences ?: return@withContext null
         try {

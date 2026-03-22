@@ -2,6 +2,8 @@ package com.tradingplatform.app.domain.usecase.auth
 
 import com.tradingplatform.app.data.local.datastore.DataStoreKeys
 import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import javax.inject.Inject
 
 /**
@@ -21,18 +23,23 @@ data class AuthContext(
  *
  * Used by [AppNavViewModel] to determine start destination and admin tab visibility,
  * without coupling the navigation layer directly to the data layer.
+ *
+ * The three reads are independent (no data dependency between them) and each dispatches
+ * to [Dispatchers.IO] internally. Running them concurrently via [async] eliminates
+ * 2 sequential context switches on app startup.
  */
 class GetAuthContextUseCase @Inject constructor(
     private val dataStore: EncryptedDataStore,
 ) {
-    suspend operator fun invoke(): AuthContext {
-        val token = dataStore.readString(DataStoreKeys.ACCESS_TOKEN)
-        val admin = dataStore.readBoolean(DataStoreKeys.IS_ADMIN) ?: false
-        val setupCompleted = dataStore.readBoolean(DataStoreKeys.SETUP_COMPLETED) ?: false
-        return AuthContext(
-            isLoggedIn = token != null,
-            isAdmin = admin,
-            setupCompleted = setupCompleted,
+    suspend operator fun invoke(): AuthContext = coroutineScope {
+        val tokenDeferred = async { dataStore.readString(DataStoreKeys.ACCESS_TOKEN) }
+        val adminDeferred = async { dataStore.readBoolean(DataStoreKeys.IS_ADMIN) }
+        val setupDeferred = async { dataStore.readBoolean(DataStoreKeys.SETUP_COMPLETED) }
+
+        AuthContext(
+            isLoggedIn = tokenDeferred.await() != null,
+            isAdmin = adminDeferred.await() ?: false,
+            setupCompleted = setupDeferred.await() ?: false,
         )
     }
 }

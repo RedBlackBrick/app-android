@@ -2,9 +2,13 @@ package com.tradingplatform.app.data.local.db.entity
 
 import androidx.room.ColumnInfo
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
-@Entity(tableName = "quotes")
+@Entity(
+    tableName = "quotes",
+    indices = [Index(value = ["synced_at"])]
+)
 data class QuoteEntity(
     @PrimaryKey val symbol: String,
     @ColumnInfo(name = "price") val price: String,

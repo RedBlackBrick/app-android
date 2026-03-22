@@ -23,6 +23,8 @@ import com.tradingplatform.app.data.local.db.entity.QuoteEntity
 // v3           : ajout colonnes métriques hardware dans devices
 //               (cpu_pct, memory_pct, temperature, disk_pct, uptime_seconds,
 //                firmware_version, hostname)
+// v4           : ajout index sur synced_at (positions, quotes, alerts, devices,
+//               pnl_snapshots) et received_at (alerts) pour optimiser les purges
 //
 // STRATÉGIE DE MIGRATION — RÈGLES IMPÉRATIVES
 // ───────────────────────────────────────────────────────────────────────────────
@@ -58,6 +60,20 @@ val MIGRATION_2_3 = object : Migration(2, 3) {
     }
 }
 
+// ── Migration 3 → 4 : ajout d'index sur synced_at / received_at pour les purges ──
+// Les requêtes DELETE ... WHERE synced_at < :cutoff bénéficient d'un index pour éviter
+// un full table scan. Overhead en écriture ~5%, négligeable vu la fréquence (1x/5-15 min).
+val MIGRATION_3_4 = object : Migration(3, 4) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        database.execSQL("CREATE INDEX IF NOT EXISTS index_positions_synced_at ON positions (synced_at)")
+        database.execSQL("CREATE INDEX IF NOT EXISTS index_quotes_synced_at ON quotes (synced_at)")
+        database.execSQL("CREATE INDEX IF NOT EXISTS index_alerts_synced_at ON alerts (synced_at)")
+        database.execSQL("CREATE INDEX IF NOT EXISTS index_alerts_received_at ON alerts (received_at)")
+        database.execSQL("CREATE INDEX IF NOT EXISTS index_devices_synced_at ON devices (synced_at)")
+        database.execSQL("CREATE INDEX IF NOT EXISTS index_pnl_snapshots_synced_at ON pnl_snapshots (synced_at)")
+    }
+}
+
 @Database(
     entities = [
         PositionEntity::class,
@@ -66,7 +82,7 @@ val MIGRATION_2_3 = object : Migration(2, 3) {
         DeviceEntity::class,
         QuoteEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {

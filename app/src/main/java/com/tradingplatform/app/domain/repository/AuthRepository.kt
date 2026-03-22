@@ -3,6 +3,7 @@ package com.tradingplatform.app.domain.repository
 import com.tradingplatform.app.domain.model.AuthTokens
 import com.tradingplatform.app.domain.model.Portfolio
 import com.tradingplatform.app.domain.model.User
+import com.tradingplatform.app.domain.model.WsTokenInfo
 
 interface AuthRepository {
     suspend fun login(email: String, password: String): Result<Pair<User, AuthTokens>>
@@ -12,8 +13,9 @@ interface AuthRepository {
     suspend fun refreshToken(): Result<AuthTokens>
 
     /**
-     * Retourne un JWT avec claim `type=websocket` pour authentifier la connexion WS privée.
+     * Retourne un JWT avec claim `type=websocket` et son expiration pour authentifier
+     * la connexion WS privée et planifier le refresh proactif.
      * Ce token est distinct de l'access token — il est obtenu via `POST /v1/auth/ws-token`.
      */
-    suspend fun getWsToken(): Result<String>
+    suspend fun getWsToken(): Result<WsTokenInfo>
 }

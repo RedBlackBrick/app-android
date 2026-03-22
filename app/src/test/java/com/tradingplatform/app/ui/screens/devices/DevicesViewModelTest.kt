@@ -5,6 +5,8 @@ import com.tradingplatform.app.domain.model.Device
 import com.tradingplatform.app.domain.model.DeviceStatus
 import com.tradingplatform.app.domain.usecase.device.GetDevicesUseCase
 import com.tradingplatform.app.domain.usecase.device.GetDeviceStatusUseCase
+import com.tradingplatform.app.domain.usecase.device.SendDeviceCommandUseCase
+import com.tradingplatform.app.domain.usecase.device.UnpairDeviceUseCase
 import com.tradingplatform.app.util.MainDispatcherRule
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -187,6 +189,8 @@ class DeviceDetailViewModelTest {
     val mainDispatcherRule = MainDispatcherRule()
 
     private val getDeviceStatusUseCase = mockk<GetDeviceStatusUseCase>()
+    private val unpairDeviceUseCase = mockk<UnpairDeviceUseCase>(relaxed = true)
+    private val sendDeviceCommandUseCase = mockk<SendDeviceCommandUseCase>(relaxed = true)
     private lateinit var viewModel: DeviceDetailViewModel
 
     private val fakeDevice = Device(
@@ -199,7 +203,11 @@ class DeviceDetailViewModelTest {
 
     @Before
     fun setUp() {
-        viewModel = DeviceDetailViewModel(getDeviceStatusUseCase)
+        viewModel = DeviceDetailViewModel(
+            getDeviceStatusUseCase = getDeviceStatusUseCase,
+            unpairDeviceUseCase = unpairDeviceUseCase,
+            sendDeviceCommandUseCase = sendDeviceCommandUseCase,
+        )
     }
 
     @Test

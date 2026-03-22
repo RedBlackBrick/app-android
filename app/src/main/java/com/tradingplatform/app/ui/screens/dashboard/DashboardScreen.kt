@@ -35,8 +35,10 @@ import androidx.compose.ui.semantics.semantics
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tradingplatform.app.domain.model.PnlPeriod
+import com.tradingplatform.app.domain.model.Quote
 import com.tradingplatform.app.ui.components.AnimatedPnlText
 import com.tradingplatform.app.ui.components.CacheTimestamp
+import com.tradingplatform.app.ui.components.ConnectionStatusIndicator
 import com.tradingplatform.app.ui.components.MoneyText
 import com.tradingplatform.app.ui.components.SkeletonDashboardCard
 import com.tradingplatform.app.ui.components.SparklineChart
@@ -54,6 +56,7 @@ fun DashboardScreen(
     viewModel: DashboardViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val wsState by viewModel.wsConnectionState.collectAsStateWithLifecycle()
     val haptic = rememberHapticFeedback()
 
     val isInitialLoading = uiState.navSummary is NavUiState.Loading &&
@@ -85,7 +88,15 @@ fun DashboardScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("Dashboard") })
+            TopAppBar(
+                title = { Text("Dashboard") },
+                actions = {
+                    ConnectionStatusIndicator(
+                        state = wsState,
+                        modifier = Modifier.padding(end = Spacing.md),
+                    )
+                },
+            )
         },
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         modifier = modifier,
@@ -123,12 +134,18 @@ fun DashboardScreen(
                     }
 
                     // ── P&L period chips ────────────────────────────────────────
-                    PnlPeriodChips(
-                        selected = uiState.selectedPeriod,
-                        onSelect = { period ->
+                    // Memoised callback — haptic and viewModel are stable refs that
+                    // never change across recompositions, so remember {} without keys
+                    // is safe and avoids recomposing PnlPeriodChips on every quote tick.
+                    val onPeriodSelect = remember<(PnlPeriod) -> Unit> {
+                        { period ->
                             haptic.click()
                             viewModel.selectPeriod(period)
-                        },
+                        }
+                    }
+                    PnlPeriodChips(
+                        selected = uiState.selectedPeriod,
+                        onSelect = onPeriodSelect,
                     )
 
                     // ── P&L summary ─────────────────────────────────────────────
@@ -358,17 +375,18 @@ private fun QuoteSection(
                     )
                 }
                 is QuoteUiState.Success -> {
-                    val quote = quoteState.data
                     QuoteContent(
-                        symbol = quote.symbol,
-                        quote = quoteState,
+                        symbol = quoteState.data.symbol,
+                        quoteData = quoteState.data,
                     )
                 }
                 is QuoteUiState.Stale -> {
-                    val quote = quoteState.data
+                    // Pass Quote directly — QuoteContent skips recomposition when
+                    // the underlying Quote data is structurally equal (data class),
+                    // even if the wrapper changed from Success to Stale.
                     QuoteContent(
-                        symbol = quote.symbol,
-                        quote = quoteState,
+                        symbol = quoteState.data.symbol,
+                        quoteData = quoteState.data,
                     )
                     // Stale indicator
                     Text(
@@ -376,7 +394,7 @@ private fun QuoteSection(
                         style = MaterialTheme.typography.labelSmall,
                         color = extendedColors.warning,
                     )
-                    val syncedAt = quote.timestamp.toEpochMilli()
+                    val syncedAt = quoteState.data.timestamp.toEpochMilli()
                     CacheTimestamp(syncedAt = syncedAt)
                 }
                 is QuoteUiState.Error -> {
@@ -391,16 +409,25 @@ private fun QuoteSection(
     }
 }
 
+/**
+ * Displays quote price and change. Accepts [Quote] directly (not [QuoteUiState])
+ * so that Compose structural equality on the data class parameters prevents
+ * recomposition when the state wrapper changes (Success → Stale) but the
+ * underlying data is identical.
+ */
 @Composable
 private fun QuoteContent(
     symbol: String,
-    quote: QuoteUiState,
+    quoteData: Quote,
     modifier: Modifier = Modifier,
 ) {
-    val quoteData = when (quote) {
-        is QuoteUiState.Success -> quote.data
-        is QuoteUiState.Stale -> quote.data
-        else -> return
+    // Memoize the formatted timestamp — only recompute when the Instant changes.
+    // ZoneId.systemDefault() and DateTimeFormatter allocation are avoided on
+    // recompositions where only price/change changed (same timestamp).
+    val formattedTimestamp = remember(quoteData.timestamp) {
+        quoteData.timestamp
+            .atZone(ZoneId.systemDefault())
+            .let { DateTimeFormatter.ofPattern("HH:mm:ss").format(it) }
     }
 
     Row(
@@ -414,11 +441,8 @@ private fun QuoteContent(
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface,
             )
-            val timestamp = quoteData.timestamp
-                .atZone(ZoneId.systemDefault())
-                .let { DateTimeFormatter.ofPattern("HH:mm:ss").format(it) }
             Text(
-                text = timestamp,
+                text = formattedTimestamp,
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

@@ -41,10 +41,10 @@ class AlertRepositoryImpl @Inject constructor(
     /**
      * Purge les alertes expirées — appelé par WidgetUpdateWorker APRÈS une sync réussie.
      * Applique les deux règles : 30 jours max ET 500 entrées max.
+     * Les deux DELETE sont atomiques via [AlertDao.purgeExpired] (@Transaction).
      */
     override suspend fun purgeExpired(): Result<Unit> = runCatching {
         val cutoff = System.currentTimeMillis() - ALERT_RETENTION_MS
-        alertDao.deleteOlderThan(cutoff)
-        alertDao.keepOnlyLatest500()
+        alertDao.purgeExpired(cutoff)
     }
 }

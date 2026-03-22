@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import com.tradingplatform.app.data.local.db.entity.AlertEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -35,4 +36,15 @@ interface AlertDao {
 
     @Query("SELECT COUNT(*) FROM alerts")
     suspend fun count(): Int
+
+    /**
+     * Purge 30 jours + 500 max en une seule transaction Room.
+     * Les deux DELETE sont atomiques : aucune lecture concurrente ne voit
+     * un état intermédiaire (ex: 30 jours purgés mais > 500 encore présentes).
+     */
+    @Transaction
+    suspend fun purgeExpired(cutoffMillis: Long) {
+        deleteOlderThan(cutoffMillis)
+        keepOnlyLatest500()
+    }
 }

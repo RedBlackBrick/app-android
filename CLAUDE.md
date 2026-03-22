@@ -591,8 +591,24 @@ Référence complète : `docs/design-system.md`
 ## 6. TESTS
 
 ```bash
-# Tests unitaires (JVM, rapides)
-./gradlew test
+# Tests unitaires (JVM, rapides) — suite complète
+./gradlew testDebugUnitTest
+
+# Tests unitaires — une classe à la fois (recommandé pour debug)
+# Exécution isolée : chaque classe dans son propre process JVM (forkEvery=1).
+# Permet de voir immédiatement quelle classe échoue sans attendre la suite entière.
+./gradlew testDebugUnitTest --tests "com.tradingplatform.app.ui.screens.dashboard.DashboardViewModelTest"
+
+# Tests unitaires — un par un en boucle (diagnostic rapide)
+for t in $(find app/src/test -name "*Test.kt" -exec grep -l "^class\|^@.*class" {} \; \
+    | sed 's|app/src/test/java/||;s|/|.|g;s|\.kt$||'); do
+  short="${t##*.}"
+  if ./gradlew testDebugUnitTest --tests "$t" 2>&1 | grep -q "BUILD SUCCESSFUL"; then
+    echo "PASS  $short"
+  else
+    echo "FAIL  $short"
+  fi
+done
 
 # Tests instrumentation (émulateur/device requis)
 ./gradlew connectedAndroidTest

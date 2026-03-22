@@ -2,9 +2,13 @@ package com.tradingplatform.app.data.local.db.entity
 
 import androidx.room.ColumnInfo
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
-@Entity(tableName = "devices")
+@Entity(
+    tableName = "devices",
+    indices = [Index(value = ["synced_at"])]
+)
 data class DeviceEntity(
     @PrimaryKey val id: String,
     @ColumnInfo(name = "name") val name: String,

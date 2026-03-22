@@ -75,14 +75,18 @@ fun AnimatedPnlText(
         label = "pnl_color_flash",
     )
 
-    val formatted = formatPnlAmount(value, currencySymbol)
-    val verboseDescription = buildString {
+    // Memoize formatted strings — formatPnlAmount allocates a NumberFormat and
+    // concatenates strings on each call. With WS quotes arriving every ~1s, this
+    // avoids redundant allocations when value/currencySymbol haven't changed.
+    // Keys: value (BigDecimal, structural equality) + currencySymbol (String).
+    val (formatted, verboseDescription) = remember(value, currencySymbol) {
+        val fmt = formatPnlAmount(value, currencySymbol)
         val label = when {
             value > BigDecimal.ZERO -> "Gain"
             value < BigDecimal.ZERO -> "Perte"
             else -> "Gain/Perte"
         }
-        append("$label : $formatted")
+        fmt to "$label : $fmt"
     }
 
     AnimatedContent(

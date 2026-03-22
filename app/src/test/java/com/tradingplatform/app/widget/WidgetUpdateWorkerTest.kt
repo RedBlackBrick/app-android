@@ -7,8 +7,6 @@ import androidx.work.testing.TestListenableWorkerBuilder
 import com.tradingplatform.app.data.local.datastore.DataStoreKeys
 import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
 import com.tradingplatform.app.data.local.db.dao.AlertDao
-import com.tradingplatform.app.data.local.db.dao.PnlDao
-import com.tradingplatform.app.data.local.db.dao.PositionDao
 import com.tradingplatform.app.data.local.db.dao.QuoteDao
 import com.tradingplatform.app.domain.model.PnlPeriod
 import com.tradingplatform.app.domain.model.PnlSummary
@@ -27,10 +25,12 @@ import io.mockk.mockk
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import android.app.Application
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import java.math.BigDecimal
 import java.time.Instant
 
@@ -41,6 +41,7 @@ import java.time.Instant
  * Les dépendances sont mockées avec Mockk.
  */
 @RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35], application = Application::class)
 class WidgetUpdateWorkerTest {
 
     private val vpnManager = mockk<WireGuardManager>()
@@ -48,8 +49,6 @@ class WidgetUpdateWorkerTest {
     private val getPositionsUseCase = mockk<GetPositionsUseCase>()
     private val getPnlUseCase = mockk<GetPnlUseCase>()
     private val getQuoteUseCase = mockk<GetQuoteUseCase>()
-    private val positionDao = mockk<PositionDao>(relaxed = true)
-    private val pnlDao = mockk<PnlDao>(relaxed = true)
     private val alertDao = mockk<AlertDao>(relaxed = true)
     private val quoteDao = mockk<QuoteDao>(relaxed = true)
 
@@ -128,8 +127,6 @@ class WidgetUpdateWorkerTest {
                         getPositionsUseCase = getPositionsUseCase,
                         getPnlUseCase = getPnlUseCase,
                         getQuoteUseCase = getQuoteUseCase,
-                        positionDao = positionDao,
-                        pnlDao = pnlDao,
                         alertDao = alertDao,
                         quoteDao = quoteDao,
                     )
@@ -264,32 +261,8 @@ class WidgetUpdateWorkerTest {
         buildWorker().doWork()
 
         // La purge des alertes doit toujours être appelée (locale, pas de réseau)
-        coVerify(exactly = 1) { alertDao.deleteOlderThan(any()) }
-        coVerify(exactly = 1) { alertDao.keepOnlyLatest500() }
-    }
-
-    // ── Tests purge Room ───────────────────────────────────────────────────────
-
-    @Test
-    fun `doWork purges positions and pnl after successful sync`() = runTest {
-        every { vpnManager.state } returns MutableStateFlow(VpnState.Connected())
-
-        buildWorker().doWork()
-
-        coVerify(exactly = 1) { positionDao.deleteOlderThan(any()) }
-        coVerify(exactly = 1) { pnlDao.deleteOlderThan(any()) }
-        coVerify(exactly = 1) { quoteDao.deleteOlderThan(any()) }
-    }
-
-    @Test
-    fun `doWork does not purge positions when positions sync fails`() = runTest {
-        every { vpnManager.state } returns MutableStateFlow(VpnState.Connected())
-        coEvery { getPositionsUseCase(any()) } returns Result.failure(java.io.IOException("Network error"))
-
-        buildWorker().doWork()
-
-        // La purge positions ne doit pas être appelée si la sync a échoué
-        coVerify(exactly = 0) { positionDao.deleteOlderThan(any()) }
+        // Depuis R6, purgeExpired() est une @Transaction qui combine deleteOlderThan + keepOnlyLatest500
+        coVerify(exactly = 1) { alertDao.purgeExpired(any()) }
     }
 
     // ── Tests comportement non-admin ───────────────────────────────────────────

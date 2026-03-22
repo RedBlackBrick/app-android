@@ -38,6 +38,21 @@ class SessionManager @Inject constructor() {
         _upgradeRequiredEvents.tryEmit(Unit)
     }
 
+    /**
+     * Corruption du Keystore detectee (R1 fix).
+     *
+     * Distinct de [forcedLogoutEvents] : le consommateur (AppNavViewModel) affiche un
+     * message explicite a l'utilisateur ("Donnees de session corrompues — reconnexion
+     * necessaire") au lieu d'un logout silencieux. L'UI peut aussi proposer un clear
+     * des donnees chiffrees avant le re-login.
+     */
+    private val _keystoreCorruptionEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val keystoreCorruptionEvents: SharedFlow<Unit> = _keystoreCorruptionEvents.asSharedFlow()
+
+    fun notifyKeystoreCorruption() {
+        _keystoreCorruptionEvents.tryEmit(Unit)
+    }
+
     private val _deepLinkEvents = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val deepLinkEvents: SharedFlow<String> = _deepLinkEvents.asSharedFlow()
 

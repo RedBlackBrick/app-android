@@ -2,6 +2,7 @@ package com.tradingplatform.app.data.local.db.entity
 
 import androidx.room.ColumnInfo
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
 /**
@@ -11,7 +12,10 @@ import androidx.room.PrimaryKey
  * All fields except [period] and [syncedAt] are nullable — the backend may not have
  * enough data to compute them (e.g. brand-new portfolio with no trades).
  */
-@Entity(tableName = "pnl_snapshots")
+@Entity(
+    tableName = "pnl_snapshots",
+    indices = [Index(value = ["synced_at"])]
+)
 data class PnlSnapshotEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     @ColumnInfo(name = "period") val period: String,

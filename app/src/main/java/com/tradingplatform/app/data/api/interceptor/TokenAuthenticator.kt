@@ -5,12 +5,14 @@ import com.tradingplatform.app.data.local.datastore.DataStoreKeys
 import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
 import com.tradingplatform.app.data.local.db.AppDatabase
 import com.tradingplatform.app.data.session.SessionManager
+import com.tradingplatform.app.data.session.TokenHolder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.Authenticator
 import okhttp3.Request
 import okhttp3.Response
@@ -35,6 +37,7 @@ import javax.inject.Singleton
 @Singleton
 class TokenAuthenticator @Inject constructor(
     private val applicationScope: CoroutineScope,
+    private val tokenHolder: TokenHolder,
     private val dataStore: EncryptedDataStore,
     private val authApi: dagger.Lazy<AuthApi>,
     private val sessionManager: SessionManager,
@@ -43,6 +46,8 @@ class TokenAuthenticator @Inject constructor(
 
     companion object {
         private const val TAG = "TokenAuthenticator"
+        /** Timeout global pour le runBlocking (mutex + refresh réseau). */
+        private const val AUTHENTICATE_TIMEOUT_MS = 15_000L
     }
 
     private val mutex = Mutex()
@@ -57,27 +62,37 @@ class TokenAuthenticator @Inject constructor(
         }
 
         val newToken = runBlocking {
-            mutex.withLock {
-                val existing = refreshDeferred
-                if (existing != null) {
-                    // Un refresh est déjà en vol — réutiliser son résultat
-                    Timber.tag(TAG).d("TokenAuthenticator: reusing in-flight refresh")
-                    try {
-                        existing.await()
-                    } finally {
-                        refreshDeferred = null
-                    }
-                } else {
-                    val deferred = applicationScope.async { doRefresh() }
-                    refreshDeferred = deferred
-                    try {
-                        deferred.await()
-                    } finally {
-                        refreshDeferred = null
+            // Timeout global : mutex acquisition + refresh réseau.
+            // Sur réseau lent (VPN 4G), 15s laisse le temps au refresh HTTP (OkHttp a ses propres
+            // timeouts de 30s, mais le mutex.withLock peut bloquer si un autre refresh est en vol).
+            // En cas de timeout : retourne null → la requête originale échoue en 401 → l'UI affiche
+            // l'erreur. Pas de logout forcé — le token n'est pas invalide, le réseau est lent.
+            withTimeoutOrNull(AUTHENTICATE_TIMEOUT_MS) {
+                mutex.withLock {
+                    val existing = refreshDeferred
+                    if (existing != null) {
+                        // Un refresh est déjà en vol — réutiliser son résultat
+                        Timber.tag(TAG).d("TokenAuthenticator: reusing in-flight refresh")
+                        try {
+                            existing.await()
+                        } finally {
+                            refreshDeferred = null
+                        }
+                    } else {
+                        val deferred = applicationScope.async { doRefresh() }
+                        refreshDeferred = deferred
+                        try {
+                            deferred.await()
+                        } finally {
+                            refreshDeferred = null
+                        }
                     }
                 }
+            } ?: run {
+                Timber.tag(TAG).w("TokenAuthenticator: timeout after ${AUTHENTICATE_TIMEOUT_MS}ms — skipping retry (no logout)")
+                null
             }
-        } ?: return null  // refresh échoué → ne pas retry
+        } ?: return null  // refresh échoué ou timeout → ne pas retry
 
         return response.request.newBuilder()
             .header("Authorization", "Bearer $newToken")
@@ -90,10 +105,23 @@ class TokenAuthenticator @Inject constructor(
             val response = authApi.get().refresh()
             if (response.isSuccessful) {
                 val newToken = response.body()?.accessToken
-                if (newToken != null) {
-                    dataStore.writeString(DataStoreKeys.ACCESS_TOKEN, newToken)
-                    Timber.tag(TAG).d("TokenAuthenticator: token refreshed successfully")
+                if (newToken.isNullOrBlank()) {
+                    // Token null ou vide dans une réponse 2xx — état anormal du serveur.
+                    // Ne pas logout immédiatement (pourrait être transitoire) — retourner null
+                    // pour que OkHttp abandonne cette requête sans retry. Le prochain appel API
+                    // déclenchera un nouveau cycle 401 → refresh.
+                    Timber.tag(TAG).w(
+                        "TokenAuthenticator: refresh response 2xx but token is null/blank — " +
+                            "server returned anomalous response, skipping retry"
+                    )
+                    return null
                 }
+                // Écrire dans le cache mémoire AVANT le DataStore (disque) :
+                // si le process est tué entre les deux, le fallback DataStore relira
+                // l'ancien token → nouveau 401 → nouveau refresh. Pas de perte.
+                tokenHolder.setToken(newToken)
+                dataStore.writeString(DataStoreKeys.ACCESS_TOKEN, newToken)
+                Timber.tag(TAG).d("TokenAuthenticator: token refreshed successfully")
                 newToken
             } else {
                 Timber.tag(TAG).w("TokenAuthenticator: refresh failed (${response.code()}) — forcing logout")
@@ -107,6 +135,7 @@ class TokenAuthenticator @Inject constructor(
     }
 
     private fun handleLogout() {
+        tokenHolder.clear()
         runBlocking {
             try { appDatabase.clearAllTables() } catch (_: Exception) {}
             dataStore.clearAll()  // efface tous les tokens, cookies, is_admin, portfolio_id

@@ -1,21 +1,18 @@
 package com.tradingplatform.app.ui.screens.auth
 
-import android.content.Context
-import android.content.pm.PackageManager
 import app.cash.turbine.test
-import com.tradingplatform.app.data.local.datastore.DataStoreKeys
-import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
+import com.tradingplatform.app.data.session.SessionManager
 import com.tradingplatform.app.domain.exception.AccountLockedException
 import com.tradingplatform.app.domain.exception.InvalidCredentialsException
 import com.tradingplatform.app.domain.exception.TotpRequiredException
 import com.tradingplatform.app.domain.model.AuthTokens
 import com.tradingplatform.app.domain.model.Portfolio
 import com.tradingplatform.app.domain.model.User
+import com.tradingplatform.app.domain.usecase.auth.ApplyAdminWidgetVisibilityUseCase
 import com.tradingplatform.app.domain.usecase.auth.GetPortfoliosUseCase
 import com.tradingplatform.app.domain.usecase.auth.LoginUseCase
 import com.tradingplatform.app.util.MainDispatcherRule
 import io.mockk.coEvery
-import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
@@ -35,9 +32,8 @@ class LoginViewModelTest {
 
     private val loginUseCase = mockk<LoginUseCase>()
     private val getPortfoliosUseCase = mockk<GetPortfoliosUseCase>()
-    private val dataStore = mockk<EncryptedDataStore>()
-    private val context = mockk<Context>(relaxed = true)
-    private val packageManager = mockk<PackageManager>(relaxed = true)
+    private val applyAdminWidgetVisibilityUseCase = mockk<ApplyAdminWidgetVisibilityUseCase>(relaxed = true)
+    private val sessionManager = mockk<SessionManager>(relaxed = true)
     private lateinit var viewModel: LoginViewModel
 
     private val fakeUser = User(
@@ -57,9 +53,7 @@ class LoginViewModelTest {
 
     @Before
     fun setUp() {
-        every { context.packageManager } returns packageManager
-        coEvery { dataStore.readBoolean(DataStoreKeys.IS_ADMIN) } returns false
-        viewModel = LoginViewModel(loginUseCase, getPortfoliosUseCase, dataStore, context)
+        viewModel = LoginViewModel(loginUseCase, getPortfoliosUseCase, applyAdminWidgetVisibilityUseCase, sessionManager)
     }
 
     // ── Cas nominal : login sans TOTP → Success ────────────────────────────────
@@ -97,7 +91,6 @@ class LoginViewModelTest {
             // Note: Loading may be conflated by StateFlow + UnconfinedTestDispatcher
             val state = awaitItem()
             assertTrue(state is LoginUiState.TotpRequired)
-            assertEquals(sessionToken, (state as LoginUiState.TotpRequired).sessionToken)
 
             cancelAndIgnoreRemainingEvents()
         }

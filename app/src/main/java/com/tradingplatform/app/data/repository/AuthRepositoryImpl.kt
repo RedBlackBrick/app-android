@@ -18,6 +18,7 @@ import com.tradingplatform.app.domain.model.AuthTokens
 import com.tradingplatform.app.domain.model.Portfolio
 import com.tradingplatform.app.domain.model.User
 import com.tradingplatform.app.domain.model.WsTokenInfo
+import com.tradingplatform.app.data.session.TokenHolder
 import com.tradingplatform.app.domain.repository.AuthRepository
 import java.time.Instant
 import okhttp3.OkHttpClient
@@ -28,6 +29,7 @@ import javax.inject.Singleton
 @Singleton
 class AuthRepositoryImpl @Inject constructor(
     private val authApi: AuthApi,
+    private val tokenHolder: TokenHolder,
     private val dataStore: EncryptedDataStore,
     private val moshi: Moshi,
     private val csrfInterceptor: CsrfInterceptor,
@@ -58,7 +60,9 @@ class AuthRepositoryImpl @Inject constructor(
             val user = body.user.toDomain()
             val tokens = body.tokens.toDomain()
 
-            // Persister les données utilisateur et le token après login réussi
+            // Peupler le cache mémoire AVANT le DataStore (disque) — si le process est tué
+            // entre les deux, le fallback DataStore relira l'ancien token → nouveau 401 → refresh.
+            tokenHolder.setToken(tokens.accessToken)
             dataStore.writeString(DataStoreKeys.ACCESS_TOKEN, tokens.accessToken)
             dataStore.writeLong(DataStoreKeys.USER_ID, user.id)
             dataStore.writeBoolean(DataStoreKeys.IS_ADMIN, user.isAdmin)
@@ -76,6 +80,9 @@ class AuthRepositoryImpl @Inject constructor(
         } catch (e: Exception) {
             Timber.tag(TAG).w(e, "AuthRepository: logout API call failed, clearing local data anyway")
         }
+        // Invalider le cache mémoire AVANT le DataStore — empêche AuthInterceptor d'utiliser
+        // un token périmé pendant que clearAll() est en cours (IO disque).
+        tokenHolder.clear()
         // clearAll() wrappé séparément — on doit toujours réussir le logout local
         // même si EncryptedSharedPreferences est corrompu ou le Keystore invalidé
         try {
@@ -105,6 +112,7 @@ class AuthRepositoryImpl @Inject constructor(
             val tokens = tokensDto.toDomain()
 
             // Persist user data and tokens after successful 2FA (same as login)
+            tokenHolder.setToken(tokens.accessToken)
             dataStore.writeString(DataStoreKeys.ACCESS_TOKEN, tokens.accessToken)
             dataStore.writeLong(DataStoreKeys.USER_ID, user.id)
             dataStore.writeBoolean(DataStoreKeys.IS_ADMIN, user.isAdmin)
@@ -182,6 +190,7 @@ class AuthRepositoryImpl @Inject constructor(
         }
         val body = response.body() ?: error("Empty refresh response")
         val tokens = body.toDomain()
+        tokenHolder.setToken(tokens.accessToken)
         dataStore.writeString(DataStoreKeys.ACCESS_TOKEN, tokens.accessToken)
         tokens
     }
