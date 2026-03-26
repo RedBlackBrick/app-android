@@ -24,7 +24,7 @@ class DeviceRepositoryImpl @Inject constructor(
         if (!response.isSuccessful) {
             error("Get devices failed: HTTP ${response.code()}")
         }
-        val devices = response.body()?.devices?.map { it.toDomain() } ?: emptyList()
+        val devices = response.body()?.map { it.toDomain() } ?: emptyList()
 
         // Purge Room APRÈS sync réussie — transaction atomique
         val now = System.currentTimeMillis()
@@ -51,7 +51,7 @@ class DeviceRepositoryImpl @Inject constructor(
         if (!response.isSuccessful) {
             error("Get devices (fallback for status) failed: HTTP ${response.code()}")
         }
-        val devices = response.body()?.devices?.map { it.toDomain() } ?: emptyList()
+        val devices = response.body()?.map { it.toDomain() } ?: emptyList()
 
         val now = System.currentTimeMillis()
         deviceDao.upsertAllAndPurge(
@@ -71,9 +71,9 @@ class DeviceRepositoryImpl @Inject constructor(
         deviceDao.deleteByDeviceId(deviceId)
     }
 
-    override suspend fun sendCommand(deviceId: String, commandType: String): Result<Unit> = runCatching {
+    override suspend fun sendCommand(deviceId: String, commandType: String, params: Map<String, Any>?): Result<Unit> = runCatching {
         val response = deviceApi.sendCommand(
-            body = DeviceCommandRequestDto(deviceId = deviceId, commandType = commandType),
+            body = DeviceCommandRequestDto(deviceId = deviceId, commandType = commandType, params = params),
         )
         if (!response.isSuccessful) {
             error("Send command failed: HTTP ${response.code()}")

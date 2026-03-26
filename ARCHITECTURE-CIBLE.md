@@ -235,13 +235,17 @@ Le client LAN reste identique au niveau OkHttp. Le chiffrement libsodium est app
 
 ---
 
-## 7. Certificate Pinning (inchange)
+## 7. Certificate Pinning (Root CA)
 
 ```kotlin
 // CertificatePinnerProvider.buildCertificatePinner()
-// BuildConfig.CERT_PIN_SHA256 (principal) + BuildConfig.CERT_PIN_SHA256_BACKUP (backup)
-// Desactive en debug (BuildConfig.DEBUG) pour les tests locaux
+// BuildConfig.CERT_PIN_SHA256 = SPKI hash de la Root CA Caddy (pas du cert leaf)
+// BuildConfig.CERT_PIN_SHA256_BACKUP = backup (meme hash ou future CA)
+// Desactive en DEV_MODE pour les tests locaux
+// Generer les hashes : cd trading-platform2 && ./scripts/extract_caddy_ca.sh
 ```
+
+Root CA pinning : OkHttp verifie le SPKI hash contre toute la chaine TLS. Le cert leaf renouvele par Caddy (~2 mois) est transparent — pas de MAJ client necessaire. Root CA valide ~10 ans.
 
 Le pinning s'applique aux clients Main et Bare. Le client LAN n'a pas de pinning (HTTP non chiffre, payload chiffre libsodium).
 

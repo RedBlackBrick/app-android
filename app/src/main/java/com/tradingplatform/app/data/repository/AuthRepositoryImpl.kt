@@ -57,8 +57,17 @@ class AuthRepositoryImpl @Inject constructor(
                 error("Login failed: HTTP $code")
             }
             val body = response.body() ?: error("Empty login response")
-            val user = body.user.toDomain()
-            val tokens = body.tokens.toDomain()
+
+            // Le backend retourne HTTP 200 avec requires_2fa=true quand le TOTP est activé.
+            // Les champs user/tokens sont absents dans ce cas — détecter avant de parser.
+            if (body.requires2fa) {
+                val sessionToken = body.sessionToken ?: body.tempToken
+                    ?: error("2FA required but no session_token in response")
+                throw TotpRequiredException(sessionToken = sessionToken)
+            }
+
+            val user = body.user?.toDomain() ?: error("Login response missing user")
+            val tokens = body.tokens?.toDomain() ?: error("Login response missing tokens")
 
             // Peupler le cache mémoire AVANT le DataStore (disque) — si le process est tué
             // entre les deux, le fallback DataStore relira l'ancien token → nouveau 401 → refresh.
@@ -128,7 +137,7 @@ class AuthRepositoryImpl @Inject constructor(
         if (!response.isSuccessful) {
             error("Get portfolios failed: HTTP ${response.code()}")
         }
-        val portfolios = response.body()?.portfolios?.map { it.toDomain() } ?: emptyList()
+        val portfolios = response.body()?.map { it.toDomain() } ?: emptyList()
 
         when {
             portfolios.isEmpty() -> {
@@ -165,14 +174,14 @@ class AuthRepositoryImpl @Inject constructor(
             val totpError = moshi.adapter(TotpRequiredErrorDto::class.java).fromJson(errorBody)
             when (totpError?.errorCode) {
                 "AUTH_1004" -> TotpRequiredException(sessionToken = totpError.sessionToken)
-                "AUTH_1008" -> AccountLockedException(retryAfterSeconds = retryAfter)
-                "AUTH_1001" -> InvalidCredentialsException()
+                "AUTH_1008", "LOGIN_RATE_LIMITED" -> AccountLockedException(retryAfterSeconds = retryAfter)
+                "AUTH_1001", "INVALID_CREDENTIALS" -> InvalidCredentialsException()
                 else -> {
                     // Session_token absent ou errorCode non reconnu — fallback sur ApiErrorDto générique
                     val apiError = moshi.adapter(ApiErrorDto::class.java).fromJson(errorBody)
                     when (apiError?.errorCode) {
-                        "AUTH_1008" -> AccountLockedException(retryAfterSeconds = retryAfter)
-                        "AUTH_1001" -> InvalidCredentialsException()
+                        "AUTH_1008", "LOGIN_RATE_LIMITED" -> AccountLockedException(retryAfterSeconds = retryAfter)
+                        "AUTH_1001", "INVALID_CREDENTIALS" -> InvalidCredentialsException()
                         else -> null
                     }
                 }

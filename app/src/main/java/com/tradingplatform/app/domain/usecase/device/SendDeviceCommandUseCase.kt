@@ -12,6 +12,6 @@ import javax.inject.Inject
 class SendDeviceCommandUseCase @Inject constructor(
     private val repository: DeviceRepository,
 ) {
-    suspend operator fun invoke(deviceId: String, commandType: String): Result<Unit> =
-        repository.sendCommand(deviceId, commandType)
+    suspend operator fun invoke(deviceId: String, commandType: String, params: Map<String, Any>? = null): Result<Unit> =
+        repository.sendCommand(deviceId, commandType, params)
 }

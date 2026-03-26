@@ -449,26 +449,36 @@ Le middleware CSRF du VPS **ne fait pas d'exemption** sur les requêtes Bearer �
 
 ## 4. SÉCURITÉ — RÈGLES SPÉCIFIQUES
 
-### Certificate Pinning
+### Certificate Pinning (Root CA)
+
+**Strategie : Root CA pinning.** On pinne le SPKI hash de la Root CA Caddy (pas le certificat
+serveur leaf). OkHttp verifie le hash contre toute la chaine TLS, donc la Root CA match
+automatiquement. Les renouvellements automatiques du cert leaf par Caddy (~tous les 2 mois)
+sont transparents. La Root CA est valide ~10 ans.
 
 ```kotlin
 // Dans CertificatePinner.kt — ne jamais bypasser
+// Le hash est celui de la Root CA Caddy (SPKI SHA-256), PAS du cert serveur
 OkHttpClient.Builder()
     .certificatePinner(
         CertificatePinner.Builder()
-            .add("vps.example.com", "sha256/<EMPREINTE_DU_CERT_VPS>")
-            .add("vps.example.com", "sha256/<EMPREINTE_BACKUP>")  // backup pin obligatoire
+            .add("10.42.0.1", "sha256/<ROOT_CA_SPKI_HASH>")
+            .add("10.42.0.1", "sha256/<ROOT_CA_SPKI_HASH_BACKUP>")
             .build()
     )
 ```
 
-**Backup pin obligatoire.** Un seul pin = app cassée si le cert VPS est renouvelé avant la
-mise à jour de l'app. Le backup pin doit être le hash du prochain certificat prévu **ou** du
-certificat intermédiaire CA. Le `local.properties` doit donc exposer les deux :
+**Generer le hash :** `cd trading-platform2 && ./scripts/extract_caddy_ca.sh`
+
 ```properties
-CERT_PIN_SHA256=sha256/<empreinte_courante>
-CERT_PIN_SHA256_BACKUP=sha256/<empreinte_backup>
+# local.properties — Root CA SPKI hashes
+CERT_PIN_SHA256=sha256/<hash_root_ca_caddy>
+CERT_PIN_SHA256_BACKUP=sha256/<meme_hash_ou_hash_backup_ca>
 ```
+
+**Backup pin :** identique au principal tant qu'il n'y a pas de migration de CA prevue.
+Si le VPS est reconstruit, restaurer le backup PKI (`./scripts/extract_caddy_ca.sh` fait le
+backup automatiquement). Tous les clients existants continuent de fonctionner.
 
 ### Stockage sécurisé
 

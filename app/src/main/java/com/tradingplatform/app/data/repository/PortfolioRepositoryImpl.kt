@@ -41,7 +41,7 @@ class PortfolioRepositoryImpl @Inject constructor(
             if (!response.isSuccessful) {
                 error("Get positions failed: HTTP ${response.code()}")
             }
-            val positions = response.body()?.positions?.map { it.toDomain() } ?: emptyList()
+            val positions = response.body()?.map { it.toDomain() } ?: emptyList()
             val now = System.currentTimeMillis()
             positionDao.upsertAllAndPurge(
                 positions.map { it.toEntity(syncedAt = now) },
@@ -58,7 +58,7 @@ class PortfolioRepositoryImpl @Inject constructor(
             if (!response.isSuccessful) {
                 error("Get positions failed: HTTP ${response.code()}")
             }
-            val positions = response.body()?.positions?.map { it.toDomain() } ?: emptyList()
+            val positions = response.body()?.map { it.toDomain() } ?: emptyList()
 
             // Purge Room APRÈS sync réussie — jamais avant (CLAUDE.md §2 Politique de rétention)
             // Transaction atomique : upsert + purge en un seul commit SQLite
