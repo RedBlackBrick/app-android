@@ -6,6 +6,7 @@ import com.tradingplatform.app.data.local.db.AppDatabase
 import com.tradingplatform.app.data.local.db.MIGRATION_2_3
 import com.tradingplatform.app.data.local.db.MIGRATION_3_4
 import com.tradingplatform.app.data.local.db.MIGRATION_4_5
+import com.tradingplatform.app.data.local.db.MIGRATION_5_6
 import com.tradingplatform.app.data.local.db.dao.AlertDao
 import com.tradingplatform.app.data.local.db.dao.DeviceDao
 import com.tradingplatform.app.data.local.db.dao.PnlDao
@@ -33,7 +34,7 @@ object DatabaseModule {
         AppDatabase::class.java,
         "trading_platform_db"
     )
-        .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+        .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
         .apply {
             if (BuildConfig.DEBUG) {
                 fallbackToDestructiveMigration(dropAllTables = true)

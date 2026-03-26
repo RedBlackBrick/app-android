@@ -23,4 +23,7 @@ data class DeviceEntity(
     @ColumnInfo(name = "uptime_seconds") val uptimeSeconds: Long? = null,
     @ColumnInfo(name = "firmware_version") val firmwareVersion: String? = null,
     @ColumnInfo(name = "hostname") val hostname: String? = null,
+    @ColumnInfo(name = "broker_gateway_enabled") val brokerGatewayEnabled: Boolean? = null,
+    @ColumnInfo(name = "broker_gateway_status") val brokerGatewayStatus: String? = null,
+    @ColumnInfo(name = "broker_gateway_broker_id") val brokerGatewayBrokerId: Int? = null,
 )

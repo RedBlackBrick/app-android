@@ -8,4 +8,5 @@ data class PortfolioDto(
     @Json(name = "id") val id: String,
     @Json(name = "name") val name: String,
     @Json(name = "currency_code") val currency: String,
+    @Json(name = "broker_summary") val brokerSummary: BrokerSummaryDto? = null,
 )

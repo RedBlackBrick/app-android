@@ -28,6 +28,8 @@ import com.tradingplatform.app.data.local.db.entity.WatchlistEntity
 // v4           : ajout index sur synced_at (positions, quotes, alerts, devices,
 //               pnl_snapshots) et received_at (alerts) pour optimiser les purges
 // v5           : ajout table watchlist (symboles favoris de l'utilisateur)
+// v6           : ajout colonnes broker gateway dans devices
+//               (broker_gateway_enabled, broker_gateway_status, broker_gateway_broker_id)
 //
 // STRATÉGIE DE MIGRATION — RÈGLES IMPÉRATIVES
 // ───────────────────────────────────────────────────────────────────────────────
@@ -77,6 +79,15 @@ val MIGRATION_3_4 = object : Migration(3, 4) {
     }
 }
 
+// ── Migration 5 → 6 : ajout colonnes broker gateway dans devices ────────────
+val MIGRATION_5_6 = object : Migration(5, 6) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        database.execSQL("ALTER TABLE devices ADD COLUMN broker_gateway_enabled INTEGER")
+        database.execSQL("ALTER TABLE devices ADD COLUMN broker_gateway_status TEXT")
+        database.execSQL("ALTER TABLE devices ADD COLUMN broker_gateway_broker_id INTEGER")
+    }
+}
+
 // ── Migration 4 → 5 : ajout table watchlist ────────────────────────────────
 val MIGRATION_4_5 = object : Migration(4, 5) {
     override fun migrate(database: SupportSQLiteDatabase) {
@@ -98,7 +109,7 @@ val MIGRATION_4_5 = object : Migration(4, 5) {
         QuoteEntity::class,
         WatchlistEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {

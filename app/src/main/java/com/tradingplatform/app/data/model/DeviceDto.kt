@@ -18,4 +18,7 @@ data class DeviceDto(
     @Json(name = "uptime_seconds") val uptimeSeconds: Long? = null,
     @Json(name = "firmware_version") val firmwareVersion: String? = null,
     @Json(name = "hostname") val hostname: String? = null,
+    @Json(name = "broker_gateway_enabled") val brokerGatewayEnabled: Boolean? = null,
+    @Json(name = "broker_gateway_status") val brokerGatewayStatus: String? = null,
+    @Json(name = "broker_gateway_broker_id") val brokerGatewayBrokerId: Int? = null,
 )

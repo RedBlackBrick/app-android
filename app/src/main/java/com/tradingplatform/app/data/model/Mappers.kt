@@ -8,6 +8,8 @@ import com.tradingplatform.app.data.local.db.entity.QuoteEntity
 import com.tradingplatform.app.domain.model.Alert
 import com.tradingplatform.app.domain.model.AlertType
 import com.tradingplatform.app.domain.model.AuthTokens
+import com.tradingplatform.app.domain.model.BrokerGatewayStatus
+import com.tradingplatform.app.domain.model.BrokerSummary
 import com.tradingplatform.app.domain.model.Device
 import com.tradingplatform.app.domain.model.DeviceStatus
 import com.tradingplatform.app.domain.model.NavSummary
@@ -46,6 +48,14 @@ fun PortfolioDto.toDomain(): Portfolio = Portfolio(
     id = id,
     name = name,
     currency = currency,
+    brokerSummary = brokerSummary?.let {
+        BrokerSummary(
+            brokerCode = it.brokerCode,
+            connectionStatus = it.connectionStatus,
+            executionMode = it.executionMode,
+            deviceId = it.deviceId,
+        )
+    },
 )
 
 fun PositionDto.toDomain(): Position = Position(
@@ -129,6 +139,13 @@ fun DeviceDto.toDomain(): Device = Device(
     uptimeSeconds = uptimeSeconds,
     firmwareVersion = firmwareVersion,
     hostname = hostname,
+    brokerGateway = if (brokerGatewayEnabled != null || brokerGatewayStatus != null) {
+        BrokerGatewayStatus(
+            enabled = brokerGatewayEnabled ?: false,
+            status = brokerGatewayStatus ?: "stopped",
+            brokerId = brokerGatewayBrokerId,
+        )
+    } else null,
 )
 
 fun VpnPeerDto.toDomain(): VpnPeer = VpnPeer(
@@ -199,6 +216,13 @@ fun DeviceEntity.toDomain(): Device = Device(
     uptimeSeconds = uptimeSeconds,
     firmwareVersion = firmwareVersion,
     hostname = hostname,
+    brokerGateway = if (brokerGatewayEnabled != null || brokerGatewayStatus != null) {
+        BrokerGatewayStatus(
+            enabled = brokerGatewayEnabled ?: false,
+            status = brokerGatewayStatus ?: "stopped",
+            brokerId = brokerGatewayBrokerId,
+        )
+    } else null,
 )
 
 fun QuoteEntity.toDomain(): Quote = Quote(
@@ -267,6 +291,9 @@ fun Device.toEntity(syncedAt: Long = System.currentTimeMillis()): DeviceEntity =
     uptimeSeconds = uptimeSeconds,
     firmwareVersion = firmwareVersion,
     hostname = hostname,
+    brokerGatewayEnabled = brokerGateway?.enabled,
+    brokerGatewayStatus = brokerGateway?.status,
+    brokerGatewayBrokerId = brokerGateway?.brokerId,
 )
 
 fun Quote.toEntity(syncedAt: Long = System.currentTimeMillis()): QuoteEntity = QuoteEntity(

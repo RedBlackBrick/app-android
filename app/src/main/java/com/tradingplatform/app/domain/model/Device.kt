@@ -15,4 +15,11 @@ data class Device(
     val uptimeSeconds: Long? = null,
     val firmwareVersion: String? = null,
     val hostname: String? = null,
+    val brokerGateway: BrokerGatewayStatus? = null,
+)
+
+data class BrokerGatewayStatus(
+    val enabled: Boolean,
+    val status: String,
+    val brokerId: Int?,
 )
