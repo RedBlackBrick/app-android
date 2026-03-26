@@ -56,8 +56,8 @@ fun PositionDto.toDomain(): Position = Position(
     currentPrice = currentPrice,
     unrealizedPnl = unrealizedPnl,
     unrealizedPnlPercent = unrealizedPnlPercent,
-    status = status,
-    openedAt = Instant.parse(openedAt),
+    status = if (isActive) PositionStatus.OPEN else PositionStatus.CLOSED,
+    openedAt = openedAt?.let { Instant.parse(it) },
 )
 
 fun PerformanceResponseDto.toPerformanceMetrics(): PerformanceMetrics = PerformanceMetrics(
@@ -153,15 +153,15 @@ fun PositionEntity.toDomain(): Position = Position(
     symbol = symbol,
     quantity = BigDecimal(quantity),
     avgPrice = BigDecimal(avgPrice),
-    currentPrice = BigDecimal(currentPrice),
-    unrealizedPnl = BigDecimal(unrealizedPnl),
+    currentPrice = currentPrice?.let { BigDecimal(it) },
+    unrealizedPnl = unrealizedPnl?.let { BigDecimal(it) },
     unrealizedPnlPercent = unrealizedPnlPercent,
     status = when (status) {
         "open" -> PositionStatus.OPEN
         "closed" -> PositionStatus.CLOSED
         else -> PositionStatus.OPEN
     },
-    openedAt = Instant.ofEpochMilli(openedAt),
+    openedAt = openedAt?.let { Instant.ofEpochMilli(it) },
 )
 
 fun PnlSnapshotEntity.toDomain(): PnlSummary = PnlSummary(
@@ -204,8 +204,8 @@ fun DeviceEntity.toDomain(): Device = Device(
 fun QuoteEntity.toDomain(): Quote = Quote(
     symbol = symbol,
     price = BigDecimal(price),
-    bid = BigDecimal(bid),
-    ask = BigDecimal(ask),
+    bid = bid?.let { BigDecimal(it) },
+    ask = ask?.let { BigDecimal(it) },
     volume = volume,
     change = BigDecimal(change),
     changePercent = changePercent,
@@ -220,11 +220,11 @@ fun Position.toEntity(syncedAt: Long = System.currentTimeMillis()): PositionEnti
     symbol = symbol,
     quantity = quantity.toPlainString(),
     avgPrice = avgPrice.toPlainString(),
-    currentPrice = currentPrice.toPlainString(),
-    unrealizedPnl = unrealizedPnl.toPlainString(),
+    currentPrice = currentPrice?.toPlainString(),
+    unrealizedPnl = unrealizedPnl?.toPlainString(),
     unrealizedPnlPercent = unrealizedPnlPercent,
     status = status.toApiString(),
-    openedAt = openedAt.toEpochMilli(),
+    openedAt = openedAt?.toEpochMilli(),
     syncedAt = syncedAt,
 )
 
@@ -272,8 +272,8 @@ fun Device.toEntity(syncedAt: Long = System.currentTimeMillis()): DeviceEntity =
 fun Quote.toEntity(syncedAt: Long = System.currentTimeMillis()): QuoteEntity = QuoteEntity(
     symbol = symbol,
     price = price.toPlainString(),
-    bid = bid.toPlainString(),
-    ask = ask.toPlainString(),
+    bid = bid?.toPlainString(),
+    ask = ask?.toPlainString(),
     volume = volume,
     change = change.toPlainString(),
     changePercent = changePercent,

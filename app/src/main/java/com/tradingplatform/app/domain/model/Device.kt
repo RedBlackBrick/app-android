@@ -4,9 +4,9 @@ import java.time.Instant
 
 data class Device(
     val id: String,
-    val name: String,
+    val name: String?,
     val status: DeviceStatus,
-    val wgIp: String,
+    val wgIp: String?,
     val lastHeartbeat: Instant?,
     val cpuPct: Float? = null,
     val memoryPct: Float? = null,

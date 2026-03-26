@@ -8,9 +8,9 @@ data class Position(
     val symbol: String,
     val quantity: BigDecimal,
     val avgPrice: BigDecimal,
-    val currentPrice: BigDecimal,
-    val unrealizedPnl: BigDecimal,
-    val unrealizedPnlPercent: Double,
+    val currentPrice: BigDecimal?,
+    val unrealizedPnl: BigDecimal?,
+    val unrealizedPnlPercent: Double?,
     val status: PositionStatus,
-    val openedAt: Instant,
+    val openedAt: Instant?,
 )

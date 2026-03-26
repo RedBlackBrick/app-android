@@ -12,8 +12,8 @@ import androidx.room.PrimaryKey
 data class QuoteEntity(
     @PrimaryKey val symbol: String,
     @ColumnInfo(name = "price") val price: String,
-    @ColumnInfo(name = "bid") val bid: String,
-    @ColumnInfo(name = "ask") val ask: String,
+    @ColumnInfo(name = "bid") val bid: String?,
+    @ColumnInfo(name = "ask") val ask: String?,
     @ColumnInfo(name = "volume") val volume: Long,
     @ColumnInfo(name = "change") val change: String,
     @ColumnInfo(name = "change_percent") val changePercent: Double,

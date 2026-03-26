@@ -2,11 +2,11 @@
   "formatVersion": 1,
   "database": {
     "version": 5,
-    "identityHash": "e21ae8da461a6248a3bb712dd7899504",
+    "identityHash": "5d021d24b91287962e523ee640ca563b",
     "entities": [
       {
         "tableName": "positions",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `symbol` TEXT NOT NULL, `quantity` TEXT NOT NULL, `avg_price` TEXT NOT NULL, `current_price` TEXT NOT NULL, `unrealized_pnl` TEXT NOT NULL, `unrealized_pnl_percent` REAL NOT NULL, `status` TEXT NOT NULL, `opened_at` INTEGER NOT NULL, `synced_at` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `symbol` TEXT NOT NULL, `quantity` TEXT NOT NULL, `avg_price` TEXT NOT NULL, `current_price` TEXT, `unrealized_pnl` TEXT, `unrealized_pnl_percent` REAL, `status` TEXT NOT NULL, `opened_at` INTEGER, `synced_at` INTEGER NOT NULL, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
@@ -35,20 +35,17 @@
           {
             "fieldPath": "currentPrice",
             "columnName": "current_price",
-            "affinity": "TEXT",
-            "notNull": true
+            "affinity": "TEXT"
           },
           {
             "fieldPath": "unrealizedPnl",
             "columnName": "unrealized_pnl",
-            "affinity": "TEXT",
-            "notNull": true
+            "affinity": "TEXT"
           },
           {
             "fieldPath": "unrealizedPnlPercent",
             "columnName": "unrealized_pnl_percent",
-            "affinity": "REAL",
-            "notNull": true
+            "affinity": "REAL"
           },
           {
             "fieldPath": "status",
@@ -59,8 +56,7 @@
           {
             "fieldPath": "openedAt",
             "columnName": "opened_at",
-            "affinity": "INTEGER",
-            "notNull": true
+            "affinity": "INTEGER"
           },
           {
             "fieldPath": "syncedAt",
@@ -254,7 +250,7 @@
       },
       {
         "tableName": "devices",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `status` TEXT NOT NULL, `wg_ip` TEXT NOT NULL, `last_heartbeat` INTEGER, `synced_at` INTEGER NOT NULL, `cpu_pct` REAL, `memory_pct` REAL, `temperature` REAL, `disk_pct` REAL, `uptime_seconds` INTEGER, `firmware_version` TEXT, `hostname` TEXT, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `name` TEXT, `status` TEXT NOT NULL, `wg_ip` TEXT, `last_heartbeat` INTEGER, `synced_at` INTEGER NOT NULL, `cpu_pct` REAL, `memory_pct` REAL, `temperature` REAL, `disk_pct` REAL, `uptime_seconds` INTEGER, `firmware_version` TEXT, `hostname` TEXT, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
@@ -265,8 +261,7 @@
           {
             "fieldPath": "name",
             "columnName": "name",
-            "affinity": "TEXT",
-            "notNull": true
+            "affinity": "TEXT"
           },
           {
             "fieldPath": "status",
@@ -277,8 +272,7 @@
           {
             "fieldPath": "wgIp",
             "columnName": "wg_ip",
-            "affinity": "TEXT",
-            "notNull": true
+            "affinity": "TEXT"
           },
           {
             "fieldPath": "lastHeartbeat",
@@ -347,7 +341,7 @@
       },
       {
         "tableName": "quotes",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`symbol` TEXT NOT NULL, `price` TEXT NOT NULL, `bid` TEXT NOT NULL, `ask` TEXT NOT NULL, `volume` INTEGER NOT NULL, `change` TEXT NOT NULL, `change_percent` REAL NOT NULL, `quote_timestamp` INTEGER NOT NULL, `source` TEXT NOT NULL, `synced_at` INTEGER NOT NULL, PRIMARY KEY(`symbol`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`symbol` TEXT NOT NULL, `price` TEXT NOT NULL, `bid` TEXT, `ask` TEXT, `volume` INTEGER NOT NULL, `change` TEXT NOT NULL, `change_percent` REAL NOT NULL, `quote_timestamp` INTEGER NOT NULL, `source` TEXT NOT NULL, `synced_at` INTEGER NOT NULL, PRIMARY KEY(`symbol`))",
         "fields": [
           {
             "fieldPath": "symbol",
@@ -364,14 +358,12 @@
           {
             "fieldPath": "bid",
             "columnName": "bid",
-            "affinity": "TEXT",
-            "notNull": true
+            "affinity": "TEXT"
           },
           {
             "fieldPath": "ask",
             "columnName": "ask",
-            "affinity": "TEXT",
-            "notNull": true
+            "affinity": "TEXT"
           },
           {
             "fieldPath": "volume",
@@ -455,7 +447,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'e21ae8da461a6248a3bb712dd7899504')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '5d021d24b91287962e523ee640ca563b')"
     ]
   }
 }
