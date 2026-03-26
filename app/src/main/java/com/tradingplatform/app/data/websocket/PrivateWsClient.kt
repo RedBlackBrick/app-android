@@ -104,12 +104,12 @@ class PrivateWsClient @Inject constructor(
      */
     @Volatile private var currentTokenExpiresAt: Instant? = null
 
-    // URL WebSocket dérivée de baseUrl : https://… → wss://…/ws/private
+    // URL WebSocket dérivée de baseUrl : https://… → wss://…/v1/ws/private
     private val wsUrl: String
         get() = baseUrl
             .replaceFirst("https://", "wss://")
             .replaceFirst("http://", "ws://")
-            .trimEnd('/') + "/ws/private"
+            .trimEnd('/') + "/v1/ws/private"
 
     companion object {
         private const val TAG = "PrivateWsClient"

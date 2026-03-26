@@ -26,5 +26,5 @@ interface PairingLanApi {
     @GET
     suspend fun getStatus(
         @Url url: String,    // "http://{radxa_ip}:8099/status"
-    ): Response<Map<String, String>>
+    ): Response<Map<String, Any>>
 }

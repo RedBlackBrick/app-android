@@ -103,7 +103,7 @@ class PairingRepositoryImpl @Inject constructor(
             val status = runCatching {
                 val response = pairingApi.getStatus(url)
                 if (response.isSuccessful) {
-                    val statusStr = response.body()?.get("status") ?: "failed"
+                    val statusStr = response.body()?.get("status")?.toString() ?: "failed"
                     PairingStatus.fromString(statusStr)
                 } else {
                     Timber.tag(TAG).w("PairingRepository: poll status HTTP ${response.code()}")
