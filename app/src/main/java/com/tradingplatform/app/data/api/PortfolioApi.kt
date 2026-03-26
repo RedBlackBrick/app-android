@@ -2,7 +2,7 @@ package com.tradingplatform.app.data.api
 
 import com.tradingplatform.app.data.model.PerformanceResponseDto
 import com.tradingplatform.app.data.model.PortfolioDetailDto
-import com.tradingplatform.app.data.model.PositionListResponseDto
+import com.tradingplatform.app.data.model.PositionDto
 import com.tradingplatform.app.data.model.TransactionListResponseDto
 import retrofit2.Response
 import retrofit2.http.GET
@@ -14,7 +14,7 @@ interface PortfolioApi {
     suspend fun getPositions(
         @Path("portfolio_id") portfolioId: String,
         @Query("status") status: String = "open",
-    ): Response<PositionListResponseDto>
+    ): Response<List<PositionDto>>
 
     @GET("v1/portfolios/{portfolio_id}/performance")
     suspend fun getPerformance(

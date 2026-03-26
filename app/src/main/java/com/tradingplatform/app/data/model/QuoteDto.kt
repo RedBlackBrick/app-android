@@ -8,8 +8,8 @@ import java.math.BigDecimal
 data class QuoteDto(
     @Json(name = "symbol") val symbol: String,
     @Json(name = "price") val price: BigDecimal,
-    @Json(name = "bid") val bid: BigDecimal,
-    @Json(name = "ask") val ask: BigDecimal,
+    @Json(name = "bid") val bid: BigDecimal? = null,
+    @Json(name = "ask") val ask: BigDecimal? = null,
     @Json(name = "volume") val volume: Long,
     @Json(name = "change") val change: BigDecimal,
     @Json(name = "change_percent") val changePercent: Double,

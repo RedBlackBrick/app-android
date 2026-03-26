@@ -7,9 +7,9 @@ import com.tradingplatform.app.domain.model.DeviceStatus
 @JsonClass(generateAdapter = true)
 data class DeviceDto(
     @Json(name = "id") val id: String,
-    @Json(name = "name") val name: String,
+    @Json(name = "device_name") val name: String? = null,
     @Json(name = "status") val status: DeviceStatus,
-    @Json(name = "wg_ip") val wgIp: String,
+    @Json(name = "ip_address") val wgIp: String? = null,
     @Json(name = "last_heartbeat") val lastHeartbeat: String?,
     @Json(name = "cpu_pct") val cpuPct: Float? = null,
     @Json(name = "memory_pct") val memoryPct: Float? = null,

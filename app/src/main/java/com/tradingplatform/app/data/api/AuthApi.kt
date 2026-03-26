@@ -2,7 +2,7 @@ package com.tradingplatform.app.data.api
 
 import com.tradingplatform.app.data.model.LoginRequestDto
 import com.tradingplatform.app.data.model.LoginResponseDto
-import com.tradingplatform.app.data.model.PortfolioListResponseDto
+import com.tradingplatform.app.data.model.PortfolioDto
 import com.tradingplatform.app.data.model.TokenResponseDto
 import com.tradingplatform.app.data.model.TotpVerifyRequestDto
 import com.tradingplatform.app.data.model.TotpVerifyResponseDto
@@ -30,7 +30,7 @@ interface AuthApi {
     suspend fun verify2fa(@Body request: TotpVerifyRequestDto): Response<TotpVerifyResponseDto>
 
     @GET("v1/portfolios")
-    suspend fun getPortfolios(): Response<PortfolioListResponseDto>
+    suspend fun getPortfolios(): Response<List<PortfolioDto>>
 
     /**
      * Génère un JWT avec claim `type=websocket` pour authentifier la connexion WS privée.
