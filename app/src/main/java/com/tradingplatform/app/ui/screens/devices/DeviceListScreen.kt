@@ -259,7 +259,7 @@ private fun DeviceCard(
                 ) {
                     StatusLed(isOnline = device.status == DeviceStatus.ONLINE)
                     Text(
-                        text = device.name,
+                        text = device.name ?: device.id,
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurface,
                     )

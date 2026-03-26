@@ -204,7 +204,7 @@ private fun SystemStatusWidgetContent(
         if (latestDevice != null) {
             Spacer(modifier = GlanceModifier.height(2.dp))
             Text(
-                text = latestDevice.name,
+                text = latestDevice.name ?: latestDevice.id,
                 style = TextStyle(
                     color = GlanceTheme.colors.onSurface,
                     fontSize = 11.sp,

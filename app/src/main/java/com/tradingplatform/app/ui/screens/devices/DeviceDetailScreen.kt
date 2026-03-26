@@ -172,7 +172,7 @@ fun DeviceDetailScreen(
     }
 
     val screenTitle = when (val state = uiState) {
-        is DeviceDetailUiState.Success -> state.device.name
+        is DeviceDetailUiState.Success -> state.device.name ?: state.device.id
         else -> "Device"
     }
 
@@ -284,11 +284,11 @@ private fun DeviceDetailContent(
                 ) {
                     StatusLed(isOnline = device.status == DeviceStatus.ONLINE)
                     Text(
-                        text = device.name,
+                        text = device.name ?: device.id,
                         style = MaterialTheme.typography.headlineSmall,
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.semantics {
-                            contentDescription = "Nom du device : ${device.name}"
+                            contentDescription = "Nom du device : ${device.name ?: device.id}"
                         },
                     )
                 }
@@ -329,8 +329,8 @@ private fun DeviceDetailContent(
 
                 DeviceInfoRow(
                     label = "IP WireGuard",
-                    value = device.wgIp,
-                    contentDescriptionText = "Adresse IP WireGuard : ${device.wgIp}",
+                    value = device.wgIp ?: "—",
+                    contentDescriptionText = "Adresse IP WireGuard : ${device.wgIp ?: "—"}",
                 )
 
                 Spacer(modifier = Modifier.height(Spacing.md))

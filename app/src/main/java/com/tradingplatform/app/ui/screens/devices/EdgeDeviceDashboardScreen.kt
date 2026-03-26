@@ -409,13 +409,13 @@ private fun DashboardContent(
                     ) {
                         StatusLed(isOnline = device.status == DeviceStatus.ONLINE)
                         Text(
-                            text = device.name,
+                            text = device.name ?: device.id,
                             style = MaterialTheme.typography.headlineSmall,
                             color = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier
                                 .weight(1f)
                                 .semantics {
-                                    contentDescription = "Nom du device : ${device.name}"
+                                    contentDescription = "Nom du device : ${device.name ?: device.id}"
                                 },
                         )
                         when (device.status) {
@@ -456,8 +456,8 @@ private fun DashboardContent(
                     Spacer(modifier = Modifier.height(Spacing.md))
                     DashboardInfoRow(
                         label = "IP WireGuard",
-                        value = device.wgIp,
-                        contentDescriptionText = "Adresse IP WireGuard : ${device.wgIp}",
+                        value = device.wgIp ?: "—",
+                        contentDescriptionText = "Adresse IP WireGuard : ${device.wgIp ?: "—"}",
                     )
                     Spacer(modifier = Modifier.height(Spacing.md))
                     DashboardInfoRow(

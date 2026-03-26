@@ -47,6 +47,7 @@ import com.tradingplatform.app.ui.components.SkeletonPositionCard
 import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.Spacing
 import com.tradingplatform.app.ui.theme.pnlColor
+import java.math.BigDecimal
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -240,15 +241,15 @@ private fun PositionCard(
             ) {
                 // P&L amount — most prominent, animated for live WS updates
                 AnimatedPnlText(
-                    value = position.unrealizedPnl,
+                    value = position.unrealizedPnl ?: BigDecimal.ZERO,
                     style = MaterialTheme.typography.titleMedium.copy(
                         fontWeight = FontWeight.Bold,
                     ),
                 )
                 // P&L percentage
-                val pnlColor = pnlColor(position.unrealizedPnl)
+                val pnlColor = pnlColor(position.unrealizedPnl ?: BigDecimal.ZERO)
                 Text(
-                    text = "${if (position.unrealizedPnlPercent >= 0) "+" else ""}${"%.2f".format(position.unrealizedPnlPercent)}%",
+                    text = "${if ((position.unrealizedPnlPercent ?: 0.0) >= 0) "+" else ""}${"%.2f".format(position.unrealizedPnlPercent ?: 0.0)}%",
                     style = MaterialTheme.typography.bodySmall.copy(
                         fontWeight = FontWeight.Medium,
                     ),
@@ -256,7 +257,7 @@ private fun PositionCard(
                 )
                 // Current price — secondary
                 MoneyText(
-                    amount = position.currentPrice,
+                    amount = position.currentPrice ?: BigDecimal.ZERO,
                     decimals = 2,
                     style = MaterialTheme.typography.bodySmall,
                 )

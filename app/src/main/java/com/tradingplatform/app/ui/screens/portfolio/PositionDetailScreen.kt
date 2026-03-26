@@ -42,6 +42,7 @@ import com.tradingplatform.app.ui.components.PnlText
 import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.Spacing
 import com.tradingplatform.app.ui.theme.pnlColor
+import java.math.BigDecimal
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
@@ -212,7 +213,7 @@ private fun PositionSummaryCard(
                     horizontalAlignment = Alignment.End,
                     content = {
                         MoneyText(
-                            amount = position.currentPrice,
+                            amount = position.currentPrice ?: BigDecimal.ZERO,
                             decimals = 2,
                             style = MaterialTheme.typography.bodyLarge,
                         )
@@ -241,11 +242,11 @@ private fun PositionSummaryCard(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         PnlText(
-                            value = position.unrealizedPnl,
+                            value = position.unrealizedPnl ?: BigDecimal.ZERO,
                             style = MaterialTheme.typography.bodyLarge,
                         )
-                        val pnlPct = position.unrealizedPnlPercent
-                        val pnlPctColor = pnlColor(position.unrealizedPnl)
+                        val pnlPct = position.unrealizedPnlPercent ?: 0.0
+                        val pnlPctColor = pnlColor(position.unrealizedPnl ?: BigDecimal.ZERO)
                         Text(
                             text = "(${if (pnlPct >= 0) "+" else ""}${"%.2f".format(pnlPct)}%)",
                             style = MaterialTheme.typography.bodySmall,
