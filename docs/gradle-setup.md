@@ -1,53 +1,58 @@
 # Gradle Setup — Version Catalog
 
-Fichier à placer dans `gradle/libs.versions.toml`.
+Fichier de reference : `gradle/libs.versions.toml`.
 
 ---
 
 ```toml
 [versions]
 kotlin              = "2.2.20"
-agp                 = "8.13.2"
+agp                 = "9.0.1"
 ksp                 = "2.3.6"
+desugar-jdk-libs    = "2.1.5"
 
-compose-bom         = "2026.02.01"
-activity-compose    = "1.10.0"
-lifecycle           = "2.8.7"
+compose-bom         = "2026.03.00"
+activity-compose    = "1.13.0"
+lifecycle           = "2.10.0"
 
 hilt                = "2.58"
-hilt-androidx       = "1.2.0"
+hilt-androidx       = "1.3.0"
 
 retrofit            = "2.11.0"
 okhttp              = "4.12.0"
-moshi               = "1.15.1"
+moshi               = "1.15.2"
 
-room                = "2.7.0"
-datastore           = "1.1.2"
-security-crypto     = "1.1.0-alpha06"   # ⚠ alpha — ne pas upgrader sans tester
+room                = "2.8.4"
+datastore           = "1.2.1"
+security-crypto     = "1.1.0"
 
 biometric           = "1.2.0-alpha05"   # ⚠ alpha — ne pas upgrader sans tester
 
-workmanager         = "2.10.0"
+workmanager         = "2.11.1"
 glance              = "1.1.1"
-navigation          = "2.8.5"
+navigation          = "2.9.0"
 coroutines          = "1.10.2"
 
-camerax             = "1.4.1"
+camerax             = "1.5.3"
 mlkit-barcode       = "17.3.0"
 
-rootbeer            = "0.1.0"
-wireguard           = "1.0.20230706"
+rootbeer            = "0.1.2"
+wireguard           = "1.0.20250531"
+lazysodium          = "5.2.0"
 
-firebase-bom        = "33.7.0"
+firebase-bom        = "34.0.0"
 owasp-depcheck      = "10.0.4"
 leakcanary          = "2.14"
 timber              = "5.0.1"
+org-json            = "20251224"
 
 # Test
-turbine             = "1.2.0"
-mockk               = "1.13.13"
+turbine             = "1.2.1"
+mockk               = "1.14.2"
 junit               = "4.13.2"
-compose-test-bom    = "2026.02.01"
+compose-test-bom    = "2026.03.00"
+robolectric         = "4.14.1"
+test-core           = "1.7.0"
 
 [libraries]
 # ── Compose ──────────────────────────────────────────────────────────────────
@@ -57,9 +62,11 @@ compose-ui-tooling-preview  = { group = "androidx.compose.ui", name = "ui-toolin
 compose-ui-tooling          = { group = "androidx.compose.ui", name = "ui-tooling" }
 compose-material3           = { group = "androidx.compose.material3", name = "material3" }
 compose-material-icons      = { group = "androidx.compose.material", name = "material-icons-core" }
+compose-material-icons-ext  = { group = "androidx.compose.material", name = "material-icons-extended" }
 compose-activity            = { group = "androidx.activity", name = "activity-compose", version.ref = "activity-compose" }
 compose-lifecycle-runtime   = { group = "androidx.lifecycle", name = "lifecycle-runtime-compose", version.ref = "lifecycle" }
 compose-viewmodel           = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-compose", version.ref = "lifecycle" }
+lifecycle-process           = { group = "androidx.lifecycle", name = "lifecycle-process", version.ref = "lifecycle" }
 
 # ── Hilt ─────────────────────────────────────────────────────────────────────
 hilt-android                = { group = "com.google.dagger", name = "hilt-android", version.ref = "hilt" }
@@ -71,14 +78,14 @@ hilt-work-compiler          = { group = "androidx.hilt", name = "hilt-compiler",
 # ── Navigation ────────────────────────────────────────────────────────────────
 navigation-compose          = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigation" }
 
-# ── Réseau ────────────────────────────────────────────────────────────────────
-# OkHttp 4.12.x stable — ne pas utiliser 5.x alpha en production financière
+# ── Reseau ────────────────────────────────────────────────────────────────────
+# OkHttp 4.12.x stable — ne pas utiliser 5.x alpha en production financiere
 retrofit                    = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = "retrofit" }
 retrofit-moshi              = { group = "com.squareup.retrofit2", name = "converter-moshi", version.ref = "retrofit" }
 okhttp                      = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 okhttp-logging              = { group = "com.squareup.okhttp3", name = "logging-interceptor", version.ref = "okhttp" }
-# Moshi — respecte la nullabilité Kotlin, sûr pour BigDecimal depuis strings
-# moshi-kotlin (réflexion) intentionnellement absent — redondant avec codegen et alourdit l'APK
+# Moshi — respecte la nullabilite Kotlin, sur pour BigDecimal depuis strings
+# moshi-kotlin (reflexion) intentionnellement absent — redondant avec codegen et alourdit l'APK
 # Utiliser uniquement moshi (core) + codegen (@JsonClass(generateAdapter = true) sur chaque DTO)
 moshi                       = { group = "com.squareup.moshi", name = "moshi", version.ref = "moshi" }
 moshi-adapters              = { group = "com.squareup.moshi", name = "moshi-adapters", version.ref = "moshi" }
@@ -89,12 +96,12 @@ room-runtime                = { group = "androidx.room", name = "room-runtime", 
 room-ktx                    = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
 room-compiler               = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
 
-# ── Stockage sécurisé ─────────────────────────────────────────────────────────
+# ── Stockage securise ─────────────────────────────────────────────────────────
 # DataStore standard + security-crypto pour chiffrement avec MasterKey (Keystore AES-256-GCM)
 datastore-preferences       = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
 security-crypto             = { group = "androidx.security", name = "security-crypto-ktx", version.ref = "security-crypto" }
 
-# ── Biométrie ─────────────────────────────────────────────────────────────────
+# ── Biometrie ─────────────────────────────────────────────────────────────────
 biometric                   = { group = "androidx.biometric", name = "biometric-ktx", version.ref = "biometric" }
 
 # ── Glance (widgets) ──────────────────────────────────────────────────────────
@@ -104,7 +111,7 @@ glance-material3            = { group = "androidx.glance", name = "glance-materi
 # ── WorkManager ───────────────────────────────────────────────────────────────
 workmanager-ktx             = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "workmanager" }
 
-# ── Caméra + QR (scan pairing) ────────────────────────────────────────────────
+# ── Camera + QR (scan pairing) ────────────────────────────────────────────────
 camerax-core                = { group = "androidx.camera", name = "camera-core", version.ref = "camerax" }
 camerax-camera2             = { group = "androidx.camera", name = "camera-camera2", version.ref = "camerax" }
 camerax-lifecycle           = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "camerax" }
@@ -113,17 +120,22 @@ mlkit-barcode               = { group = "com.google.mlkit", name = "barcode-scan
 
 # ── Firebase / FCM ────────────────────────────────────────────────────────────
 firebase-bom                = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebase-bom" }
-firebase-messaging          = { group = "com.google.firebase", name = "firebase-messaging-ktx" }       # version via BOM
-firebase-crashlytics        = { group = "com.google.firebase", name = "firebase-crashlytics-ktx" }    # version via BOM
+firebase-messaging          = { group = "com.google.firebase", name = "firebase-messaging" }          # version via BOM (ktx merged in BOM 33+)
+firebase-crashlytics        = { group = "com.google.firebase", name = "firebase-crashlytics" }         # version via BOM (ktx merged in BOM 33+)
+
+# ── Desugaring ────────────────────────────────────────────────────────────────
+desugar-jdk-libs            = { group = "com.android.tools", name = "desugar_jdk_libs", version.ref = "desugar-jdk-libs" }
 
 # ── WireGuard ─────────────────────────────────────────────────────────────────
-# Bibliothèque officielle WireGuard (BoringTun userspace + GoBackend)
+# Bibliotheque officielle WireGuard (BoringTun userspace + GoBackend)
 wireguard-android           = { group = "com.wireguard.android", name = "tunnel", version.ref = "wireguard" }
 
-# ── Sécurité ──────────────────────────────────────────────────────────────────
+# ── Securite ──────────────────────────────────────────────────────────────────
 rootbeer                    = { group = "com.scottyab", name = "rootbeer-lib", version.ref = "rootbeer" }
+lazysodium-android          = { group = "com.goterl", name = "lazysodium-android", version.ref = "lazysodium" }
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
+org-json                    = { group = "org.json", name = "json", version.ref = "org-json" }
 junit                       = { group = "junit", name = "junit", version.ref = "junit" }
 mockk                       = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
 turbine                     = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine" }
@@ -133,11 +145,14 @@ compose-ui-test             = { group = "androidx.compose.ui", name = "ui-test-j
 compose-ui-test-manifest    = { group = "androidx.compose.ui", name = "ui-test-manifest" }
 # WorkManager testing — TestListenableWorkerBuilder pour WidgetUpdateWorker
 work-testing                = { group = "androidx.work", name = "work-testing", version.ref = "workmanager" }
+# Robolectric — Android unit tests sur JVM (requis pour ApplicationProvider, Context)
+robolectric                 = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
+test-core                   = { group = "androidx.test", name = "core", version.ref = "test-core" }
 # MockWebServer — tests intercepteurs OkHttp (CsrfInterceptor, TokenAuthenticator, VpnRequiredInterceptor)
 okhttp-mockwebserver        = { group = "com.squareup.okhttp3", name = "mockwebserver", version.ref = "okhttp" }
-# LeakCanary — debug uniquement (détection fuites mémoire ViewModels, services, coroutines)
+# LeakCanary — debug uniquement (detection fuites memoire ViewModels, services, coroutines)
 leakcanary                  = { group = "com.squareup.leakcanary", name = "leakcanary-android", version.ref = "leakcanary" }
-# Timber — logging structuré avec strip automatique en release via ProGuard
+# Timber — logging structure avec strip automatique en release via ProGuard
 timber                      = { group = "com.jakewharton.timber", name = "timber", version.ref = "timber" }
 
 [plugins]
@@ -147,8 +162,8 @@ kotlin-compose              = { id = "org.jetbrains.kotlin.plugin.compose", vers
 hilt                        = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
 ksp                         = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 room                        = { id = "androidx.room", version.ref = "room" }
-google-services             = { id = "com.google.gms.google-services", version = "4.4.2" }
-firebase-crashlytics        = { id = "com.google.firebase.crashlytics", version = "3.0.2" }
+google-services             = { id = "com.google.gms.google-services", version = "4.4.4" }
+firebase-crashlytics        = { id = "com.google.firebase.crashlytics", version = "3.0.6" }
 owasp-depcheck              = { id = "org.owasp.dependencycheck", version.ref = "owasp-depcheck" }
 ```
 
@@ -156,9 +171,9 @@ owasp-depcheck              = { id = "org.owasp.dependencycheck", version.ref = 
 
 ## Notes importantes
 
-### Compatibilité KSP / Kotlin
-La version KSP (`ksp = "2.3.6"`) doit correspondre **exactement** à la version
-Kotlin. Format : `{kotlin_version}-{ksp_patch}`. Vérifier à chaque upgrade Kotlin.
+### Compatibilite KSP / Kotlin
+La version KSP (`ksp = "2.3.6"`) doit correspondre **exactement** a la version
+Kotlin. Format : `{kotlin_version}-{ksp_patch}`. Verifier a chaque upgrade Kotlin.
 
 ### Room + KSP
 Utiliser KSP (pas KAPT) pour Room :
@@ -185,12 +200,50 @@ dependencies {
 ```
 
 ### Compose BOM
-Toutes les dépendances Compose (ui, material3, ui-tooling…) doivent utiliser le BOM
-sans préciser de version individuelle :
+Toutes les dependances Compose (ui, material3, ui-tooling...) doivent utiliser le BOM
+sans preciser de version individuelle :
 ```kotlin
 implementation(platform(libs.compose.bom))
 implementation(libs.compose.ui)        // pas de version.ref ici
 implementation(libs.compose.material3)
+```
+
+### Lazysodium — chiffrement LAN (crypto_box_seal)
+
+`lazysodium-android` est un wrapper JNA autour de libsodium, utilise par `SealedBoxHelper`
+pour chiffrer les payloads LAN (pairing + maintenance). La bibliotheque inclut des fichiers
+`.so` natifs pour chaque ABI.
+
+```kotlin
+// app/build.gradle.kts
+dependencies {
+    implementation(libs.lazysodium.android)
+}
+
+android {
+    defaultConfig {
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")  // exclure x86/x86_64 pour reduire l'APK
+        }
+    }
+}
+```
+
+### Desugaring — API java.time sur API < 26
+
+`desugar_jdk_libs` permet d'utiliser `java.time.Instant`, `java.time.Duration` etc. sur
+les appareils pre-API 26 (Android 7 et inferieur) :
+
+```kotlin
+// app/build.gradle.kts
+android {
+    compileOptions {
+        isCoreLibraryDesugaringEnabled = true
+    }
+}
+dependencies {
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
+}
 ```
 
 ### LeakCanary + Timber
@@ -198,7 +251,7 @@ implementation(libs.compose.material3)
 ```kotlin
 // app/build.gradle.kts
 dependencies {
-    debugImplementation(libs.leakcanary)   // détection fuites — debug seulement, jamais release
+    debugImplementation(libs.leakcanary)   // detection fuites — debug seulement, jamais release
     implementation(libs.timber)
 }
 ```
@@ -211,13 +264,13 @@ else Timber.plant(CrashlyticsTree())
 ```
 
 Remplacer tous les `Log.d/e/w()` par `Timber.d/e/w()`. En release, ProGuard strip les appels
-`Timber.d()` automatiquement si configuré (ajouter `-assumenosideeffects` pour Timber).
+`Timber.d()` automatiquement si configure (ajouter `-assumenosideeffects` pour Timber).
 
 ### Moshi + KSP (remplace Gson)
-Moshi respecte la nullabilité Kotlin — safe pour les `BigDecimal` financiers désérialisés
-depuis strings. Gson peut injecter `null` dans un champ non-nullable via réflexion.
+Moshi respecte la nullabilite Kotlin — safe pour les `BigDecimal` financiers deserialises
+depuis strings. Gson peut injecter `null` dans un champ non-nullable via reflexion.
 
-`moshi-kotlin` (réflexion) est **intentionnellement absent** — il est redondant avec le codegen
+`moshi-kotlin` (reflexion) est **intentionnellement absent** — il est redondant avec le codegen
 et ajoute du poids APK + du temps de startup. Utiliser uniquement `moshi` (core) + codegen.
 
 ```kotlin
@@ -225,7 +278,7 @@ et ajoute du poids APK + du temps de startup. Utiliser uniquement `moshi` (core)
 dependencies {
     implementation(libs.moshi)              // core uniquement — pas moshi-kotlin
     implementation(libs.moshi.adapters)
-    ksp(libs.moshi.kotlin.codegen)          // génère les adapters à la compilation
+    ksp(libs.moshi.kotlin.codegen)          // genere les adapters a la compilation
     implementation(libs.retrofit.moshi)
 }
 ```
@@ -234,33 +287,37 @@ Annoter les data classes DTOs avec `@JsonClass(generateAdapter = true)` et les c
 `@Json(name = "field_name")`.
 
 ### Firebase / FCM
-Les alertes arrivent via FCM (décision E). Utiliser le BOM Firebase pour éviter les conflits :
+
+Les alertes arrivent via FCM. Utiliser le BOM Firebase pour eviter les conflits.
+Depuis le BOM 33+, les artefacts `-ktx` sont merges dans les artefacts principaux —
+utiliser `firebase-messaging` (sans `-ktx`) :
 
 ```kotlin
 // app/build.gradle.kts
 dependencies {
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.messaging)
+    implementation(libs.firebase.crashlytics)
 }
 ```
 
 Ajouter le plugin `com.google.gms.google-services` dans `plugins {}` et inclure
-`google-services.json` dans `app/` (non commité — ajouter à `.gitignore`).
+`google-services.json` dans `app/` (non commite — ajouter a `.gitignore`).
 
 ### OkHttp — pourquoi 4.12.x et pas 5.x
-OkHttp 5.x est en alpha depuis 2022. Pour une application financière en production, utiliser
-4.12.x stable. Reconsidérer l'upgrade vers 5.x uniquement après sa release stable officielle.
+OkHttp 5.x est en alpha depuis 2022. Pour une application financiere en production, utiliser
+4.12.x stable. Reconsiderer l'upgrade vers 5.x uniquement apres sa release stable officielle.
 
-### buildConfig — activation obligatoire (AGP 8.x)
+### buildConfig — activation obligatoire (AGP 8.x+)
 
-Depuis AGP 8.x, la génération de `BuildConfig` est opt-in. Sans cette déclaration,
+Depuis AGP 8.x, la generation de `BuildConfig` est opt-in. Sans cette declaration,
 `BuildConfig.VPS_BASE_URL`, `BuildConfig.CERT_PIN_SHA256` etc. ne compilent pas :
 
 ```kotlin
 // app/build.gradle.kts
 android {
     buildFeatures {
-        buildConfig = true   // obligatoire pour accéder aux BuildConfig fields
+        buildConfig = true   // obligatoire pour acceder aux BuildConfig fields
         compose = true
     }
     defaultConfig {
@@ -275,7 +332,7 @@ android {
 
 ### OWASP Dependency Check
 
-Le plugin doit être déclaré dans `build.gradle.kts` pour que `./gradlew dependencyCheckAnalyze`
+Le plugin doit etre declare dans `build.gradle.kts` pour que `./gradlew dependencyCheckAnalyze`
 fonctionne :
 
 ```kotlin
@@ -284,28 +341,40 @@ plugins {
     alias(libs.plugins.owasp.depcheck)
 }
 dependencyCheck {
-    failBuildOnCVSS = 7.0f          // fail sur CVSS ≥ 7 (high/critical)
+    failBuildOnCVSS = 7.0f          // fail sur CVSS >= 7 (high/critical)
     suppressionFile = "dependency-check-suppressions.xml"
 }
 ```
 
-### Tests — dépendances à ajouter dans app/build.gradle.kts
+### Tests — dependances a ajouter dans app/build.gradle.kts
 
 ```kotlin
 dependencies {
+    // JVM unit tests
+    testImplementation(libs.junit)
+    testImplementation(libs.mockk)
+    testImplementation(libs.turbine)
+    testImplementation(libs.coroutines.test)
+    testImplementation(libs.org.json)            // org.json pour ParseVpsQrUseCaseTest etc.
+    testImplementation(libs.robolectric)          // Android unit tests sur JVM
+    testImplementation(libs.test.core)            // ApplicationProvider, Context
     // WorkManager
     testImplementation(libs.work.testing)
     // MockWebServer — intercepteurs OkHttp
     testImplementation(libs.okhttp.mockwebserver)
+    // Compose UI tests
+    androidTestImplementation(platform(libs.compose.bom))
+    androidTestImplementation(libs.compose.ui.test)
+    debugImplementation(libs.compose.ui.test.manifest)
 }
 ```
 
-### CI/CD — secrets non committés
+### CI/CD — secrets non commites
 
-Fichiers à injecter via variables d'environnement en CI :
-- `local.properties` → encoder en base64, décoder en step CI avant le build
-- `google-services.json` → stocker comme secret CI, écrire dans `app/` au runtime
-- `keystore/*.jks` → même approche base64
+Fichiers a injecter via variables d'environnement en CI :
+- `local.properties` -> encoder en base64, decoder en step CI avant le build
+- `google-services.json` -> stocker comme secret CI, ecrire dans `app/` au runtime
+- `keystore/*.jks` -> meme approche base64
 
 ```yaml
 # Exemple GitHub Actions

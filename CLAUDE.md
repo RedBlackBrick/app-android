@@ -50,7 +50,7 @@ Instructions pour Claude Code lors du travail sur ce projet.
 com.tradingplatform.app/
 ├── di/                    # Hilt modules (AppModule, NetworkModule, VpnModule, SecurityModule, WebSocketModule)
 ├── data/
-│   ├── api/               # Interfaces Retrofit (AuthApi, PortfolioApi, MarketDataApi, DeviceApi, PairingApi, LocalMaintenanceApi, NotificationApi)
+│   ├── api/               # Interfaces Retrofit (AuthApi, PortfolioApi, MarketDataApi, DeviceApi, BrokerConnectionApi, PairingApi, LocalMaintenanceApi, NotificationApi)
 │   ├── repository/        # Implémentations des Repository interfaces du domaine
 │   ├── local/
 │   │   ├── db/            # Room : AppDatabase, DAOs, Entities (dont WatchlistEntity)
@@ -59,15 +59,15 @@ com.tradingplatform.app/
 │   └── websocket/         # PrivateWsClient, PublicWsClient, WsEvent, WsRepository
 ├── domain/
 │   ├── model/             # Domain models (purs Kotlin, sans annotations Android/Retrofit/Room)
-│   │                      # Inclut : PerformanceMetrics, ActivityItem, WsUpdate (OrderUpdate, StrategySignal)
+│   │                      # Inclut : PerformanceMetrics, ActivityItem, WsUpdate (OrderUpdate, StrategySignal, CatalystEvent), BrokerConnection
 │   ├── repository/        # Interfaces Repository (définies dans domain, implémentées dans data)
-│   │                      # Inclut : WatchlistRepository, LocalMaintenanceRepository
+│   │                      # Inclut : WatchlistRepository, LocalMaintenanceRepository, BrokerConnectionRepository
 │   └── usecase/
-│       ├── auth/          # LoginUseCase, LogoutUseCase
+│       ├── auth/          # LoginUseCase, LogoutUseCase, GetUserProfileUseCase
 │       ├── portfolio/     # GetPortfolioUseCase, GetPositionsUseCase, GetPositionWsUpdatesUseCase, GetPerformanceUseCase
-│       ├── market/        # GetQuoteUseCase, GetQuoteStreamUseCase, GetAvailableSymbolsUseCase, GetWatchlistUseCase, AddToWatchlistUseCase, RemoveFromWatchlistUseCase
+│       ├── market/        # GetQuoteUseCase, GetQuoteStreamUseCase, GetAvailableSymbolsUseCase, GetSymbolHistoryUseCase, GetWatchlistUseCase, AddToWatchlistUseCase, RemoveFromWatchlistUseCase
 │       ├── activity/      # GetActivityFeedUseCase
-│       ├── device/        # GetDevicesUseCase, GetDeviceStatusUseCase, SendDeviceCommandUseCase
+│       ├── device/        # GetDevicesUseCase, GetDeviceStatusUseCase, SendDeviceCommandUseCase, GetBrokerConnectionsUseCase, TestBrokerConnectionUseCase, RemoveBrokerConnectionUseCase
 │       ├── alerts/        # GetAlertsUseCase, GetFilteredAlertsUseCase, MarkAlertReadUseCase
 │       ├── maintenance/   # SendLocalCommandUseCase, GetLocalStatusUseCase
 │       ├── notification/  # RegisterFcmTokenUseCase
@@ -80,15 +80,15 @@ com.tradingplatform.app/
 │       ├── auth/          # LoginScreen + LoginViewModel
 │       ├── dashboard/     # DashboardScreen + DashboardViewModel + ActivityFeedCard
 │       ├── market/        # MarketDataScreen + MarketDataViewModel + SymbolPickerSheet
-│       ├── portfolio/     # PositionsScreen, PositionDetailScreen + ViewModels
+│       ├── portfolio/     # PositionsScreen, PositionDetailScreen, TransactionHistoryScreen + ViewModels
 │       ├── performance/   # PerformanceScreen + PerformanceViewModel
-│       ├── devices/       # DeviceListScreen, EdgeDeviceDashboardScreen + ViewModels
+│       ├── devices/       # DeviceListScreen, EdgeDeviceDashboardScreen (+ broker gateway, scraping) + ViewModels
 │       ├── pairing/       # ScanVpsQrScreen, ScanDeviceQrScreen, PairingProgressScreen, PairingDoneScreen + PairingViewModel
 │       ├── alerts/        # AlertListScreen + AlertsViewModel + AlertFilterBar
 │       ├── totp/          # TotpScreen + TotpViewModel (2FA post-login)
 │       ├── setup/         # SetupScreen + SetupViewModel (onboarding QR mobile)
 │       ├── maintenance/   # LocalMaintenanceScreen + LocalMaintenanceViewModel
-│       └── settings/      # VpnSettingsScreen, SecuritySettingsScreen + ViewModels
+│       └── settings/      # VpnSettingsScreen, SecuritySettingsScreen, ProfileScreen, MyDevicesScreen + ViewModels
 ├── vpn/
 │   ├── WireGuardVpnService.kt   # VpnService Android — gère le tunnel
 │   ├── WireGuardManager.kt      # API publique : connect(), disconnect(), state: StateFlow<VpnState>
@@ -317,6 +317,7 @@ section a eu une erreur réseau transitoire.
 - **Positions live** : les `position_update` du WS privé sont mergés dans `PositionsViewModel` pour mettre à jour `currentPrice` et `unrealizedPnl` en temps réel (affichage via `AnimatedPnlText`)
 - **Widgets** : rafraîchissement inclus dans le cycle WorkManager **5 min**
 - **Symboles disponibles** : `GET /v1/market-data/symbols` retourne la liste des symboles trackés par le backend
+- **Historique OHLCV (sparklines)** : `GET /v1/market-data/{symbol}/history` — 30 derniers points close, affiché en mini-chart dans chaque card de la watchlist
 
 La table Room `quotes` persiste le dernier cours connu (TTL 10 min) pour le `QuoteWidget` et le `MarketDataScreen`.
 La table Room `watchlist` persiste les symboles suivis par l'utilisateur (pas de TTL).
@@ -363,7 +364,7 @@ val quoteState by viewModel.quoteState.collectAsStateWithLifecycle()
 
 `PrivateWsClient` se connecte à `wss://vps/v1/ws/private` avec un JWT dont le claim `"websocket"` est obtenu via `POST /v1/auth/ws-token`. Il implémente `DefaultLifecycleObserver` : la connexion est établie en foreground et fermée en arrière-plan.
 
-`WsRepository` expose des `Flow` pour les événements WS : `portfolioUpdates`, `positionUpdates`, `orderUpdates`, `strategySignals`, `notifications`. `DashboardViewModel` collecte `portfolioUpdates` en complément du polling REST et `GetActivityFeedUseCase` merge les 4 flux (`orderUpdates`, `strategySignals`, `notifications`, `portfolioUpdates`) dans un feed d'activité temps réel affiché sur le Dashboard via `ActivityFeedCard`. `PositionsViewModel` collecte `positionUpdates` pour mettre à jour les prix en temps réel.
+`WsRepository` expose des `Flow` pour les événements WS : `portfolioUpdates`, `positionUpdates`, `orderUpdates`, `strategySignals`, `notifications`, `catalystEvents`. `DashboardViewModel` collecte `portfolioUpdates` en complément du polling REST et `GetActivityFeedUseCase` merge les 5 flux (`orderUpdates`, `strategySignals`, `notifications`, `portfolioUpdates`, `catalystEvents`) dans un feed d'activité temps réel affiché sur le Dashboard via `ActivityFeedCard`. `PositionsViewModel` collecte `positionUpdates` pour mettre à jour les prix en temps réel.
 
 Le token WS est distinct de l'access token — obtenir via `POST /v1/auth/ws-token` avant chaque connexion. `WebSocketModule` dans `di/` fournit les bindings Hilt.
 

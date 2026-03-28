@@ -84,6 +84,8 @@ Pas de body. Le cookie httpOnly est envoyé automatiquement par OkHttp via `Cook
 
 > ⚠ `portfolio_id` absent de cette réponse. Obtenir via `GET /v1/portfolios` après login.
 
+Utilisé par `ProfileScreen` via `GetUserProfileUseCase`.
+
 ---
 
 ### POST /v1/auth/ws-token
@@ -267,6 +269,30 @@ Retourne la liste de tous les symboles trackés par le backend.
 ["CAC40", "SP500", "NASDAQ", "DOW", "SBF120"]
 ```
 
+---
+
+### GET /v1/market-data/{symbol}/history
+
+Historique OHLCV pour les sparklines de la watchlist.
+
+**Query params :** `interval` (défaut `1d`), `limit` (défaut 30)
+
+**Response 200 :**
+```json
+[
+  {
+    "timestamp": "2026-03-01T00:00:00Z",
+    "open": "7800.00",
+    "high": "7900.00",
+    "low": "7750.00",
+    "close": "7850.50",
+    "volume": 1234500
+  }
+]
+```
+
+Utilisé par `MarketDataScreen` via `GetSymbolHistoryUseCase` (extraction du champ `close` pour sparklines).
+
 ### GET /v1/portfolios/{portfolio_id}/performance
 
 Retourne les métriques de performance calculées côté serveur.
@@ -316,7 +342,16 @@ Liste les devices enregistrés avec leur statut.
       "disk_pct": 38.0,
       "uptime_seconds": 86400,
       "firmware_version": "1.2.0",
-      "hostname": "radxa-01"
+      "hostname": "radxa-01",
+      "last_ticks_sent": 12345,
+      "last_scraper_errors": 2,
+      "scrapers_circuit": {
+        "yahoo": {"state": "closed", "consecutive_failures": 0, "total_trips": 0},
+        "boursorama": {"state": "open", "consecutive_failures": 5, "total_trips": 1}
+      },
+      "broker_gateway_enabled": true,
+      "broker_gateway_status": "running",
+      "broker_gateway_broker_id": 1
     }
   ]
 }
@@ -326,21 +361,70 @@ Liste les devices enregistrés avec leur statut.
 
 ---
 
-### POST /v1/edge-control/devices/{id}/commands (admin uniquement)
+### POST /v1/edge-control/commands (admin uniquement)
 
 Envoie une commande à un device Radxa via le VPS.
 
 **Request :**
 ```json
-{ "command": "reboot" }
+{ "device_id": "uuid", "command_type": "reboot", "params": {} }
 ```
+
+**Response 200 :** `200 OK`
+
+Auth : JWT Bearer. Accessible uniquement depuis le sous-réseau VPN.
+
+---
+
+### GET /v1/edge/broker-connections/{device_id} (admin uniquement)
+
+Connexions broker d'un device.
 
 **Response 200 :**
 ```json
-{ "accepted": true }
+[
+  {
+    "device_id": "uuid",
+    "portfolio_id": "uuid",
+    "broker_code": "interactive_brokers",
+    "connection_status": "connected",
+    "execution_mode": "device",
+    "created_at": "2026-03-01T10:00:00Z"
+  }
+]
 ```
 
-Auth : JWT Bearer. Accessible uniquement depuis le sous-réseau VPN (`/v1/edge-control/*` restreint par Caddy).
+---
+
+### POST /v1/edge/broker-connections (admin uniquement)
+
+Déploie un broker sur un device.
+
+**Request :**
+```json
+{ "device_id": "uuid", "broker_code": "interactive_brokers", "portfolio_id": "uuid" }
+```
+
+**Response 200 :** même structure que l'objet dans la liste ci-dessus.
+
+---
+
+### DELETE /v1/edge/broker-connections/{device_id}/{portfolio_id} (admin uniquement)
+
+Retire un broker d'un device.
+
+**Response 200 :** `200 OK`
+
+---
+
+### POST /v1/edge/broker-connections/{device_id}/test (admin uniquement)
+
+Teste la connexion broker du device.
+
+**Response 200 :**
+```json
+{ "healthy": true, "message": null }
+```
 
 ---
 
