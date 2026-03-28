@@ -19,10 +19,9 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
-import com.tradingplatform.app.ui.theme.Emerald200
+import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.Motion
 import com.tradingplatform.app.ui.theme.pnlColor
-import com.tradingplatform.app.ui.theme.Rose100
 import com.tradingplatform.app.ui.theme.jetBrainsMonoFamily
 import kotlinx.coroutines.delay
 import java.math.BigDecimal
@@ -44,12 +43,13 @@ fun AnimatedPnlText(
     currencySymbol: String = "€",
     style: TextStyle = MaterialTheme.typography.bodyLarge,
 ) {
+    val extendedColors = LocalExtendedColors.current
     val targetColor = pnlColor(value)
 
     // Flash color: brighter version for the brief highlight
     val flashColor = when {
-        value > BigDecimal.ZERO -> Emerald200
-        value < BigDecimal.ZERO -> Rose100
+        value > BigDecimal.ZERO -> extendedColors.pnlPositiveFlash
+        value < BigDecimal.ZERO -> extendedColors.pnlNegativeFlash
         else -> MaterialTheme.colorScheme.onSurface
     }
 

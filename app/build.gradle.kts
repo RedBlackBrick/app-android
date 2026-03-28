@@ -39,6 +39,10 @@ android {
             "\"${localProperties.getProperty("WG_VPS_ENDPOINT", "vps.example.com:51820")}\"")
         buildConfigField("String", "WG_VPS_PUBKEY",
             "\"${localProperties.getProperty("WG_VPS_PUBKEY", "")}\"")
+
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
     }
 
     signingConfigs {

@@ -27,6 +27,9 @@ sealed class Screen(val route: String) {
     /** Detailed portfolio performance metrics (Sharpe, Sortino, drawdown, etc.). */
     data object Performance : Screen("performance")
 
+    /** Global transaction history across all positions. */
+    data object TransactionHistory : Screen("transactions")
+
     data object PositionDetail : Screen("position/{positionId}") {
         fun createRoute(positionId: Int): String = "position/$positionId"
     }
@@ -51,6 +54,9 @@ sealed class Screen(val route: String) {
     data object PairingDone : Screen("pairing/done")
 
     data object Alerts : Screen("alerts")
+
+    /** User profile screen. */
+    data object Profile : Screen("profile")
 
     /** Centralized settings hub. */
     data object Settings : Screen("settings")

@@ -20,6 +20,8 @@ data class ExtendedColors(
     // ── P&L ──────────────────────────────────────────────────────────────────
     val pnlPositive: Color,
     val pnlNegative: Color,
+    val pnlPositiveFlash: Color,
+    val pnlNegativeFlash: Color,
 
     // ── Success ───────────────────────────────────────────────────────────────
     val success: Color,
@@ -58,6 +60,8 @@ data class ExtendedColors(
 val lightExtendedColors = ExtendedColors(
     pnlPositive = Emerald600,           // #059669 (emerald-600) — = success
     pnlNegative = Rose600,              // #e11d48 (rose-600)   — = error
+    pnlPositiveFlash = Emerald200,     // #a7f3d0 (emerald-200) — brighter flash on value change
+    pnlNegativeFlash = Rose100,        // #ffe4e6 (rose-100)   — brighter flash on value change
 
     success = Emerald600,               // #059669 (emerald-600)
     onSuccess = White,                  // #ffffff
@@ -91,6 +95,8 @@ val lightExtendedColors = ExtendedColors(
 val darkExtendedColors = ExtendedColors(
     pnlPositive = Emerald400,          // #34d399 (emerald-400) — = success dark
     pnlNegative = Rose400,             // #fb7185 (rose-400)   — = error dark
+    pnlPositiveFlash = Emerald200,    // #a7f3d0 (emerald-200) — brighter flash on value change
+    pnlNegativeFlash = Rose100,       // #ffe4e6 (rose-100)   — brighter flash on value change
 
     success = Emerald400,              // #34d399 (emerald-400)
     onSuccess = Emerald950,            // #022c22 (emerald-950)

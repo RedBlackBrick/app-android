@@ -45,7 +45,9 @@ import com.tradingplatform.app.ui.screens.pairing.ScanDeviceQrScreen
 import com.tradingplatform.app.ui.screens.pairing.ScanVpsQrScreen
 import com.tradingplatform.app.ui.screens.portfolio.PositionDetailScreen
 import com.tradingplatform.app.ui.screens.portfolio.PositionsScreen
+import com.tradingplatform.app.ui.screens.portfolio.TransactionHistoryScreen
 import com.tradingplatform.app.ui.screens.settings.MyDevicesScreen
+import com.tradingplatform.app.ui.screens.settings.ProfileScreen
 import com.tradingplatform.app.ui.screens.settings.SecuritySettingsScreen
 import com.tradingplatform.app.ui.screens.settings.SettingsScreen
 import com.tradingplatform.app.ui.screens.settings.VpnSettingsScreen
@@ -434,11 +436,20 @@ fun AppNavGraph(
                     onNavigateToPerformance = {
                         navController.navigate(Screen.Performance.route)
                     },
+                    onNavigateToTransactions = {
+                        navController.navigate(Screen.TransactionHistory.route)
+                    },
                 )
             }
 
             composable(Screen.Performance.route) {
                 PerformanceScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                )
+            }
+
+            composable(Screen.TransactionHistory.route) {
+                TransactionHistoryScreen(
                     onNavigateBack = { navController.popBackStack() },
                 )
             }
@@ -629,6 +640,15 @@ fun AppNavGraph(
                     onNavigateToSecurity = {
                         navController.navigate(Screen.SecuritySettings.route)
                     },
+                    onNavigateToProfile = {
+                        navController.navigate(Screen.Profile.route)
+                    },
+                )
+            }
+
+            composable(Screen.Profile.route) {
+                ProfileScreen(
+                    onNavigateBack = { navController.popBackStack() },
                 )
             }
 
