@@ -45,6 +45,8 @@ import com.tradingplatform.app.domain.model.VpnPeer
 import com.tradingplatform.app.domain.model.VpnPeerType
 import com.tradingplatform.app.ui.components.CacheTimestamp
 import com.tradingplatform.app.ui.theme.Spacing
+import java.time.Duration
+import java.time.Instant
 
 /**
  * Screen listing the current user's own VPN peers (all device types).
@@ -205,8 +207,8 @@ private fun VpnPeerCard(
     modifier: Modifier = Modifier,
 ) {
     val typeLabel = when (peer.peerType) {
-        VpnPeerType.WEB_CLIENT -> "PC"
-        VpnPeerType.ANDROID_APP -> "Mobile"
+        VpnPeerType.WEB_CLIENT -> "Web"
+        VpnPeerType.ANDROID_APP -> "Android"
         VpnPeerType.RADXA_BOARD -> "Radxa"
     }
     val typeIcon = when (peer.peerType) {
@@ -221,10 +223,21 @@ private fun VpnPeerCard(
         MaterialTheme.colorScheme.error
     }
 
+    val handshakeText = formatHandshake(peer.lastHandshake)
+    val recentHandshake = isRecentHandshake(peer.lastHandshake)
+    val handshakeDotColor = if (recentHandshake) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.outlineVariant
+    }
+
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .semantics { contentDescription = "${peer.label} — $typeLabel — $statusLabel" },
+            .semantics {
+                contentDescription =
+                    "${peer.label} — $typeLabel — $statusLabel — Dernier handshake : $handshakeText"
+            },
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant,
         ),
@@ -277,6 +290,22 @@ private fun VpnPeerCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                // Handshake row: green/gray dot + relative time
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = handshakeDotColor,
+                        modifier = Modifier.size(Spacing.xs),
+                    ) {}
+                    Text(
+                        text = handshakeText,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
 
             // Status badge
@@ -287,4 +316,21 @@ private fun VpnPeerCard(
             )
         }
     }
+}
+
+private fun formatHandshake(lastHandshake: Instant?): String {
+    if (lastHandshake == null) return "Jamais"
+    val now = Instant.now()
+    val diff = Duration.between(lastHandshake, now)
+    return when {
+        diff.toMinutes() < 1 -> "A l'instant"
+        diff.toMinutes() < 60 -> "Il y a ${diff.toMinutes()} min"
+        diff.toHours() < 24 -> "Il y a ${diff.toHours()}h"
+        else -> "Il y a ${diff.toDays()}j"
+    }
+}
+
+private fun isRecentHandshake(lastHandshake: Instant?): Boolean {
+    if (lastHandshake == null) return false
+    return Duration.between(lastHandshake, Instant.now()).toMinutes() < 3
 }

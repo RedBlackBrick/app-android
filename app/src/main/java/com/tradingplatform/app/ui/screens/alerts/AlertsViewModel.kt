@@ -84,11 +84,10 @@ class AlertsViewModel @Inject constructor(
      */
     fun markAsRead(alertId: Long) {
         viewModelScope.launch {
-            try {
-                markAlertReadUseCase(alertId)
-            } catch (e: Exception) {
-                Timber.e(e, "markAsRead failed for alertId=$alertId")
-            }
+            markAlertReadUseCase(alertId)
+                .onFailure { e ->
+                    Timber.e(e, "markAsRead failed for alertId=$alertId")
+                }
         }
     }
 }

@@ -165,7 +165,7 @@ fun SkeletonAlertCard(
                 .padding(Spacing.lg),
             verticalAlignment = Alignment.Top,
         ) {
-            Spacer(modifier = Modifier.width(8.dp + Spacing.sm))
+            Spacer(modifier = Modifier.width(Spacing.sm + Spacing.sm))
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(Spacing.xs),

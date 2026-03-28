@@ -44,12 +44,15 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tradingplatform.app.domain.model.Quote
 import com.tradingplatform.app.ui.components.AnimatedPnlText
 import com.tradingplatform.app.ui.components.MoneyText
+import com.tradingplatform.app.ui.components.SparklineChart
 import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.Spacing
 import com.tradingplatform.app.ui.theme.pnlColor
 import java.math.BigDecimal
+import java.text.NumberFormat
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -156,6 +159,7 @@ fun MarketDataScreen(
                                 SwipeToDismissWatchlistCard(
                                     symbol = symbol,
                                     quote = state.quotes[symbol],
+                                    sparklinePoints = state.sparklines[symbol],
                                     onDismiss = { viewModel.removeSymbol(symbol) },
                                 )
                             }
@@ -202,6 +206,7 @@ private fun EmptyWatchlistState(
 private fun SwipeToDismissWatchlistCard(
     symbol: String,
     quote: Quote?,
+    sparklinePoints: List<BigDecimal>?,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -248,6 +253,7 @@ private fun SwipeToDismissWatchlistCard(
         WatchlistCard(
             symbol = symbol,
             quote = quote,
+            sparklinePoints = sparklinePoints,
         )
     }
 }
@@ -258,6 +264,7 @@ private fun SwipeToDismissWatchlistCard(
 private fun WatchlistCard(
     symbol: String,
     quote: Quote?,
+    sparklinePoints: List<BigDecimal>? = null,
     modifier: Modifier = Modifier,
 ) {
     val extendedColors = LocalExtendedColors.current
@@ -268,64 +275,112 @@ private fun WatchlistCard(
             containerColor = extendedColors.cardSurface,
         ),
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(Spacing.lg),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
+        Column(
+            modifier = Modifier.padding(Spacing.lg),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xs),
         ) {
-            // Left: symbol + timestamp
-            Column {
-                Text(
-                    text = symbol,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.semantics {
-                        contentDescription = "Symbole : $symbol"
-                    },
-                )
-                if (quote != null) {
-                    val formattedTimestamp = remember(quote.timestamp) {
-                        quote.timestamp
-                            .atZone(ZoneId.systemDefault())
-                            .let { DateTimeFormatter.ofPattern("HH:mm:ss").format(it) }
-                    }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // Left: symbol + timestamp
+                Column {
                     Text(
-                        text = formattedTimestamp,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        text = symbol,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.semantics {
+                            contentDescription = "Symbole : $symbol"
+                        },
                     )
+                    if (quote != null) {
+                        val formattedTimestamp = remember(quote.timestamp) {
+                            quote.timestamp
+                                .atZone(ZoneId.systemDefault())
+                                .let { DateTimeFormatter.ofPattern("HH:mm:ss").format(it) }
+                        }
+                        Text(
+                            text = formattedTimestamp,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else {
+                        Text(
+                            text = "Chargement\u2026",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+
+                // Right: price + change
+                if (quote != null) {
+                    Column(horizontalAlignment = Alignment.End) {
+                        MoneyText(
+                            amount = quote.price,
+                            decimals = 2,
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.semantics {
+                                contentDescription = "Prix : ${quote.price} \u20ac"
+                            },
+                        )
+                        ChangePercentText(
+                            changePercent = quote.changePercent,
+                            change = quote.change,
+                        )
+                    }
                 } else {
                     Text(
-                        text = "Chargement\u2026",
-                        style = MaterialTheme.typography.labelSmall,
+                        text = "\u2014",
+                        style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
 
-            // Right: price + change
+            // Bid/Ask + Volume row
             if (quote != null) {
-                Column(horizontalAlignment = Alignment.End) {
-                    MoneyText(
-                        amount = quote.price,
-                        decimals = 2,
-                        style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.semantics {
-                            contentDescription = "Prix : ${quote.price} \u20ac"
-                        },
-                    )
-                    ChangePercentText(
-                        changePercent = quote.changePercent,
-                        change = quote.change,
-                    )
+                val hasBidAsk = quote.bid != null && quote.ask != null
+                val volumeFormatted = remember(quote.volume) {
+                    NumberFormat.getNumberInstance(Locale.FRENCH).format(quote.volume)
                 }
-            } else {
-                Text(
-                    text = "\u2014",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                if (hasBidAsk || quote.volume > 0) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (hasBidAsk) {
+                            Text(
+                                text = "Bid: ${quote.bid} / Ask: ${quote.ask}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.semantics {
+                                    contentDescription = "Bid : ${quote.bid} euros, Ask : ${quote.ask} euros"
+                                },
+                            )
+                        }
+                        if (quote.volume > 0) {
+                            Text(
+                                text = "Vol: $volumeFormatted",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.semantics {
+                                    contentDescription = "Volume : $volumeFormatted"
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Sparkline mini-chart
+            if (!sparklinePoints.isNullOrEmpty() && sparklinePoints.size >= 2) {
+                SparklineChart(
+                    dataPoints = sparklinePoints,
+                    modifier = Modifier.fillMaxWidth(),
+                    height = Spacing.xxxl,
                 )
             }
         }

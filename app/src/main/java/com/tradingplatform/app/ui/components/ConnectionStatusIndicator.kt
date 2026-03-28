@@ -18,9 +18,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.dp
 import com.tradingplatform.app.domain.model.WsConnectionState
 import com.tradingplatform.app.ui.theme.LocalExtendedColors
+import com.tradingplatform.app.ui.theme.Spacing
 
 /**
  * Indicateur discret de l'etat de la connexion WebSocket privee (F5).
@@ -77,12 +77,12 @@ fun ConnectionStatusIndicator(
     ) {
         Box(
             modifier = Modifier
-                .size(8.dp)
+                .size(Spacing.sm)
                 .clip(CircleShape)
                 .background(dotColor),
         )
         if (showLabel) {
-            Spacer(modifier = Modifier.width(4.dp))
+            Spacer(modifier = Modifier.width(Spacing.xs))
             Text(
                 text = description,
                 style = MaterialTheme.typography.labelSmall,

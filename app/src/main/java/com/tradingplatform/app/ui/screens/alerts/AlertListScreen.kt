@@ -320,11 +320,11 @@ private fun AlertCard(
             if (!alert.read) {
                 Box(
                     modifier = Modifier
-                        .width(4.dp)
+                        .width(Spacing.xs)
                         .fillMaxHeight()
                         .background(
                             color = accentColor,
-                            shape = RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp),
+                            shape = RoundedCornerShape(topStart = Spacing.md, bottomStart = Spacing.md),
                         ),
                 )
             }
@@ -348,7 +348,7 @@ private fun AlertCard(
                     )
                     Spacer(modifier = Modifier.width(Spacing.sm))
                 } else {
-                    Spacer(modifier = Modifier.width(8.dp + Spacing.sm))
+                    Spacer(modifier = Modifier.width(Spacing.lg))
                 }
 
                 Column(

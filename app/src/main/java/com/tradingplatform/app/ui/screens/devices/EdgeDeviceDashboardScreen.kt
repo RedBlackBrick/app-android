@@ -42,6 +42,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.tradingplatform.app.domain.model.BrokerConnection
+import com.tradingplatform.app.domain.model.BrokerGatewayStatus
 import com.tradingplatform.app.domain.model.Device
 import com.tradingplatform.app.domain.model.DeviceStatus
 import com.tradingplatform.app.ui.components.CacheTimestamp
@@ -87,13 +89,16 @@ fun EdgeDeviceDashboardScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val unpairState by viewModel.unpairState.collectAsStateWithLifecycle()
     val commandState by viewModel.commandState.collectAsStateWithLifecycle()
+    val brokerState by viewModel.brokerState.collectAsStateWithLifecycle()
+    val brokerTestState by viewModel.brokerTestState.collectAsStateWithLifecycle()
     val haptic = rememberHapticFeedback()
 
     val deviceName = (uiState as? DeviceDetailUiState.Success)?.device?.name ?: "ce device"
 
-    // Charger le device dès l'affichage (ou si deviceId change)
+    // Charger le device et les connexions broker dès l'affichage (ou si deviceId change)
     LaunchedEffect(deviceId) {
         viewModel.loadDevice(deviceId)
+        viewModel.loadBrokerConnections(deviceId)
     }
 
     // Navigation back après unpair réussi
@@ -316,7 +321,10 @@ fun EdgeDeviceDashboardScreen(
     ) { innerPadding ->
         PullToRefreshBox(
             isRefreshing = isRefreshing,
-            onRefresh = { viewModel.refresh(deviceId) },
+            onRefresh = {
+                viewModel.refresh(deviceId)
+                viewModel.loadBrokerConnections(deviceId)
+            },
             state = pullRefreshState,
             modifier = Modifier
                 .fillMaxSize()
@@ -332,11 +340,18 @@ fun EdgeDeviceDashboardScreen(
                         DashboardContent(
                             device = state.device,
                             syncedAt = state.syncedAt,
+                            brokerState = brokerState,
+                            brokerTestState = brokerTestState,
                             onNavigateToLocalMaintenance = onNavigateToLocalMaintenance,
                             onUnpair = { viewModel.requestUnpair() },
                             onSendCommand = { commandType ->
                                 viewModel.requestCommand(commandType)
                             },
+                            onTestBroker = { viewModel.testBrokerConnection(deviceId) },
+                            onRemoveBroker = { portfolioId ->
+                                viewModel.removeBrokerConnection(deviceId, portfolioId)
+                            },
+                            onResetBrokerTest = { viewModel.resetBrokerTestState() },
                         )
                     }
 
@@ -379,9 +394,14 @@ fun EdgeDeviceDashboardScreen(
 private fun DashboardContent(
     device: Device,
     syncedAt: Long,
+    brokerState: BrokerUiState,
+    brokerTestState: BrokerTestState,
     onNavigateToLocalMaintenance: () -> Unit,
     onUnpair: () -> Unit,
     onSendCommand: (CommandType) -> Unit,
+    onTestBroker: () -> Unit,
+    onRemoveBroker: (String) -> Unit,
+    onResetBrokerTest: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val extendedColors = LocalExtendedColors.current
@@ -537,6 +557,106 @@ private fun DashboardContent(
             }
         }
 
+        // ── Card "Scraping" (if scraping metrics available) ───────────────────
+        if (device.lastTicksSent != null || device.scrapersCircuit != null) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = extendedColors.cardSurface),
+                    elevation = CardDefaults.cardElevation(defaultElevation = Spacing.xs),
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(Spacing.lg),
+                    ) {
+                        Text(
+                            text = "Scraping",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(modifier = Modifier.height(Spacing.md))
+                        HorizontalDivider(color = extendedColors.divider)
+                        Spacer(modifier = Modifier.height(Spacing.md))
+
+                        // Ticks sent + errors
+                        if (device.lastTicksSent != null) {
+                            DashboardInfoRow(
+                                label = "Ticks envoy\u00e9s",
+                                value = "%,d".format(device.lastTicksSent),
+                                contentDescriptionText = "Ticks envoy\u00e9s : ${device.lastTicksSent}",
+                            )
+                            Spacer(modifier = Modifier.height(Spacing.md))
+                        }
+                        if (device.lastScraperErrors != null) {
+                            DashboardInfoRow(
+                                label = "Erreurs scraping",
+                                value = "${device.lastScraperErrors}",
+                                contentDescriptionText = "Erreurs scraping : ${device.lastScraperErrors}",
+                            )
+                            Spacer(modifier = Modifier.height(Spacing.md))
+                        }
+
+                        // Circuit breaker states per scraper
+                        device.scrapersCircuit?.forEach { (scraperName, circuit) ->
+                            val stateColor = when (circuit.state.lowercase()) {
+                                "closed" -> LocalExtendedColors.current.pnlPositive
+                                "half_open" -> LocalExtendedColors.current.warning
+                                else -> MaterialTheme.colorScheme.error
+                            }
+                            val stateLabel = when (circuit.state.lowercase()) {
+                                "closed" -> "OK"
+                                "half_open" -> "Test"
+                                "open" -> "Arr\u00eat\u00e9"
+                                else -> circuit.state
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    text = scraperName.replaceFirstChar { it.uppercase() },
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    if (circuit.consecutiveFailures > 0) {
+                                        Text(
+                                            text = "${circuit.consecutiveFailures} err",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.error,
+                                        )
+                                    }
+                                    Text(
+                                        text = stateLabel,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = stateColor,
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(Spacing.sm))
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── Card "Broker Gateway" ────────────────────────────────────────────
+        item {
+            BrokerGatewayCard(
+                brokerGateway = device.brokerGateway,
+                brokerState = brokerState,
+                brokerTestState = brokerTestState,
+                onTestBroker = onTestBroker,
+                onRemoveBroker = onRemoveBroker,
+                onResetBrokerTest = onResetBrokerTest,
+            )
+        }
+
         // ── Card "Actions" ────────────────────────────────────────────────────
         item {
             Card(
@@ -640,6 +760,258 @@ private fun DashboardContent(
 
         // espace final pour ne pas coller au bord
         item { Spacer(modifier = Modifier.height(Spacing.lg)) }
+    }
+}
+
+// ── Card "Broker Gateway" ─────────────────────────────────────────────────────
+
+@Composable
+private fun BrokerGatewayCard(
+    brokerGateway: BrokerGatewayStatus?,
+    brokerState: BrokerUiState,
+    brokerTestState: BrokerTestState,
+    onTestBroker: () -> Unit,
+    onRemoveBroker: (String) -> Unit,
+    onResetBrokerTest: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val extendedColors = LocalExtendedColors.current
+
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = extendedColors.cardSurface),
+        elevation = CardDefaults.cardElevation(defaultElevation = Spacing.xs),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(Spacing.lg),
+        ) {
+            Text(
+                text = "Broker Gateway",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.height(Spacing.md))
+            HorizontalDivider(color = extendedColors.divider)
+            Spacer(modifier = Modifier.height(Spacing.md))
+
+            // Gateway status summary
+            if (brokerGateway == null || !brokerGateway.enabled) {
+                Text(
+                    text = "Non configur\u00e9",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.semantics {
+                        contentDescription = "Broker gateway : non configur\u00e9"
+                    },
+                )
+            } else {
+                val statusColor = when (brokerGateway.status.lowercase()) {
+                    "connected", "active" -> extendedColors.pnlPositive
+                    "disconnected", "inactive" -> MaterialTheme.colorScheme.error
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "Statut",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        text = brokerGateway.status.replaceFirstChar { it.uppercase() },
+                        style = MaterialTheme.typography.labelMedium,
+                        color = statusColor,
+                        modifier = Modifier.semantics {
+                            contentDescription = "Statut broker gateway : ${brokerGateway.status}"
+                        },
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(Spacing.md))
+
+            // Broker connections list
+            when (brokerState) {
+                is BrokerUiState.Idle -> {
+                    // Nothing to display yet
+                }
+
+                is BrokerUiState.Loading -> {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.semantics {
+                                contentDescription = "Chargement des connexions broker"
+                            },
+                        )
+                    }
+                }
+
+                is BrokerUiState.Error -> {
+                    Text(
+                        text = brokerState.message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+
+                is BrokerUiState.Success -> {
+                    if (brokerState.connections.isEmpty()) {
+                        Text(
+                            text = "Aucune connexion broker",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else {
+                        brokerState.connections.forEach { connection ->
+                            BrokerConnectionRow(
+                                connection = connection,
+                                onRemove = {
+                                    connection.portfolioId?.let { onRemoveBroker(it) }
+                                },
+                            )
+                            Spacer(modifier = Modifier.height(Spacing.sm))
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(Spacing.md))
+
+            // Test connection button
+            if (brokerGateway != null && brokerGateway.enabled) {
+                OutlinedButton(
+                    onClick = onTestBroker,
+                    enabled = brokerTestState !is BrokerTestState.Testing,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .semantics {
+                            contentDescription = "Tester la connexion broker"
+                        },
+                ) {
+                    if (brokerTestState is BrokerTestState.Testing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier
+                                .height(Spacing.lg)
+                                .padding(end = Spacing.sm),
+                            strokeWidth = Spacing.xs,
+                        )
+                    }
+                    Text("Tester la connexion")
+                }
+
+                // Test result display
+                when (brokerTestState) {
+                    is BrokerTestState.Result -> {
+                        Spacer(modifier = Modifier.height(Spacing.sm))
+                        val resultColor = if (brokerTestState.healthy) {
+                            extendedColors.pnlPositive
+                        } else {
+                            MaterialTheme.colorScheme.error
+                        }
+                        val resultText = if (brokerTestState.healthy) {
+                            "Connexion OK"
+                        } else {
+                            brokerTestState.message ?: "Connexion \u00e9chou\u00e9e"
+                        }
+                        Text(
+                            text = resultText,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = resultColor,
+                            modifier = Modifier.semantics {
+                                contentDescription = "R\u00e9sultat du test : $resultText"
+                            },
+                        )
+                    }
+
+                    is BrokerTestState.Error -> {
+                        Spacer(modifier = Modifier.height(Spacing.sm))
+                        Text(
+                            text = brokerTestState.message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+
+                    else -> {
+                        // Idle or Testing — no result to display
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ── Ligne connexion broker ────────────────────────────────────────────────────
+
+@Composable
+private fun BrokerConnectionRow(
+    connection: BrokerConnection,
+    onRemove: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val extendedColors = LocalExtendedColors.current
+    val statusColor = when (connection.connectionStatus?.lowercase()) {
+        "connected", "active" -> extendedColors.pnlPositive
+        "disconnected", "inactive", "error" -> MaterialTheme.colorScheme.error
+        "deploying", "pending" -> extendedColors.warning
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .semantics {
+                contentDescription = "Broker ${connection.brokerCode}, " +
+                    "statut : ${connection.connectionStatus ?: "inconnu"}"
+            },
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = connection.brokerCode.replaceFirstChar { it.uppercase() },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = connection.connectionStatus?.replaceFirstChar { it.uppercase() } ?: "—",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = statusColor,
+                )
+                if (connection.executionMode != null) {
+                    Text(
+                        text = connection.executionMode.replaceFirstChar { it.uppercase() },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+        if (connection.portfolioId != null) {
+            TextButton(
+                onClick = onRemove,
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = MaterialTheme.colorScheme.error,
+                ),
+            ) {
+                Text(
+                    text = "Retirer",
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+        }
     }
 }
 

@@ -240,7 +240,7 @@ private fun StepIndicator(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(12.dp)
+                        .size(Spacing.md)
                         .background(dotColor, CircleShape),
                 )
                 Spacer(modifier = Modifier.height(Spacing.xs))
@@ -254,7 +254,7 @@ private fun StepIndicator(
             if (index < steps.lastIndex) {
                 Box(
                     modifier = Modifier
-                        .width(32.dp)
+                        .width(Spacing.xxl)
                         .height(2.dp)
                         .background(
                             if (index < currentStep) {
