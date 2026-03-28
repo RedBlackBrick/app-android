@@ -247,10 +247,14 @@ private fun PositionSummaryCard(
                         )
                         val pnlPct = position.unrealizedPnlPercent ?: 0.0
                         val pnlPctColor = pnlColor(position.unrealizedPnl ?: BigDecimal.ZERO)
+                        val formattedPct = "(${if (pnlPct >= 0) "+" else ""}${"%.2f".format(pnlPct)}%)"
                         Text(
-                            text = "(${if (pnlPct >= 0) "+" else ""}${"%.2f".format(pnlPct)}%)",
+                            text = formattedPct,
                             style = MaterialTheme.typography.bodySmall,
                             color = pnlPctColor,
+                            modifier = Modifier.semantics {
+                                contentDescription = "Rendement : $formattedPct"
+                            },
                         )
                     }
                 },

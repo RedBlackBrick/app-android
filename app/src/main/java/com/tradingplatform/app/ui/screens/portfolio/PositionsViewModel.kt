@@ -3,6 +3,7 @@ package com.tradingplatform.app.ui.screens.portfolio
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tradingplatform.app.domain.model.Position
+import com.tradingplatform.app.domain.model.PositionStatus
 import com.tradingplatform.app.domain.model.WsUpdate
 import com.tradingplatform.app.domain.usecase.auth.GetPortfolioIdUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPositionWsUpdatesUseCase
@@ -21,6 +22,12 @@ sealed interface PositionsUiState {
     data class Error(val message: String) : PositionsUiState
 }
 
+enum class StatusFilter(val label: String) {
+    OPEN("Ouvertes"),
+    CLOSED("Fermées"),
+    ALL("Toutes"),
+}
+
 @HiltViewModel
 class PositionsViewModel @Inject constructor(
     private val getPositionsUseCase: GetPositionsUseCase,
@@ -31,6 +38,9 @@ class PositionsViewModel @Inject constructor(
     private val _uiState = MutableStateFlow<PositionsUiState>(PositionsUiState.Loading)
     val uiState: StateFlow<PositionsUiState> = _uiState.asStateFlow()
 
+    private val _selectedFilter = MutableStateFlow(StatusFilter.OPEN)
+    val selectedFilter: StateFlow<StatusFilter> = _selectedFilter.asStateFlow()
+
     private var portfolioId: String = ""
 
     init {
@@ -39,6 +49,11 @@ class PositionsViewModel @Inject constructor(
             loadPositions()
         }
         collectPositionWsUpdates()
+    }
+
+    fun selectFilter(filter: StatusFilter) {
+        _selectedFilter.value = filter
+        viewModelScope.launch { loadPositions() }
     }
 
     /**
@@ -87,7 +102,12 @@ class PositionsViewModel @Inject constructor(
 
     private suspend fun loadPositions() {
         _uiState.update { PositionsUiState.Loading }
-        getPositionsUseCase(portfolioId)
+        val status = when (_selectedFilter.value) {
+            StatusFilter.OPEN -> PositionStatus.OPEN
+            StatusFilter.CLOSED -> PositionStatus.CLOSED
+            StatusFilter.ALL -> PositionStatus.ALL
+        }
+        getPositionsUseCase(portfolioId, status)
             .onSuccess { positions ->
                 _uiState.update {
                     PositionsUiState.Success(

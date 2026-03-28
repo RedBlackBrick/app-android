@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
@@ -57,6 +58,7 @@ fun PositionsScreen(
     viewModel: PositionsViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val selectedFilter by viewModel.selectedFilter.collectAsStateWithLifecycle()
 
     val isRefreshing = uiState is PositionsUiState.Loading
 
@@ -106,6 +108,11 @@ fun PositionsScreen(
                 }
                 is PositionsUiState.Success -> {
                     if (state.positions.isEmpty()) {
+                        val emptyTitle = when (selectedFilter) {
+                            StatusFilter.OPEN -> "Aucune position ouverte"
+                            StatusFilter.CLOSED -> "Aucune position fermée"
+                            StatusFilter.ALL -> "Aucune position"
+                        }
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -114,7 +121,7 @@ fun PositionsScreen(
                         ) {
                             EmptyState(
                                 illustration = { EmptyPositionsIllustration() },
-                                title = "Aucune position ouverte",
+                                title = emptyTitle,
                                 message = "Vos positions apparaîtront ici lorsque des trades seront exécutés.",
                             )
                         }
@@ -122,6 +129,8 @@ fun PositionsScreen(
                         PositionsList(
                             positions = state.positions,
                             syncedAt = state.syncedAt,
+                            selectedFilter = selectedFilter,
+                            onFilterSelect = { viewModel.selectFilter(it) },
                             onNavigateToDetail = onNavigateToDetail,
                         )
                     }
@@ -153,6 +162,8 @@ fun PositionsScreen(
 private fun PositionsList(
     positions: List<Position>,
     syncedAt: Long,
+    selectedFilter: StatusFilter,
+    onFilterSelect: (StatusFilter) -> Unit,
     onNavigateToDetail: (positionId: Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -161,6 +172,20 @@ private fun PositionsList(
         verticalArrangement = Arrangement.spacedBy(Spacing.sm),
         contentPadding = PaddingValues(Spacing.lg),
     ) {
+        item {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                StatusFilter.entries.forEach { filter ->
+                    FilterChip(
+                        selected = filter == selectedFilter,
+                        onClick = { onFilterSelect(filter) },
+                        label = { Text(filter.label) },
+                    )
+                }
+            }
+        }
         item {
             CacheTimestamp(syncedAt = syncedAt)
         }
@@ -248,12 +273,17 @@ private fun PositionCard(
                 )
                 // P&L percentage
                 val pnlColor = pnlColor(position.unrealizedPnl ?: BigDecimal.ZERO)
+                val pnlPct = position.unrealizedPnlPercent ?: 0.0
+                val formattedPct = "${if (pnlPct >= 0) "+" else ""}${"%.2f".format(pnlPct)}%"
                 Text(
-                    text = "${if ((position.unrealizedPnlPercent ?: 0.0) >= 0) "+" else ""}${"%.2f".format(position.unrealizedPnlPercent ?: 0.0)}%",
+                    text = formattedPct,
                     style = MaterialTheme.typography.bodySmall.copy(
                         fontWeight = FontWeight.Medium,
                     ),
                     color = pnlColor,
+                    modifier = Modifier.semantics {
+                        contentDescription = "Rendement : $formattedPct"
+                    },
                 )
                 // Current price — secondary
                 MoneyText(

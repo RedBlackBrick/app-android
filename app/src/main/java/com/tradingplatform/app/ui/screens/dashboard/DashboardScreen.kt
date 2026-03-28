@@ -53,6 +53,7 @@ import java.time.format.DateTimeFormatter
 fun DashboardScreen(
     onNavigateToPositions: () -> Unit,
     onNavigateToPerformance: () -> Unit,
+    onNavigateToTransactions: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: DashboardViewModel = hiltViewModel(),
 ) {
@@ -177,6 +178,12 @@ fun DashboardScreen(
                     ) {
                         Text("Voir performance")
                     }
+                    Button(
+                        onClick = onNavigateToTransactions,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Voir historique")
+                    }
                 }
             }
         }
@@ -225,6 +232,43 @@ private fun NavSection(
                                 contentDescription = "Valeur liquidative totale : ${nav.currentValue} €"
                             },
                     )
+                    val positionsValue = nav.currentValue - nav.cashBalance
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Column(
+                            modifier = Modifier.semantics {
+                                contentDescription = "Cash : ${nav.cashBalance} euros"
+                            },
+                        ) {
+                            Text(
+                                text = "Cash",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            MoneyText(
+                                amount = nav.cashBalance,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                        Column(
+                            horizontalAlignment = Alignment.End,
+                            modifier = Modifier.semantics {
+                                contentDescription = "Positions : $positionsValue euros"
+                            },
+                        ) {
+                            Text(
+                                text = "Positions",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            MoneyText(
+                                amount = positionsValue,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                    }
                 }
                 is NavUiState.Error -> {
                     Text(
@@ -350,6 +394,50 @@ private fun PnlSection(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                    }
+                    // Trades count W/L
+                    if (pnl.tradesCount != null && pnl.tradesCount > 0) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Column {
+                                Text(
+                                    text = "Trades",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Text(
+                                    text = "${pnl.tradesCount}",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                            }
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = "Gagnants",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Text(
+                                    text = "${pnl.winningTrades ?: 0}",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = extendedColors.pnlPositive,
+                                )
+                            }
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(
+                                    text = "Perdants",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Text(
+                                    text = "${pnl.losingTrades ?: 0}",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = extendedColors.pnlNegative,
+                                )
+                            }
+                        }
                     }
                 }
                 is PnlUiState.Error -> {

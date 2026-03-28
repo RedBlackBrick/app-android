@@ -168,6 +168,12 @@ private fun ActivityItemRow(
             subtext = "Mise \u00e0 jour portfolio"
             description = "Mise \u00e0 jour portfolio : ${parts.joinToString(", ").ifEmpty { "valeurs mises \u00e0 jour" }}"
         }
+        is ActivityItem.CatalystEvent -> {
+            dotColor = MaterialTheme.colorScheme.tertiary
+            label = "Catalyst : ${item.symbol} \u2014 ${item.title}"
+            subtext = item.eventType.replaceFirstChar { it.uppercase() }
+            description = "\u00c9v\u00e9nement catalyseur : ${item.title} pour ${item.symbol}, type ${item.eventType}"
+        }
     }
 
     val relativeTime = remember(item.timestamp) { formatRelativeTime(item.timestamp) }
