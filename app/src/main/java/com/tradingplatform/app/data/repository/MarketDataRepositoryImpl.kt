@@ -6,6 +6,7 @@ import com.tradingplatform.app.data.model.toDomain
 import com.tradingplatform.app.data.model.toEntity
 import com.tradingplatform.app.domain.model.Quote
 import com.tradingplatform.app.domain.repository.MarketDataRepository
+import java.math.BigDecimal
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.supervisorScope
 import java.util.concurrent.ConcurrentHashMap
@@ -86,5 +87,13 @@ class MarketDataRepositoryImpl @Inject constructor(
             error("Get symbols failed: HTTP ${response.code()}")
         }
         response.body() ?: emptyList()
+    }
+
+    override suspend fun getHistory(symbol: String, limit: Int): Result<List<BigDecimal>> = runCatching {
+        val response = marketDataApi.getHistory(symbol.uppercase(), limit = limit)
+        if (!response.isSuccessful) {
+            error("Get history failed: HTTP ${response.code()}")
+        }
+        response.body()?.map { it.close } ?: emptyList()
     }
 }

@@ -7,6 +7,7 @@ import com.tradingplatform.app.domain.usecase.market.AddToWatchlistUseCase
 import com.tradingplatform.app.domain.usecase.market.GetAvailableSymbolsUseCase
 import com.tradingplatform.app.domain.usecase.market.GetQuoteStreamUseCase
 import com.tradingplatform.app.domain.usecase.market.GetQuoteUseCase
+import com.tradingplatform.app.domain.usecase.market.GetSymbolHistoryUseCase
 import com.tradingplatform.app.domain.usecase.market.GetWatchlistUseCase
 import com.tradingplatform.app.domain.usecase.market.RemoveFromWatchlistUseCase
 import com.tradingplatform.app.vpn.VpnNotConnectedException
@@ -21,6 +22,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import java.io.IOException
+import java.math.BigDecimal
 import java.net.SocketTimeoutException
 import javax.inject.Inject
 
@@ -31,6 +33,7 @@ sealed interface MarketDataUiState {
     data class Success(
         val quotes: Map<String, Quote>,
         val watchlistSymbols: List<String>,
+        val sparklines: Map<String, List<BigDecimal>> = emptyMap(),
     ) : MarketDataUiState
     data class Error(val message: String) : MarketDataUiState
 }
@@ -55,6 +58,7 @@ class MarketDataViewModel @Inject constructor(
     private val addToWatchlistUseCase: AddToWatchlistUseCase,
     private val removeFromWatchlistUseCase: RemoveFromWatchlistUseCase,
     private val getAvailableSymbolsUseCase: GetAvailableSymbolsUseCase,
+    private val getSymbolHistoryUseCase: GetSymbolHistoryUseCase,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<MarketDataUiState>(MarketDataUiState.Loading)
@@ -65,6 +69,9 @@ class MarketDataViewModel @Inject constructor(
 
     /** Current quotes map — updated by WS or polling. */
     private val quotes = mutableMapOf<String, Quote>()
+
+    /** Sparkline history data per symbol (close prices). */
+    private val sparklines = mutableMapOf<String, List<BigDecimal>>()
 
     /** Active WS subscription jobs per symbol. */
     private val wsJobs = mutableMapOf<String, Job>()
@@ -142,17 +149,20 @@ class MarketDataViewModel @Inject constructor(
             wsJobs.remove(symbol)?.cancel()
             pollingJobs.remove(symbol)?.cancel()
             quotes.remove(symbol)
+            sparklines.remove(symbol)
         }
 
         // Add subscriptions for new symbols
         (newSymbols - currentSymbols).forEach { symbol ->
             startWsSubscription(symbol)
+            fetchSparkline(symbol)
         }
 
         // Emit the new state
         _uiState.value = MarketDataUiState.Success(
             quotes = quotes.toMap(),
             watchlistSymbols = symbols,
+            sparklines = sparklines.toMap(),
         )
     }
 
@@ -231,6 +241,24 @@ class MarketDataViewModel @Inject constructor(
         _uiState.value = MarketDataUiState.Success(
             quotes = quotes.toMap(),
             watchlistSymbols = symbols,
+            sparklines = sparklines.toMap(),
         )
+    }
+
+    /**
+     * Fetches sparkline history (30 close prices) for a symbol.
+     * Runs asynchronously — the UI updates when data arrives.
+     */
+    private fun fetchSparkline(symbol: String) {
+        viewModelScope.launch {
+            getSymbolHistoryUseCase(symbol)
+                .onSuccess { points ->
+                    sparklines[symbol] = points
+                    emitCurrentState()
+                }
+                .onFailure { e ->
+                    Timber.tag(TAG).w(e, "Sparkline fetch failed for $symbol")
+                }
+        }
     }
 }
