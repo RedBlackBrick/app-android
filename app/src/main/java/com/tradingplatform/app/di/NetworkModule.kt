@@ -1,9 +1,9 @@
 package com.tradingplatform.app.di
 
 import com.squareup.moshi.Moshi
-import com.squareup.moshi.adapters.EnumJsonAdapter
 import com.tradingplatform.app.BuildConfig
 import com.tradingplatform.app.data.api.AuthApi
+import com.tradingplatform.app.data.api.BrokerConnectionApi
 import com.tradingplatform.app.data.api.DeviceApi
 import com.tradingplatform.app.data.api.LocalMaintenanceApi
 import com.tradingplatform.app.data.api.MarketDataApi
@@ -20,8 +20,6 @@ import com.tradingplatform.app.data.api.interceptor.UpgradeRequiredInterceptor
 import com.tradingplatform.app.data.api.interceptor.VpnRequiredInterceptor
 import com.tradingplatform.app.data.model.BigDecimalAdapter
 import com.tradingplatform.app.data.model.InstantAdapter
-import com.tradingplatform.app.domain.model.DeviceStatus
-import com.tradingplatform.app.domain.model.PositionStatus
 import android.content.Context
 import com.tradingplatform.app.security.CertificatePinnerProvider
 import dagger.Module
@@ -70,10 +68,6 @@ object NetworkModule {
     fun provideMoshi(): Moshi = Moshi.Builder()
         .add(BigDecimalAdapter())
         .add(InstantAdapter())
-        .add(PositionStatus::class.java, EnumJsonAdapter.create(PositionStatus::class.java)
-            .withUnknownFallback(PositionStatus.OPEN))
-        .add(DeviceStatus::class.java, EnumJsonAdapter.create(DeviceStatus::class.java)
-            .withUnknownFallback(DeviceStatus.OFFLINE))
         .build()
 
     // ── OkHttpClient @Named("bare") ────────────────────────────────────────────
@@ -239,4 +233,9 @@ object NetworkModule {
     @Singleton
     fun provideNotificationApi(retrofit: Retrofit): NotificationApi =
         retrofit.create(NotificationApi::class.java)
+
+    @Provides
+    @Singleton
+    fun provideBrokerConnectionApi(retrofit: Retrofit): BrokerConnectionApi =
+        retrofit.create(BrokerConnectionApi::class.java)
 }

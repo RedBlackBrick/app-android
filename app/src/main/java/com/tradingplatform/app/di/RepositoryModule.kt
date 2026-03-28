@@ -2,6 +2,7 @@ package com.tradingplatform.app.di
 
 import com.tradingplatform.app.data.repository.AlertRepositoryImpl
 import com.tradingplatform.app.data.repository.AuthRepositoryImpl
+import com.tradingplatform.app.data.repository.BrokerConnectionRepositoryImpl
 import com.tradingplatform.app.data.repository.DeviceRepositoryImpl
 import com.tradingplatform.app.data.repository.LocalMaintenanceRepositoryImpl
 import com.tradingplatform.app.data.repository.MyDevicesRepositoryImpl
@@ -13,6 +14,7 @@ import com.tradingplatform.app.data.repository.WatchlistRepositoryImpl
 import com.tradingplatform.app.domain.repository.AdminWidgetVisibilityManager
 import com.tradingplatform.app.domain.repository.AlertRepository
 import com.tradingplatform.app.domain.repository.AuthRepository
+import com.tradingplatform.app.domain.repository.BrokerConnectionRepository
 import com.tradingplatform.app.domain.repository.DeviceRepository
 import com.tradingplatform.app.domain.repository.LocalMaintenanceRepository
 import com.tradingplatform.app.domain.repository.MyDevicesRepository
@@ -71,6 +73,10 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindWatchlistRepository(impl: WatchlistRepositoryImpl): WatchlistRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindBrokerConnectionRepository(impl: BrokerConnectionRepositoryImpl): BrokerConnectionRepository
 
     @Binds
     @Singleton
