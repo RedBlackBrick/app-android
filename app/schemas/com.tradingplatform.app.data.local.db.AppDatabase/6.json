@@ -1,0 +1,468 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 6,
+    "identityHash": "8857bc9744e30630292cf88b3a6c91d3",
+    "entities": [
+      {
+        "tableName": "positions",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `symbol` TEXT NOT NULL, `quantity` TEXT NOT NULL, `avg_price` TEXT NOT NULL, `current_price` TEXT, `unrealized_pnl` TEXT, `unrealized_pnl_percent` REAL, `status` TEXT NOT NULL, `opened_at` INTEGER, `synced_at` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "symbol",
+            "columnName": "symbol",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "quantity",
+            "columnName": "quantity",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "avgPrice",
+            "columnName": "avg_price",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "currentPrice",
+            "columnName": "current_price",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "unrealizedPnl",
+            "columnName": "unrealized_pnl",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "unrealizedPnlPercent",
+            "columnName": "unrealized_pnl_percent",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "openedAt",
+            "columnName": "opened_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "syncedAt",
+            "columnName": "synced_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_positions_synced_at",
+            "unique": false,
+            "columnNames": [
+              "synced_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_positions_synced_at` ON `${TABLE_NAME}` (`synced_at`)"
+          }
+        ]
+      },
+      {
+        "tableName": "pnl_snapshots",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `period` TEXT NOT NULL, `total_return` TEXT, `total_return_pct` REAL, `sharpe_ratio` REAL, `sortino_ratio` REAL, `max_drawdown` REAL, `volatility` REAL, `cagr` REAL, `win_rate` REAL, `profit_factor` REAL, `avg_trade_return` TEXT, `synced_at` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "period",
+            "columnName": "period",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "totalReturn",
+            "columnName": "total_return",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "totalReturnPct",
+            "columnName": "total_return_pct",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "sharpeRatio",
+            "columnName": "sharpe_ratio",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "sortinoRatio",
+            "columnName": "sortino_ratio",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "maxDrawdown",
+            "columnName": "max_drawdown",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "volatility",
+            "columnName": "volatility",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "cagr",
+            "columnName": "cagr",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "winRate",
+            "columnName": "win_rate",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "profitFactor",
+            "columnName": "profit_factor",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "avgTradeReturn",
+            "columnName": "avg_trade_return",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "syncedAt",
+            "columnName": "synced_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_pnl_snapshots_synced_at",
+            "unique": false,
+            "columnNames": [
+              "synced_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_pnl_snapshots_synced_at` ON `${TABLE_NAME}` (`synced_at`)"
+          }
+        ]
+      },
+      {
+        "tableName": "alerts",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `title` TEXT NOT NULL, `body` TEXT NOT NULL, `type` TEXT NOT NULL, `received_at` INTEGER NOT NULL, `read` INTEGER NOT NULL, `synced_at` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "body",
+            "columnName": "body",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "type",
+            "columnName": "type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "receivedAt",
+            "columnName": "received_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "read",
+            "columnName": "read",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncedAt",
+            "columnName": "synced_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_alerts_synced_at",
+            "unique": false,
+            "columnNames": [
+              "synced_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_alerts_synced_at` ON `${TABLE_NAME}` (`synced_at`)"
+          },
+          {
+            "name": "index_alerts_received_at",
+            "unique": false,
+            "columnNames": [
+              "received_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_alerts_received_at` ON `${TABLE_NAME}` (`received_at`)"
+          }
+        ]
+      },
+      {
+        "tableName": "devices",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `name` TEXT, `status` TEXT NOT NULL, `wg_ip` TEXT, `last_heartbeat` INTEGER, `synced_at` INTEGER NOT NULL, `cpu_pct` REAL, `memory_pct` REAL, `temperature` REAL, `disk_pct` REAL, `uptime_seconds` INTEGER, `firmware_version` TEXT, `hostname` TEXT, `broker_gateway_enabled` INTEGER, `broker_gateway_status` TEXT, `broker_gateway_broker_id` INTEGER, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "wgIp",
+            "columnName": "wg_ip",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lastHeartbeat",
+            "columnName": "last_heartbeat",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "syncedAt",
+            "columnName": "synced_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cpuPct",
+            "columnName": "cpu_pct",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "memoryPct",
+            "columnName": "memory_pct",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "temperature",
+            "columnName": "temperature",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "diskPct",
+            "columnName": "disk_pct",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "uptimeSeconds",
+            "columnName": "uptime_seconds",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "firmwareVersion",
+            "columnName": "firmware_version",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "hostname",
+            "columnName": "hostname",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "brokerGatewayEnabled",
+            "columnName": "broker_gateway_enabled",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "brokerGatewayStatus",
+            "columnName": "broker_gateway_status",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "brokerGatewayBrokerId",
+            "columnName": "broker_gateway_broker_id",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_devices_synced_at",
+            "unique": false,
+            "columnNames": [
+              "synced_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_devices_synced_at` ON `${TABLE_NAME}` (`synced_at`)"
+          }
+        ]
+      },
+      {
+        "tableName": "quotes",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`symbol` TEXT NOT NULL, `price` TEXT NOT NULL, `bid` TEXT, `ask` TEXT, `volume` INTEGER NOT NULL, `change` TEXT NOT NULL, `change_percent` REAL NOT NULL, `quote_timestamp` INTEGER NOT NULL, `source` TEXT NOT NULL, `synced_at` INTEGER NOT NULL, PRIMARY KEY(`symbol`))",
+        "fields": [
+          {
+            "fieldPath": "symbol",
+            "columnName": "symbol",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "price",
+            "columnName": "price",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "bid",
+            "columnName": "bid",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "ask",
+            "columnName": "ask",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "volume",
+            "columnName": "volume",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "change",
+            "columnName": "change",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "changePercent",
+            "columnName": "change_percent",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "quoteTimestamp",
+            "columnName": "quote_timestamp",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "source",
+            "columnName": "source",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncedAt",
+            "columnName": "synced_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "symbol"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_quotes_synced_at",
+            "unique": false,
+            "columnNames": [
+              "synced_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_quotes_synced_at` ON `${TABLE_NAME}` (`synced_at`)"
+          }
+        ]
+      },
+      {
+        "tableName": "watchlist",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`symbol` TEXT NOT NULL, `added_at` INTEGER NOT NULL, PRIMARY KEY(`symbol`))",
+        "fields": [
+          {
+            "fieldPath": "symbol",
+            "columnName": "symbol",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "addedAt",
+            "columnName": "added_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "symbol"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '8857bc9744e30630292cf88b3a6c91d3')"
+    ]
+  }
+}

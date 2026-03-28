@@ -1,6 +1,7 @@
 package com.tradingplatform.app.data.api
 
 import com.tradingplatform.app.data.model.PerformanceResponseDto
+import com.tradingplatform.app.data.model.PnlResponseDto
 import com.tradingplatform.app.data.model.PortfolioDetailDto
 import com.tradingplatform.app.data.model.PositionDto
 import com.tradingplatform.app.data.model.TransactionListResponseDto
@@ -25,6 +26,12 @@ interface PortfolioApi {
     suspend fun getPortfolioDetail(
         @Path("portfolio_id") portfolioId: String,
     ): Response<PortfolioDetailDto>
+
+    @GET("v1/portfolios/{portfolio_id}/pnl")
+    suspend fun getPnl(
+        @Path("portfolio_id") portfolioId: String,
+        @Query("period") period: String = "day",
+    ): Response<PnlResponseDto>
 
     @GET("v1/portfolios/{portfolio_id}/transactions")
     suspend fun getTransactions(

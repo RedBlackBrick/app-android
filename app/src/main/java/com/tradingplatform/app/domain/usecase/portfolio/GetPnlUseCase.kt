@@ -12,5 +12,5 @@ class GetPnlUseCase @Inject constructor(
         portfolioId: String,
         period: PnlPeriod = PnlPeriod.DAY,
     ): Result<PnlSummary> =
-        repository.getPnl(portfolioId, period)
+        repository.getPnlSummary(portfolioId, period)
 }

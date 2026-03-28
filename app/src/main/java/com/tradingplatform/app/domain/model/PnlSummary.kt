@@ -24,6 +24,9 @@ data class PnlSummary(
     val winRate: Double?,
     val profitFactor: Double?,
     val avgTradeReturn: BigDecimal?,
+    val tradesCount: Int? = null,
+    val winningTrades: Int? = null,
+    val losingTrades: Int? = null,
     /** Data points for sparkline chart visualization on the Dashboard. */
     val sparklinePoints: List<BigDecimal> = emptyList(),
 )

@@ -6,6 +6,7 @@ import com.tradingplatform.app.data.local.db.dao.PositionDao
 import com.tradingplatform.app.data.model.toDomain
 import com.tradingplatform.app.data.model.toEntity
 import com.tradingplatform.app.data.model.toPerformanceMetrics
+import com.tradingplatform.app.data.model.toPnlSummary
 import com.tradingplatform.app.domain.model.NavSummary
 import com.tradingplatform.app.domain.model.PerformanceMetrics
 import com.tradingplatform.app.domain.model.PnlPeriod
@@ -87,6 +88,15 @@ class PortfolioRepositoryImpl @Inject constructor(
             )
 
             pnl
+        }
+
+    override suspend fun getPnlSummary(portfolioId: String, period: PnlPeriod): Result<PnlSummary> =
+        runCatching {
+            val response = portfolioApi.getPnl(portfolioId, period.toApiString())
+            if (!response.isSuccessful) {
+                error("Get PnL failed: HTTP ${response.code()}")
+            }
+            response.body()?.toPnlSummary() ?: error("Empty PnL response")
         }
 
     override suspend fun getPerformance(portfolioId: String): Result<PerformanceMetrics> =

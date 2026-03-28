@@ -12,6 +12,7 @@ import com.tradingplatform.app.domain.model.BrokerGatewayStatus
 import com.tradingplatform.app.domain.model.BrokerSummary
 import com.tradingplatform.app.domain.model.Device
 import com.tradingplatform.app.domain.model.DeviceStatus
+import com.tradingplatform.app.domain.model.ScraperCircuitState
 import com.tradingplatform.app.domain.model.NavSummary
 import com.tradingplatform.app.domain.model.PerformanceMetrics
 import com.tradingplatform.app.domain.model.PnlPeriod
@@ -96,6 +97,22 @@ fun PerformanceResponseDto.toDomain(): PnlSummary = PnlSummary(
     avgTradeReturn = avgTradeReturn,
 )
 
+fun PnlResponseDto.toPnlSummary(): PnlSummary = PnlSummary(
+    totalReturn = totalPnl,
+    totalReturnPct = totalPnlPercent / 100.0,
+    sharpeRatio = null,
+    sortinoRatio = null,
+    maxDrawdown = null,
+    volatility = null,
+    cagr = null,
+    winRate = if (tradesCount > 0) winningTrades.toDouble() / tradesCount else null,
+    profitFactor = null,
+    avgTradeReturn = null,
+    tradesCount = tradesCount,
+    winningTrades = winningTrades,
+    losingTrades = losingTrades,
+)
+
 fun PortfolioDetailDto.toDomain(): NavSummary = NavSummary(
     currentValue = portfolio.currentValue,
     cashBalance = portfolio.cashBalance,
@@ -129,7 +146,7 @@ fun QuoteDto.toDomain(): Quote = Quote(
 fun DeviceDto.toDomain(): Device = Device(
     id = id,
     name = name,
-    status = status,
+    status = DeviceStatus.fromApiString(status),
     wgIp = wgIp,
     lastHeartbeat = lastHeartbeat?.let { Instant.parse(it) },
     cpuPct = cpuPct,
@@ -146,6 +163,15 @@ fun DeviceDto.toDomain(): Device = Device(
             brokerId = brokerGatewayBrokerId,
         )
     } else null,
+    lastTicksSent = lastTicksSent,
+    lastScraperErrors = lastScraperErrors,
+    scrapersCircuit = scrapersCircuit?.mapValues { (_, v) ->
+        ScraperCircuitState(
+            state = v.state,
+            consecutiveFailures = v.consecutiveFailures,
+            totalTrips = v.totalTrips,
+        )
+    },
 )
 
 fun VpnPeerDto.toDomain(): VpnPeer = VpnPeer(
@@ -223,6 +249,9 @@ fun DeviceEntity.toDomain(): Device = Device(
             brokerId = brokerGatewayBrokerId,
         )
     } else null,
+    lastTicksSent = null,
+    lastScraperErrors = null,
+    scrapersCircuit = null,
 )
 
 fun QuoteEntity.toDomain(): Quote = Quote(

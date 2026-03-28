@@ -58,5 +58,13 @@ class GetActivityFeedUseCase @Inject constructor(
                 timestamp = Instant.now(),
             )
         },
+        wsRepository.catalystEvents.map { catalyst ->
+            ActivityItem.CatalystEvent(
+                symbol = catalyst.symbol ?: "\u2014",
+                eventType = catalyst.eventType ?: "event",
+                title = catalyst.title ?: "\u00c9v\u00e9nement catalyseur",
+                timestamp = Instant.now(),
+            )
+        },
     )
 }

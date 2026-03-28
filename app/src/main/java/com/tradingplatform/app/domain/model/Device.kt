@@ -16,6 +16,15 @@ data class Device(
     val firmwareVersion: String? = null,
     val hostname: String? = null,
     val brokerGateway: BrokerGatewayStatus? = null,
+    val lastTicksSent: Long? = null,
+    val lastScraperErrors: Int? = null,
+    val scrapersCircuit: Map<String, ScraperCircuitState>? = null,
+)
+
+data class ScraperCircuitState(
+    val state: String,
+    val consecutiveFailures: Int,
+    val totalTrips: Int,
 )
 
 data class BrokerGatewayStatus(

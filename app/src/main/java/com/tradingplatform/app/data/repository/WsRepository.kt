@@ -85,8 +85,15 @@ class WsRepository(
         }
 
     /** Événements catalyst (earnings, spinoff). */
-    val catalystEvents: Flow<WsEvent.CatalystEvent> =
-        wsClient.events.filterIsInstance()
+    override val catalystEvents: Flow<WsUpdate.CatalystEvent> =
+        wsClient.events.filterIsInstance<WsEvent.CatalystEvent>().map { event ->
+            WsUpdate.CatalystEvent(
+                symbol = event.data.optString("symbol", null),
+                eventType = event.data.optString("event_type", null),
+                title = event.data.optString("title", null),
+                description = event.data.optString("description", null),
+            )
+        }
 
     /** Changements d'état de la connexion (Connected / Disconnected). */
     val connectionEvents: Flow<WsEvent> = wsClient.events

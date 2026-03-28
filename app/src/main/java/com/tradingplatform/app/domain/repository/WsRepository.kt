@@ -32,6 +32,9 @@ interface WsRepository {
     /** Signaux de stratégie en temps réel (informatif). */
     val strategySignals: Flow<WsUpdate.StrategySignal>
 
+    /** Catalyst events (earnings, spinoffs, etc.). */
+    val catalystEvents: Flow<WsUpdate.CatalystEvent>
+
     /**
      * Etat de la connexion WebSocket privee (F5).
      *

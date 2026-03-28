@@ -59,4 +59,12 @@ sealed class WsUpdate {
         val confidence: Double? = null,
         val strategyType: String? = null,
     ) : WsUpdate()
+
+    /** Catalyst event (earnings, spinoff, etc.). */
+    data class CatalystEvent(
+        val symbol: String? = null,
+        val eventType: String? = null,
+        val title: String? = null,
+        val description: String? = null,
+    ) : WsUpdate()
 }

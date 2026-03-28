@@ -47,4 +47,12 @@ sealed class ActivityItem {
         val dailyPnl: Double?,
         override val timestamp: Instant,
     ) : ActivityItem()
+
+    /** Catalyst event (earnings report, spinoff, dividend, etc.). */
+    data class CatalystEvent(
+        val symbol: String,
+        val eventType: String,
+        val title: String,
+        override val timestamp: Instant,
+    ) : ActivityItem()
 }

@@ -12,6 +12,7 @@ interface PortfolioRepository {
     suspend fun getPositions(portfolioId: String, status: PositionStatus): Result<List<Position>>
     suspend fun getPosition(portfolioId: String, positionId: Int): Result<Position>
     suspend fun getPnl(portfolioId: String, period: PnlPeriod): Result<PnlSummary>
+    suspend fun getPnlSummary(portfolioId: String, period: PnlPeriod): Result<PnlSummary>
     suspend fun getPerformance(portfolioId: String): Result<PerformanceMetrics>
     suspend fun getNav(portfolioId: String): Result<NavSummary>
     suspend fun getTransactions(
