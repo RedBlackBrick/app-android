@@ -15,6 +15,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -45,6 +46,7 @@ fun SettingsScreen(
     onNavigateToVpn: () -> Unit,
     onNavigateToMyDevices: () -> Unit,
     onNavigateToSecurity: () -> Unit,
+    onNavigateToProfile: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Scaffold(
@@ -69,6 +71,16 @@ fun SettingsScreen(
                 ),
             ) {
                 Column {
+                    SettingsRow(
+                        icon = Icons.Default.Person,
+                        title = "Profil",
+                        subtitle = "Informations du compte",
+                        onClick = onNavigateToProfile,
+                    )
+                    HorizontalDivider(
+                        color = extendedColors.divider,
+                        modifier = Modifier.padding(horizontal = Spacing.lg),
+                    )
                     SettingsRow(
                         icon = Icons.Default.Info,
                         title = "Connexion VPN",

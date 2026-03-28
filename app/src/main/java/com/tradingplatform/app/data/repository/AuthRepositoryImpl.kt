@@ -215,4 +215,12 @@ class AuthRepositoryImpl @Inject constructor(
             expiresAt = Instant.parse(body.expiresAt),
         )
     }
+
+    override suspend fun getUserProfile(): Result<User> = runCatching {
+        val response = authApi.me()
+        if (!response.isSuccessful) {
+            error("Get user profile failed: HTTP ${response.code()}")
+        }
+        response.body()?.toDomain() ?: error("Empty user profile response")
+    }
 }

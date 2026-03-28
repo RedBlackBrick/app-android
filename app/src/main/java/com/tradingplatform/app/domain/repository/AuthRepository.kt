@@ -18,4 +18,7 @@ interface AuthRepository {
      * Ce token est distinct de l'access token — il est obtenu via `POST /v1/auth/ws-token`.
      */
     suspend fun getWsToken(): Result<WsTokenInfo>
+
+    /** Fetches the current user's profile from `GET /v1/auth/me`. */
+    suspend fun getUserProfile(): Result<User>
 }
