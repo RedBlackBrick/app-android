@@ -30,11 +30,13 @@ de la plateforme de trading algorithmique.
    (AES-256-GCM, clé dans Android Keystore, jamais exportable). Corruption gérée (Keystore invalidé).
 4. **Biométrie** — déverrouillage requis après 5 minutes d'inactivité (`dispatchTouchEvent` timer).
    `KeyPermanentlyInvalidatedException` → régénération clé + re-enrôlement.
-5. **Accès device LAN uniquement** — connexion Radxa autorisée uniquement si IP est RFC-1918
+5. **Anti-capture** — `FLAG_SECURE` sur `MainActivity` empêche les captures d'écran,
+   l'enregistrement d'écran, et masque le contenu dans le sélecteur d'applications récentes.
+6. **Accès device LAN uniquement** — connexion Radxa autorisée uniquement si IP est RFC-1918
    (`isLocalNetwork()` — Patterns.IP_ADDRESS guard + isSiteLocalAddress/isLinkLocalAddress).
-6. **Pas de logs sensibles** — tokens, clés privées, session_pin : `[REDACTED]` même en debug.
-7. **Root detection** — warning au démarrage si device rooté (RootBeer).
-8. **Obfuscation** — ProGuard/R8 activé en release (Timber.d() strippé via `-assumenosideeffects`).
+7. **Pas de logs sensibles** — tokens, clés privées, session_pin : `[REDACTED]` même en debug.
+8. **Root detection** — warning au démarrage si device rooté (RootBeer).
+9. **Obfuscation** — ProGuard/R8 activé en release (Timber.d() strippé via `-assumenosideeffects`).
 
 ---
 
