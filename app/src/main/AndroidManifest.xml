@@ -3,6 +3,9 @@
 
     <!-- Réseau -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Requis pour détecter un tunnel VPN système actif (app WireGuard officielle,
+         OpenVPN, etc.) via ConnectivityManager.getNetworkCapabilities. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- VPN -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />

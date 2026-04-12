@@ -28,6 +28,7 @@ import com.tradingplatform.app.security.BiometricLockManager
 import com.tradingplatform.app.security.BiometricManager
 import com.tradingplatform.app.ui.components.BiometricLockOverlay
 import com.tradingplatform.app.ui.components.VpnStatusBanner
+import com.tradingplatform.app.vpn.SystemVpnMonitor
 import com.tradingplatform.app.vpn.VpnState
 import com.tradingplatform.app.vpn.WireGuardManager
 import com.tradingplatform.app.ui.screens.alerts.AlertListScreen
@@ -55,8 +56,11 @@ import com.tradingplatform.app.ui.screens.setup.SetupScreen
 import com.tradingplatform.app.ui.screens.totp.TotpScreen
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import javax.inject.Inject
@@ -137,12 +141,38 @@ class AppNavViewModel @Inject constructor(
     private val getAuthContextUseCase: GetAuthContextUseCase,
     private val sessionManager: SessionManager,
     private val biometricLockManager: BiometricLockManager,
-    wireGuardManager: WireGuardManager,
+    private val wireGuardManager: WireGuardManager,
+    private val systemVpnMonitor: SystemVpnMonitor,
     val biometricManager: BiometricManager,
 ) : ViewModel() {
 
-    /** VPN connection state — exposed for VpnStatusBanner. */
+    /** In-app WireGuard tunnel state — used by the Settings screen to show the
+     *  tunnel managed by this process.  The banner uses [effectiveVpnState]
+     *  instead so a system-level VPN (official WireGuard app, OpenVPN, ...)
+     *  also counts as "connected". */
     val vpnState: StateFlow<VpnState> = wireGuardManager.state
+
+    /**
+     * VPN state as perceived by the app as a whole: Connected if EITHER the
+     * in-app tunnel is up OR a system-level VPN tunnel is active.  This is
+     * the flow the global [VpnStatusBanner] should observe.
+     */
+    val effectiveVpnState: StateFlow<VpnState> =
+        combine(wireGuardManager.state, systemVpnMonitor.active) { inApp, sysActive ->
+            val result: VpnState = when {
+                inApp is VpnState.Connected -> inApp
+                sysActive -> VpnState.Connected(serverIp = "")
+                else -> inApp  // Disconnected or Connecting — let the in-app flow decide
+            }
+            result
+        }.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = wireGuardManager.state.value,
+        )
+
+    /** Reconnects the VPN tunnel manually. */
+    fun reconnectVpn() = wireGuardManager.reconnect()
 
     private val _isLoggedIn = MutableStateFlow<Boolean?>(null)
     val isLoggedIn: StateFlow<Boolean?> = _isLoggedIn.asStateFlow()
@@ -277,7 +307,8 @@ fun AppNavGraph(
     val isLoggedIn by appNavViewModel.isLoggedIn.collectAsStateWithLifecycle()
     val isAdmin by appNavViewModel.isAdmin.collectAsStateWithLifecycle()
     val isSetupCompleted by appNavViewModel.isSetupCompleted.collectAsStateWithLifecycle()
-    val vpnState by appNavViewModel.vpnState.collectAsStateWithLifecycle()
+    // Banner must reflect the "any VPN active" view (in-app OR system-level).
+    val vpnState by appNavViewModel.effectiveVpnState.collectAsStateWithLifecycle()
     val showUpgradeRequired by appNavViewModel.showUpgradeRequired.collectAsStateWithLifecycle()
     val showKeystoreCorruption by appNavViewModel.showKeystoreCorruption.collectAsStateWithLifecycle()
     val biometricLocked by appNavViewModel.biometricLocked.collectAsStateWithLifecycle()
@@ -365,8 +396,13 @@ fun AppNavGraph(
 
         Column(modifier = Modifier.padding(innerPadding)) {
             // Global VPN disconnect banner
-            val isVpnDisconnected = loggedIn && vpnState !is VpnState.Connected
-            VpnStatusBanner(isDisconnected = isVpnDisconnected)
+            val isVpnDisconnected = loggedIn && vpnState is VpnState.Disconnected
+            val isVpnConnecting = loggedIn && vpnState is VpnState.Connecting
+            VpnStatusBanner(
+                isDisconnected = isVpnDisconnected,
+                isConnecting = isVpnConnecting,
+                onReconnect = { appNavViewModel.reconnectVpn() }
+            )
 
         NavHost(
             navController = navController,

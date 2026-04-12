@@ -39,9 +39,32 @@ class AuthInterceptor @Inject constructor(
 
     companion object {
         private const val TAG = "AuthInterceptor"
+
+        // Endpoints that do NOT require an Authorization header. Fresh installs
+        // have no token yet; without this exclusion, the interceptor short-circuits
+        // with a synthetic 401 before /v1/auth/login can even reach the server.
+        // Must stay in sync with the backend CSRF_EXEMPT_PATHS in
+        // app/core/middleware/csrf.py.
+        private val PUBLIC_PATHS: Set<String> = setOf(
+            "/v1/auth/login",
+            "/v1/auth/register",
+            "/v1/auth/refresh",
+            "/v1/auth/csrf-token",
+        )
     }
 
     override fun intercept(chain: Interceptor.Chain): Response {
+        // Public endpoints: proceed without Authorization header (fresh installs
+        // have no token at all and must be able to reach /v1/auth/login).
+        val path = chain.request().url.encodedPath
+        if (path in PUBLIC_PATHS) {
+            return chain.proceed(
+                chain.request().newBuilder()
+                    .header("X-App-Version", BuildConfig.VERSION_CODE.toString())
+                    .build()
+            )
+        }
+
         // Hot path : lecture volatile ~0ns (pas d'IO disque)
         val cachedToken = tokenHolder.accessToken
         if (cachedToken != null) {

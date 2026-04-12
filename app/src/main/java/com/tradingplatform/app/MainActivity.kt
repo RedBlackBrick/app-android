@@ -6,6 +6,9 @@ import android.view.MotionEvent
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import com.tradingplatform.app.data.session.SessionManager
 import com.tradingplatform.app.security.BiometricLockManager
@@ -42,6 +45,16 @@ class MainActivity : ComponentActivity() {
             WindowManager.LayoutParams.FLAG_SECURE,
             WindowManager.LayoutParams.FLAG_SECURE,
         )
+
+        // Edge-to-edge + immersive sticky: draw behind the status/nav bars and
+        // hide them unless the user swipes from an edge (BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE).
+        // Matches the "clean fullscreen" expectation for a trading app; the
+        // system bars still appear briefly on demand for navigation / time.
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            hide(WindowInsetsCompat.Type.systemBars())
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        }
 
         checkRootStatus()
         handleDeepLinkIntent(intent)

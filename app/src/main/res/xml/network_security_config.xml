@@ -4,6 +4,11 @@
     <base-config cleartextTrafficPermitted="false">
         <trust-anchors>
             <certificates src="system" />
+            <!-- Caddy internal Root CA (trading-platform2 VPS at 10.42.0.1).
+                 Required because the VPS uses `tls internal` (not a public CA).
+                 The SPKI SHA-256 is additionally pinned by OkHttp
+                 CertificatePinner, so trust here is already narrowed. -->
+            <certificates src="@raw/caddy_root_ca" />
         </trust-anchors>
     </base-config>
 
