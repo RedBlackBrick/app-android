@@ -19,6 +19,7 @@ data class Device(
     val lastTicksSent: Long? = null,
     val lastScraperErrors: Int? = null,
     val scrapersCircuit: Map<String, ScraperCircuitState>? = null,
+    val availableMemoryMb: Int? = null,
 )
 
 data class ScraperCircuitState(

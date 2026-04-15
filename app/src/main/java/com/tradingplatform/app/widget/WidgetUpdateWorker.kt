@@ -20,8 +20,12 @@ import com.tradingplatform.app.vpn.VpnState
 import com.tradingplatform.app.vpn.WireGuardManager
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.supervisorScope
 import timber.log.Timber
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Worker périodique (WorkManager 15 min minimum) qui met à jour le cache Room
@@ -99,50 +103,56 @@ class WidgetUpdateWorker @AssistedInject constructor(
             return Result.success()
         }
 
-        var anyRetryNeeded = false
+        val anyRetryNeeded = AtomicBoolean(false)
 
-        // 2. Sync positions — indépendant du PnL et des autres blocs
-        try {
-            syncPositions(portfolioId)
-        } catch (e: IOException) {
-            Timber.tag(TAG).w(e, "WidgetUpdateWorker — positions sync failed (IOException), will retry")
-            anyRetryNeeded = true
-        } catch (e: VpnNotConnectedException) {
-            Timber.tag(TAG).d("WidgetUpdateWorker — VPN disconnected during positions sync")
-        } catch (e: android.database.SQLException) {
-            Timber.tag(TAG).e(e, "WidgetUpdateWorker — positions sync Room error (non-retryable)")
-        }
-
-        // 2b. Sync PnL — indépendant des positions et des autres blocs
-        try {
-            syncPnl(portfolioId)
-        } catch (e: IOException) {
-            Timber.tag(TAG).w(e, "WidgetUpdateWorker — PnL sync failed (IOException), will retry")
-            anyRetryNeeded = true
-        } catch (e: VpnNotConnectedException) {
-            Timber.tag(TAG).d("WidgetUpdateWorker — VPN disconnected during PnL sync")
-        } catch (e: android.database.SQLException) {
-            Timber.tag(TAG).e(e, "WidgetUpdateWorker — PnL sync Room error (non-retryable)")
-        }
-
-        // 3. Sync quotes — indépendant du portfolio
-        try {
-            val anyQuoteFailed = syncQuotes()
-            if (anyQuoteFailed) {
-                Timber.tag(TAG).w("WidgetUpdateWorker — some quotes failed (IOException), will retry")
-                anyRetryNeeded = true
-            }
-        } catch (e: IOException) {
-            Timber.tag(TAG).w(e, "WidgetUpdateWorker — quotes sync failed entirely (IOException), will retry")
-            anyRetryNeeded = true
-        } catch (e: VpnNotConnectedException) {
-            Timber.tag(TAG).d("WidgetUpdateWorker — VPN disconnected during quotes sync")
-        } catch (e: android.database.SQLException) {
-            Timber.tag(TAG).e(e, "WidgetUpdateWorker — quotes sync Room error (non-retryable)")
+        supervisorScope {
+            // 2, 2b, 3. Sync positions, PnL, and quotes in parallel
+            val jobs = listOf(
+                async {
+                    try {
+                        syncPositions(portfolioId)
+                    } catch (e: IOException) {
+                        Timber.tag(TAG).w(e, "WidgetUpdateWorker — positions sync failed (IOException), will retry")
+                        anyRetryNeeded.set(true)
+                    } catch (e: VpnNotConnectedException) {
+                        Timber.tag(TAG).d("WidgetUpdateWorker — VPN disconnected during positions sync")
+                    } catch (e: android.database.SQLException) {
+                        Timber.tag(TAG).e(e, "WidgetUpdateWorker — positions sync Room error (non-retryable)")
+                    }
+                },
+                async {
+                    try {
+                        syncPnl(portfolioId)
+                    } catch (e: IOException) {
+                        Timber.tag(TAG).w(e, "WidgetUpdateWorker — PnL sync failed (IOException), will retry")
+                        anyRetryNeeded.set(true)
+                    } catch (e: VpnNotConnectedException) {
+                        Timber.tag(TAG).d("WidgetUpdateWorker — VPN disconnected during PnL sync")
+                    } catch (e: android.database.SQLException) {
+                        Timber.tag(TAG).e(e, "WidgetUpdateWorker — PnL sync Room error (non-retryable)")
+                    }
+                },
+                async {
+                    try {
+                        val anyQuoteFailed = syncQuotes()
+                        if (anyQuoteFailed) {
+                            Timber.tag(TAG).w("WidgetUpdateWorker — some quotes failed (IOException), will retry")
+                            anyRetryNeeded.set(true)
+                        }
+                    } catch (e: IOException) {
+                        Timber.tag(TAG).w(e, "WidgetUpdateWorker — quotes sync failed entirely (IOException), will retry")
+                        anyRetryNeeded.set(true)
+                    } catch (e: VpnNotConnectedException) {
+                        Timber.tag(TAG).d("WidgetUpdateWorker — VPN disconnected during quotes sync")
+                    } catch (e: android.database.SQLException) {
+                        Timber.tag(TAG).e(e, "WidgetUpdateWorker — quotes sync Room error (non-retryable)")
+                    }
+                }
+            )
+            jobs.awaitAll()
         }
 
         // 4. Purge des alertes (30 jours / 500 max) — local uniquement, jamais réseau
-        // Les alertes viennent de FCM → Room, pas de sync réseau ici
         try {
             purgeExpiredAlerts()
         } catch (e: Exception) {
@@ -156,7 +166,7 @@ class WidgetUpdateWorker @AssistedInject constructor(
             Timber.tag(TAG).w(e, "WidgetUpdateWorker — widget refresh failed (non-blocking)")
         }
 
-        return if (anyRetryNeeded) Result.retry() else Result.success()
+        return if (anyRetryNeeded.get()) Result.retry() else Result.success()
     }
 
     // ── Sync positions ──────────────────────────────────────────────────────────
@@ -220,30 +230,32 @@ class WidgetUpdateWorker @AssistedInject constructor(
      * @throws VpnNotConnectedException si le VPN est coupé pendant la sync (remonte toujours)
      * @return true si au moins un symbole a échoué, false si tous ont réussi
      */
-    private suspend fun syncQuotes(): Boolean {
+    private suspend fun syncQuotes(): Boolean = supervisorScope {
         // Récupérer les symboles actuellement en cache pour les rafraîchir
         val cachedSymbols = quoteDao.getAllSymbols()
         val symbolsToSync = if (cachedSymbols.isEmpty()) listOf(AppDefaults.DEFAULT_QUOTE_SYMBOL) else cachedSymbols
 
-        var anySymbolFailed = false
-        for (symbol in symbolsToSync) {
-            getQuoteUseCase(symbol)
-                .onSuccess {
-                    Timber.tag(TAG).d("WidgetUpdateWorker — quote synced: $symbol @ ${it.price}")
-                }
-                .onFailure { e ->
-                    when (e) {
-                        is VpnNotConnectedException -> throw e
-                        is IOException -> {
-                            Timber.tag(TAG).w(e, "WidgetUpdateWorker — quote sync failed for $symbol, continuing with others")
-                            anySymbolFailed = true
-                        }
-                        else -> Timber.tag(TAG).w(e, "WidgetUpdateWorker — quote error for $symbol (non-retryable): ${e.message}")
+        val anySymbolFailed = AtomicBoolean(false)
+        val jobs = symbolsToSync.map { symbol ->
+            async {
+                getQuoteUseCase(symbol)
+                    .onSuccess {
+                        Timber.tag(TAG).d("WidgetUpdateWorker — quote synced: $symbol @ ${it.price}")
                     }
-                }
+                    .onFailure { e ->
+                        when (e) {
+                            is VpnNotConnectedException -> throw e
+                            is IOException -> {
+                                Timber.tag(TAG).w(e, "WidgetUpdateWorker — quote sync failed for $symbol, continuing with others")
+                                anySymbolFailed.set(true)
+                            }
+                            else -> Timber.tag(TAG).w(e, "WidgetUpdateWorker — quote error for $symbol (non-retryable): ${e.message}")
+                        }
+                    }
+            }
         }
-
-        return anySymbolFailed
+        jobs.awaitAll()
+        anySymbolFailed.get()
     }
 
     // ── Purge alertes ──────────────────────────────────────────────────────────

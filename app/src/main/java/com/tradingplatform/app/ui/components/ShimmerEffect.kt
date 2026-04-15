@@ -217,3 +217,126 @@ fun SkeletonDeviceCard(
         }
     }
 }
+
+/**
+ * Skeleton placeholder for a quote card in the watchlist.
+ */
+@Composable
+fun SkeletonQuoteCard(
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+        ),
+    ) {
+        Column(
+            modifier = Modifier.padding(Spacing.lg),
+            verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                    ShimmerBox(width = 70.dp, height = 18.dp)
+                    ShimmerBox(width = 50.dp, height = 12.dp)
+                }
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+                ) {
+                    ShimmerBox(width = 90.dp, height = 18.dp)
+                    ShimmerBox(width = 60.dp, height = 14.dp)
+                }
+            }
+            // Volume / Bid-Ask line
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                ShimmerBox(width = 120.dp, height = 10.dp)
+                ShimmerBox(width = 60.dp, height = 10.dp)
+            }
+            // Chart placeholder
+            ShimmerBox(width = 300.dp, height = 32.dp, modifier = Modifier.fillMaxWidth())
+        }
+    }
+}
+
+/**
+ * Skeleton placeholder for the position detail screen.
+ */
+@Composable
+fun SkeletonPositionDetail(
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(Spacing.lg),
+        verticalArrangement = Arrangement.spacedBy(Spacing.lg),
+    ) {
+        // Summary Card Skeleton
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            ),
+        ) {
+            Column(
+                modifier = Modifier.padding(Spacing.lg),
+                verticalArrangement = Arrangement.spacedBy(Spacing.md),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    ShimmerBox(width = 120.dp, height = 24.dp)
+                    ShimmerBox(width = 60.dp, height = 20.dp)
+                }
+                Spacer(modifier = Modifier.height(Spacing.xs))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                        ShimmerBox(width = 80.dp, height = 12.dp)
+                        ShimmerBox(width = 100.dp, height = 18.dp)
+                    }
+                    Column(
+                        horizontalAlignment = Alignment.End,
+                        verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+                    ) {
+                        ShimmerBox(width = 80.dp, height = 12.dp)
+                        ShimmerBox(width = 100.dp, height = 18.dp)
+                    }
+                }
+                ShimmerBox(width = 150.dp, height = 14.dp)
+            }
+        }
+        
+        // Transactions List Skeleton
+        ShimmerBox(width = 180.dp, height = 18.dp)
+        repeat(3) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                    ShimmerBox(width = 40.dp, height = 14.dp)
+                    ShimmerBox(width = 100.dp, height = 12.dp)
+                }
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+                ) {
+                    ShimmerBox(width = 80.dp, height = 14.dp)
+                    ShimmerBox(width = 60.dp, height = 12.dp)
+                }
+            }
+            Spacer(modifier = Modifier.height(Spacing.sm))
+        }
+    }
+}

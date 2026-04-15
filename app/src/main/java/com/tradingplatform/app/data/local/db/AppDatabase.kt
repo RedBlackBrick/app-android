@@ -30,6 +30,9 @@ import com.tradingplatform.app.data.local.db.entity.WatchlistEntity
 // v5           : ajout table watchlist (symboles favoris de l'utilisateur)
 // v6           : ajout colonnes broker gateway dans devices
 //               (broker_gateway_enabled, broker_gateway_status, broker_gateway_broker_id)
+// v7           : ajout colonnes source quality dans quotes
+//               (source_name, source_type, quality, data_mode)
+//               + ajout colonne available_memory_mb dans devices
 //
 // STRATÉGIE DE MIGRATION — RÈGLES IMPÉRATIVES
 // ───────────────────────────────────────────────────────────────────────────────
@@ -88,6 +91,19 @@ val MIGRATION_5_6 = object : Migration(5, 6) {
     }
 }
 
+// ── Migration 6 → 7 : ajout colonnes source quality + device available memory ──
+val MIGRATION_6_7 = object : Migration(6, 7) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        // Quote source quality indicators
+        database.execSQL("ALTER TABLE quotes ADD COLUMN source_name TEXT")
+        database.execSQL("ALTER TABLE quotes ADD COLUMN source_type TEXT")
+        database.execSQL("ALTER TABLE quotes ADD COLUMN quality INTEGER")
+        database.execSQL("ALTER TABLE quotes ADD COLUMN data_mode TEXT")
+        // Device available memory
+        database.execSQL("ALTER TABLE devices ADD COLUMN available_memory_mb INTEGER")
+    }
+}
+
 // ── Migration 4 → 5 : ajout table watchlist ────────────────────────────────
 val MIGRATION_4_5 = object : Migration(4, 5) {
     override fun migrate(database: SupportSQLiteDatabase) {
@@ -109,7 +125,7 @@ val MIGRATION_4_5 = object : Migration(4, 5) {
         QuoteEntity::class,
         WatchlistEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {

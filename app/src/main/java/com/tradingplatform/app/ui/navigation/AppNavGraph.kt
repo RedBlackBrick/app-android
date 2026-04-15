@@ -1,5 +1,8 @@
 package com.tradingplatform.app.ui.navigation
 
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -10,6 +13,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
@@ -69,6 +73,7 @@ import javax.inject.Inject
 
 @Composable
 private fun UpgradeRequiredDialog() {
+    val context = LocalContext.current
     androidx.compose.material3.AlertDialog(
         onDismissRequest = { /* non-dismissable */ },
         title = {
@@ -82,7 +87,23 @@ private fun UpgradeRequiredDialog() {
         },
         confirmButton = {
             androidx.compose.material3.TextButton(onClick = {
-                Timber.w("UpgradeRequiredDialog: user acknowledged — update action pending")
+                val packageName = context.packageName
+                // Try Play Store app first, fall back to browser if Play Store is absent (sideload).
+                val marketIntent = Intent(
+                    Intent.ACTION_VIEW,
+                    Uri.parse("market://details?id=$packageName"),
+                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                try {
+                    context.startActivity(marketIntent)
+                } catch (e: ActivityNotFoundException) {
+                    Timber.w(e, "UpgradeRequiredDialog: Play Store not available, opening browser")
+                    val webIntent = Intent(
+                        Intent.ACTION_VIEW,
+                        Uri.parse("https://play.google.com/store/apps/details?id=$packageName"),
+                    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    runCatching { context.startActivity(webIntent) }
+                        .onFailure { Timber.w(it, "UpgradeRequiredDialog: no browser available") }
+                }
             }) {
                 androidx.compose.material3.Text("Mettre à jour")
             }
@@ -211,6 +232,16 @@ class AppNavViewModel @Inject constructor(
     /** Called by the UI when biometric authentication succeeds. */
     fun onBiometricUnlocked() {
         biometricLockManager.unlock()
+    }
+
+    /**
+     * Called when the biometric key is invalidated (hardware failure, biometric removed)
+     * or the user uses the escape hatch button after a long lock timeout.
+     * Unlocks the overlay and triggers a forced logout so the user lands on [LoginScreen].
+     */
+    fun onBiometricEscapeHatch() {
+        biometricLockManager.unlock()
+        sessionManager.notifyForcedLogout()
     }
 
     /**
@@ -627,11 +658,19 @@ fun AppNavGraph(
                         navController.getBackStackEntry(PAIRING_GRAPH_ROUTE)
                     }
                     val pairingViewModel: PairingViewModel = hiltViewModel(pairingEntry)
+                    val source = pairingEntry.arguments?.getString("source")
+                    val returnRoute = pairingReturnRoute(source)
                     PairingProgressScreen(
                         onPairingComplete = {
                             navController.navigate(Screen.PairingDone.route) {
                                 popUpTo(Screen.PairingProgress.route) { inclusive = true }
                             }
+                        },
+                        onCancel = {
+                            navController.popBackStack(
+                                route = returnRoute,
+                                inclusive = false,
+                            )
                         },
                         viewModel = pairingViewModel,
                     )
@@ -718,6 +757,7 @@ fun AppNavGraph(
     BiometricLockOverlay(
         isLocked = biometricLocked,
         onAuthSuccess = { appNavViewModel.onBiometricUnlocked() },
+        onKeyInvalidated = { appNavViewModel.onBiometricEscapeHatch() },
         modifier = Modifier
             .fillMaxSize()
             .zIndex(Float.MAX_VALUE),

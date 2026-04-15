@@ -375,6 +375,13 @@ class PublicWsClient @Inject constructor(
                 Instant.now()
             }
 
+            val sourceName = data.optString("source_name", "").ifEmpty { null }
+            val sourceType = data.optString("source_type", "").ifEmpty { null }
+            val quality = if (data.has("quality") && !data.isNull("quality")) {
+                data.optInt("quality", -1).takeIf { it >= 0 }
+            } else null
+            val dataMode = data.optString("data_mode", "").ifEmpty { null }
+
             PublicWsEvent.MarketData(
                 symbol = symbol,
                 price = price,
@@ -386,6 +393,10 @@ class PublicWsClient @Inject constructor(
                 bid = bid,
                 ask = ask,
                 timestamp = timestamp,
+                sourceName = sourceName,
+                sourceType = sourceType,
+                quality = quality,
+                dataMode = dataMode,
             )
         } catch (e: Exception) {
             Timber.tag(TAG).w(e, "Failed to parse market_data for symbol=$symbol — ignored")

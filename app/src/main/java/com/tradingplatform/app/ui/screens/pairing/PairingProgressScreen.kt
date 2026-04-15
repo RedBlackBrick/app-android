@@ -1,5 +1,6 @@
 package com.tradingplatform.app.ui.screens.pairing
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -20,16 +21,20 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DeveloperBoard
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -57,9 +62,11 @@ import com.tradingplatform.app.ui.theme.Spacing
  * The startPairing() call is idempotent via the state guard in the ViewModel — calling
  * it when state is not [PairingStep.BothScanned] is a no-op.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PairingProgressScreen(
     onPairingComplete: () -> Unit,
+    onCancel: () -> Unit,
     viewModel: PairingViewModel = hiltViewModel(),
 ) {
     val step by viewModel.step.collectAsStateWithLifecycle()
@@ -79,7 +86,41 @@ fun PairingProgressScreen(
         }
     }
 
-    Scaffold { innerPadding ->
+    // Shared cancel action — aborts in-flight job and exits the pairing graph.
+    val cancel: () -> Unit = {
+        viewModel.reset()
+        onCancel()
+    }
+
+    // Intercept system back so the user doesn't exit mid-wait without cleanup.
+    BackHandler(onBack = cancel)
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(
+                        text = "Pairing en cours",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                },
+                navigationIcon = {
+                    IconButton(
+                        onClick = cancel,
+                        modifier = Modifier.semantics {
+                            contentDescription = "Annuler le pairing"
+                        },
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                },
+            )
+        },
+    ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -88,14 +129,6 @@ fun PairingProgressScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            Text(
-                text = "Pairing en cours",
-                style = MaterialTheme.typography.headlineSmall,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-
-            Spacer(modifier = Modifier.height(Spacing.lg))
-
             // Device context card
             if (deviceInfo != null) {
                 DeviceContextCard(deviceInfo = deviceInfo!!)
@@ -147,6 +180,21 @@ fun PairingProgressScreen(
                         }
                     }
                 }
+            }
+
+            Spacer(modifier = Modifier.height(Spacing.xxl))
+
+            // Visible cancel button — escape hatch during the 120 s WaitingConfirmation wait.
+            OutlinedButton(
+                onClick = cancel,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .semantics { contentDescription = "Annuler et quitter le pairing" },
+            ) {
+                Text(
+                    text = "Annuler",
+                    style = MaterialTheme.typography.labelLarge,
+                )
             }
         }
     }

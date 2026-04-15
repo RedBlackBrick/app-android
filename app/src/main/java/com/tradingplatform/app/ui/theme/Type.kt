@@ -149,3 +149,30 @@ val TradingTypography = Typography(
         letterSpacing = 0.5.sp,
     ),
 )
+
+/**
+ * Styles spécifiques pour les données numériques (Prix, P&L, Quantités).
+ * Utilise JetBrains Mono avec tabular figures pour un alignement parfait.
+ */
+object TradingNumbers {
+    val bodyLarge = TradingTypography.bodyLarge.copy(
+        fontFamily = jetBrainsMonoFamily,
+        fontFeatureSettings = "tnum",
+    )
+    val bodyMedium = TradingTypography.bodyMedium.copy(
+        fontFamily = jetBrainsMonoFamily,
+        fontFeatureSettings = "tnum",
+    )
+    val bodySmall = TradingTypography.bodySmall.copy(
+        fontFamily = jetBrainsMonoFamily,
+        fontFeatureSettings = "tnum",
+    )
+    val titleLarge = TradingTypography.titleLarge.copy(
+        fontFamily = jetBrainsMonoFamily,
+        fontFeatureSettings = "tnum",
+    )
+    val titleMedium = TradingTypography.titleMedium.copy(
+        fontFamily = jetBrainsMonoFamily,
+        fontFeatureSettings = "tnum",
+    )
+}

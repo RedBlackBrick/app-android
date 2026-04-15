@@ -34,6 +34,11 @@ sealed interface MarketDataUiState {
         val quotes: Map<String, Quote>,
         val watchlistSymbols: List<String>,
         val sparklines: Map<String, List<BigDecimal>> = emptyMap(),
+        /**
+         * Symbols whose last fetch failed (VPN down, WS/REST timeout).
+         * The cached quote is still displayed — this set lets the UI flag it as stale.
+         */
+        val staleSymbols: Set<String> = emptySet(),
     ) : MarketDataUiState
     data class Error(val message: String) : MarketDataUiState
 }
@@ -78,6 +83,9 @@ class MarketDataViewModel @Inject constructor(
 
     /** Active REST polling fallback jobs per symbol. */
     private val pollingJobs = mutableMapOf<String, Job>()
+
+    /** Symbols whose last fetch failed — surfaced in [MarketDataUiState.Success.staleSymbols]. */
+    private val staleSymbols = mutableSetOf<String>()
 
     init {
         viewModelScope.launch {
@@ -150,6 +158,7 @@ class MarketDataViewModel @Inject constructor(
             pollingJobs.remove(symbol)?.cancel()
             quotes.remove(symbol)
             sparklines.remove(symbol)
+            staleSymbols.remove(symbol)
         }
 
         // Add subscriptions for new symbols
@@ -163,6 +172,7 @@ class MarketDataViewModel @Inject constructor(
             quotes = quotes.toMap(),
             watchlistSymbols = symbols,
             sparklines = sparklines.toMap(),
+            staleSymbols = staleSymbols.toSet(),
         )
     }
 
@@ -179,10 +189,12 @@ class MarketDataViewModel @Inject constructor(
             try {
                 getQuoteStreamUseCase(symbol).collect { quote ->
                     quotes[symbol] = quote
+                    staleSymbols.remove(symbol)
                     emitCurrentState()
                 }
             } catch (e: VpnNotConnectedException) {
                 Timber.tag(TAG).w("VPN not connected for $symbol — falling back to REST")
+                if (quotes.containsKey(symbol)) staleSymbols.add(symbol).also { emitCurrentState() }
                 startPollingFallback(symbol)
             } catch (e: SocketTimeoutException) {
                 Timber.tag(TAG).w("WS timeout for $symbol — falling back to REST")
@@ -215,6 +227,7 @@ class MarketDataViewModel @Inject constructor(
         getQuoteUseCase(symbol)
             .onSuccess { quote ->
                 quotes[symbol] = quote
+                staleSymbols.remove(symbol)
                 emitCurrentState()
             }
             .onFailure { e ->
@@ -222,8 +235,12 @@ class MarketDataViewModel @Inject constructor(
                     is VpnNotConnectedException,
                     is SocketTimeoutException,
                     is IOException -> {
-                        // Transient — keep previous state
-                        Unit
+                        // Transient — keep previous cache but flag the symbol as stale so the UI
+                        // can show a "données du HH:mm" warning instead of silently stale prices.
+                        if (quotes.containsKey(symbol)) {
+                            staleSymbols.add(symbol)
+                            emitCurrentState()
+                        }
                     }
                     else -> {
                         Timber.tag(TAG).w(e, "Quote fetch error for $symbol")
@@ -242,6 +259,7 @@ class MarketDataViewModel @Inject constructor(
             quotes = quotes.toMap(),
             watchlistSymbols = symbols,
             sparklines = sparklines.toMap(),
+            staleSymbols = staleSymbols.toSet(),
         )
     }
 

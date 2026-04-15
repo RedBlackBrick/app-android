@@ -48,9 +48,41 @@ class WireGuardManager @Inject constructor(
         private const val TAG = "WireGuardManager"
         private const val TUNNEL_NAME = "trading_platform"
     }
+/**
+ * Reconnects the tunnel using the configuration stored in EncryptedDataStore.
+ * Useful for manual retries from the UI when the tunnel is disconnected.
+ * Does nothing if the private key or endpoint is missing from the store.
+ */
+fun reconnect() {
+    applicationScope.launch(Dispatchers.IO) {
+        val privateKey = dataStore.readString(DataStoreKeys.WG_PRIVATE_KEY)
+        val endpoint = dataStore.readString(DataStoreKeys.WG_ENDPOINT)
+        val serverPubKey = dataStore.readString(DataStoreKeys.WG_SERVER_PUBKEY)
+        val tunnelIp = dataStore.readString(DataStoreKeys.WG_TUNNEL_IP)
+        val dns = dataStore.readString(DataStoreKeys.WG_DNS)
 
-    /**
-     * Connects the WireGuard tunnel using the provided [config].
+        if (privateKey != null && endpoint != null && serverPubKey != null && tunnelIp != null) {
+            Timber.tag(TAG).i("WireGuard: manual reconnection requested")
+            connect(
+                WireGuardConfig(
+                    privateKey = privateKey,
+                    address = tunnelIp,
+                    dns = dns ?: "1.1.1.1",
+                    peer = WireGuardPeer(
+                        publicKey = serverPubKey,
+                        endpoint = endpoint,
+                    ),
+                )
+            )
+        } else {
+            Timber.tag(TAG).w("WireGuard reconnect failed: missing configuration in DataStore")
+        }
+    }
+}
+
+/**
+ * Connects the WireGuard tunnel using the provided [config].
+...
      *
      * The private key in [config] comes from EncryptedDataStore and must never be logged.
      * Starts [WireGuardVpnService] as a foreground service first to satisfy Android 14+

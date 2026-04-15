@@ -1,5 +1,6 @@
 package com.tradingplatform.app.ui.screens.setup
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -53,6 +55,13 @@ fun SetupScreen(
         }
     }
 
+    // Intercept system back during Connecting so the user can abort the VPN attempt
+    // instead of being stuck on a spinner with no feedback. In Scanning state we let
+    // back fall through to the system (standard root-screen behavior = exit app).
+    BackHandler(enabled = uiState is SetupUiState.Connecting) {
+        viewModel.cancelConnecting()
+    }
+
     Scaffold(modifier = modifier) { innerPadding ->
         when (val state = uiState) {
             is SetupUiState.Scanning -> {
@@ -66,6 +75,7 @@ fun SetupScreen(
 
             is SetupUiState.Connecting -> {
                 ConnectingContent(
+                    onCancel = viewModel::cancelConnecting,
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(innerPadding),
@@ -159,6 +169,7 @@ private fun SetupInstructionOverlay(
 
 @Composable
 private fun ConnectingContent(
+    onCancel: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -185,6 +196,18 @@ private fun ConnectingContent(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
         )
+        Spacer(modifier = Modifier.height(Spacing.xxl))
+        OutlinedButton(
+            onClick = onCancel,
+            modifier = Modifier.semantics {
+                contentDescription = "Annuler la connexion et revenir au scan"
+            },
+        ) {
+            Text(
+                text = "Annuler",
+                style = MaterialTheme.typography.labelLarge,
+            )
+        }
     }
 }
 

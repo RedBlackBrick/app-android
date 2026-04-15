@@ -35,10 +35,10 @@ import com.tradingplatform.app.domain.model.Transaction
 import com.tradingplatform.app.ui.components.CacheTimestamp
 import com.tradingplatform.app.ui.components.ClosedPositionBadge
 import com.tradingplatform.app.ui.components.ErrorBanner
-import com.tradingplatform.app.ui.components.LoadingOverlay
 import com.tradingplatform.app.ui.components.MoneyText
 import com.tradingplatform.app.ui.components.OpenPositionBadge
 import com.tradingplatform.app.ui.components.PnlText
+import com.tradingplatform.app.ui.components.SkeletonPositionDetail
 import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.Spacing
 import com.tradingplatform.app.ui.theme.pnlColor
@@ -85,7 +85,7 @@ fun PositionDetailScreen(
         ) {
             when (val state = uiState) {
                 is PositionDetailUiState.Loading -> {
-                    LoadingOverlay()
+                    SkeletonPositionDetail()
                 }
                 is PositionDetailUiState.Success -> {
                     PositionDetailContent(

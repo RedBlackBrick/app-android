@@ -15,7 +15,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
+
+private const val LOGIN_TIMEOUT_MS = 30_000L
 
 sealed interface LoginUiState {
     data object Idle : LoginUiState
@@ -70,7 +73,16 @@ class LoginViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.value = LoginUiState.Loading
 
-            loginUseCase(email, password)
+            val result = withTimeoutOrNull(LOGIN_TIMEOUT_MS) {
+                loginUseCase(email, password)
+            }
+            if (result == null) {
+                _uiState.value = LoginUiState.Error(
+                    "La connexion a expiré — vérifiez le VPN et réessayez"
+                )
+                return@launch
+            }
+            result
                 .onSuccess { (user, _) ->
                     if (user.totpEnabled) {
                         // Ne devrait pas arriver ici en pratique : si totpEnabled,

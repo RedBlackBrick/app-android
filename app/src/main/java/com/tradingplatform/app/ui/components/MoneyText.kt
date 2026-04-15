@@ -8,7 +8,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
-import com.tradingplatform.app.ui.theme.jetBrainsMonoFamily
+import com.tradingplatform.app.ui.theme.TradingNumbers
 import java.math.BigDecimal
 import java.text.NumberFormat
 import java.util.Locale
@@ -39,15 +39,13 @@ fun MoneyText(
     modifier: Modifier = Modifier,
     currencySymbol: String = "€",
     decimals: Int = 2,
-    style: TextStyle = MaterialTheme.typography.bodyLarge,
+    style: TextStyle = TradingNumbers.bodyLarge,
 ) {
     val formatted = formatMoneyAmount(amount, currencySymbol, decimals)
 
     Text(
         text = formatted,
         style = style.copy(
-            fontFamily = jetBrainsMonoFamily,
-            fontFeatureSettings = "tnum",
             textAlign = TextAlign.End,
         ),
         color = MaterialTheme.colorScheme.onSurface,

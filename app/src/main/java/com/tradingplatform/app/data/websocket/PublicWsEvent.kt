@@ -29,6 +29,10 @@ sealed class PublicWsEvent {
         val bid: BigDecimal?,
         val ask: BigDecimal?,
         val timestamp: Instant,
+        val sourceName: String? = null,
+        val sourceType: String? = null,
+        val quality: Int? = null,
+        val dataMode: String? = null,
     ) : PublicWsEvent()
 
     /**

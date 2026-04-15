@@ -141,6 +141,10 @@ fun QuoteDto.toDomain(): Quote = Quote(
     changePercent = changePercent,
     timestamp = Instant.parse(timestamp),
     source = source,
+    sourceName = sourceName,
+    sourceType = sourceType,
+    quality = quality,
+    dataMode = dataMode,
 )
 
 fun DeviceDto.toDomain(): Device = Device(
@@ -172,6 +176,7 @@ fun DeviceDto.toDomain(): Device = Device(
             totalTrips = v.totalTrips,
         )
     },
+    availableMemoryMb = availableMemoryMb,
 )
 
 fun VpnPeerDto.toDomain(): VpnPeer = VpnPeer(
@@ -252,6 +257,7 @@ fun DeviceEntity.toDomain(): Device = Device(
     lastTicksSent = null,
     lastScraperErrors = null,
     scrapersCircuit = null,
+    availableMemoryMb = availableMemoryMb,
 )
 
 fun QuoteEntity.toDomain(): Quote = Quote(
@@ -264,6 +270,10 @@ fun QuoteEntity.toDomain(): Quote = Quote(
     changePercent = changePercent,
     timestamp = Instant.ofEpochMilli(quoteTimestamp),
     source = source,
+    sourceName = sourceName,
+    sourceType = sourceType,
+    quality = quality,
+    dataMode = dataMode,
 )
 
 // ── Domain → Entity ───────────────────────────────────────────────────────────
@@ -323,6 +333,7 @@ fun Device.toEntity(syncedAt: Long = System.currentTimeMillis()): DeviceEntity =
     brokerGatewayEnabled = brokerGateway?.enabled,
     brokerGatewayStatus = brokerGateway?.status,
     brokerGatewayBrokerId = brokerGateway?.brokerId,
+    availableMemoryMb = availableMemoryMb,
 )
 
 fun Quote.toEntity(syncedAt: Long = System.currentTimeMillis()): QuoteEntity = QuoteEntity(
@@ -335,5 +346,9 @@ fun Quote.toEntity(syncedAt: Long = System.currentTimeMillis()): QuoteEntity = Q
     changePercent = changePercent,
     quoteTimestamp = timestamp.toEpochMilli(),
     source = source,
+    sourceName = sourceName,
+    sourceType = sourceType,
+    quality = quality,
+    dataMode = dataMode,
     syncedAt = syncedAt,
 )

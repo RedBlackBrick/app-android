@@ -8,6 +8,7 @@ import com.tradingplatform.app.domain.usecase.pairing.ParseSetupQrUseCase
 import com.tradingplatform.app.vpn.VpnState
 import com.tradingplatform.app.vpn.WireGuardManager
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -53,6 +54,9 @@ class SetupViewModel @Inject constructor(
     private val _uiState = MutableStateFlow<SetupUiState>(SetupUiState.Scanning)
     val uiState: StateFlow<SetupUiState> = _uiState.asStateFlow()
 
+    /** Tracks the in-flight QR/VPN coroutine so [cancelConnecting] can abort it. */
+    private var setupJob: Job? = null
+
     /**
      * Called by the [QrScannerView] callback when a QR code has been detected.
      *
@@ -62,7 +66,7 @@ class SetupViewModel @Inject constructor(
     fun onQrScanned(raw: String) {
         if (_uiState.value !is SetupUiState.Scanning) return
 
-        viewModelScope.launch {
+        setupJob = viewModelScope.launch {
             parseSetupQrUseCase(raw)
                 .onSuccess { setupData ->
                     _uiState.value = SetupUiState.Connecting
@@ -106,5 +110,21 @@ class SetupViewModel @Inject constructor(
      */
     fun retry() {
         _uiState.value = SetupUiState.Scanning
+    }
+
+    /**
+     * Cancels an in-flight VPN connection attempt and returns to [SetupUiState.Scanning].
+     * Called when the user presses "Annuler" or system back during [SetupUiState.Connecting].
+     *
+     * No-op if called outside Connecting state (e.g. from Scanning, where system back
+     * should fall through to exit the app as the normal root-screen behavior).
+     */
+    fun cancelConnecting() {
+        if (_uiState.value !is SetupUiState.Connecting) return
+        setupJob?.cancel()
+        setupJob = null
+        wireGuardManager.disconnect()
+        _uiState.value = SetupUiState.Scanning
+        Timber.i("SetupViewModel: connection cancelled by user")
     }
 }

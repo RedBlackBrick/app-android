@@ -537,6 +537,18 @@ private fun DashboardContent(
                         thresholds = MEMORY_THRESHOLDS,
                         progressMax = 100f,
                     )
+                    if (device.availableMemoryMb != null) {
+                        Text(
+                            text = "RAM libre : ${device.availableMemoryMb} MB",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier
+                                .padding(start = Spacing.xs)
+                                .semantics {
+                                    contentDescription = "RAM libre : ${device.availableMemoryMb} mégaoctets"
+                                },
+                        )
+                    }
                     Spacer(modifier = Modifier.height(Spacing.md))
                     MetricRow(
                         label = "Température",

@@ -3,26 +3,32 @@ package com.tradingplatform.app.ui.screens.market
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
@@ -34,20 +40,29 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tradingplatform.app.domain.model.Quote
 import com.tradingplatform.app.ui.components.AnimatedPnlText
+import com.tradingplatform.app.ui.components.AnimatedPriceText
 import com.tradingplatform.app.ui.components.MoneyText
+import com.tradingplatform.app.ui.components.SkeletonQuoteCard
 import com.tradingplatform.app.ui.components.SparklineChart
+import com.tradingplatform.app.ui.components.rememberHapticFeedback
 import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.Spacing
+import com.tradingplatform.app.ui.theme.TradingNumbers
 import com.tradingplatform.app.ui.theme.pnlColor
+import kotlinx.coroutines.launch
 import java.math.BigDecimal
 import java.text.NumberFormat
 import java.time.ZoneId
@@ -62,6 +77,9 @@ fun MarketDataScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val symbolPickerState by viewModel.symbolPickerState.collectAsStateWithLifecycle()
+    val haptic = rememberHapticFeedback()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     var showSymbolPicker by remember { mutableStateOf(false) }
 
@@ -81,12 +99,14 @@ fun MarketDataScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("March\u00e9s") },
+                title = { Text("Marchés") },
             )
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
             FloatingActionButton(
                 onClick = {
+                    haptic.click()
                     viewModel.refreshSymbols()
                     showSymbolPicker = true
                 },
@@ -104,13 +124,14 @@ fun MarketDataScreen(
     ) { innerPadding ->
         when (val state = uiState) {
             is MarketDataUiState.Loading -> {
-                Box(
+                LazyColumn(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(innerPadding),
-                    contentAlignment = Alignment.Center,
+                    contentPadding = PaddingValues(Spacing.lg),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.sm),
                 ) {
-                    CircularProgressIndicator()
+                    items(5) { SkeletonQuoteCard() }
                 }
             }
 
@@ -146,7 +167,7 @@ fun MarketDataScreen(
                     } else {
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                            contentPadding = PaddingValues(
                                 horizontal = Spacing.lg,
                                 vertical = Spacing.sm,
                             ),
@@ -160,7 +181,16 @@ fun MarketDataScreen(
                                     symbol = symbol,
                                     quote = state.quotes[symbol],
                                     sparklinePoints = state.sparklines[symbol],
-                                    onDismiss = { viewModel.removeSymbol(symbol) },
+                                    onDismiss = {
+                                        haptic.reject()
+                                        viewModel.removeSymbol(symbol)
+                                    },
+                                    onSourceTap = { message ->
+                                        scope.launch {
+                                            snackbarHostState.currentSnackbarData?.dismiss()
+                                            snackbarHostState.showSnackbar(message)
+                                        }
+                                    },
                                 )
                             }
                         }
@@ -208,6 +238,7 @@ private fun SwipeToDismissWatchlistCard(
     quote: Quote?,
     sparklinePoints: List<BigDecimal>?,
     onDismiss: () -> Unit,
+    onSourceTap: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val dismissState = rememberSwipeToDismissBoxState(
@@ -254,6 +285,7 @@ private fun SwipeToDismissWatchlistCard(
             symbol = symbol,
             quote = quote,
             sparklinePoints = sparklinePoints,
+            onSourceTap = onSourceTap,
         )
     }
 }
@@ -265,6 +297,7 @@ private fun WatchlistCard(
     symbol: String,
     quote: Quote?,
     sparklinePoints: List<BigDecimal>? = null,
+    onSourceTap: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val extendedColors = LocalExtendedColors.current
@@ -314,17 +347,25 @@ private fun WatchlistCard(
                     }
                 }
 
-                // Right: price + change
+                // Right: price + change + source dot
                 if (quote != null) {
                     Column(horizontalAlignment = Alignment.End) {
-                        MoneyText(
-                            amount = quote.price,
-                            decimals = 2,
-                            style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.semantics {
-                                contentDescription = "Prix : ${quote.price} \u20ac"
-                            },
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+                        ) {
+                            SourceQualityDot(
+                                quote = quote,
+                                onTap = onSourceTap,
+                            )
+                            AnimatedPriceText(
+                                value = quote.price,
+                                style = TradingNumbers.titleMedium,
+                                modifier = Modifier.semantics {
+                                    contentDescription = "Prix : ${quote.price} \u20ac"
+                                },
+                            )
+                        }
                         ChangePercentText(
                             changePercent = quote.changePercent,
                             change = quote.change,
@@ -384,6 +425,73 @@ private fun WatchlistCard(
                 )
             }
         }
+    }
+}
+
+// ── Source quality dot ──────────────────────────────────────────────────────
+
+/**
+ * Petit point coloré (6dp) indiquant le mode de données de la source.
+ *
+ * - Vert  : temps réel (`"realtime"`)
+ * - Ambre : polling / différé (`"polling"`)
+ * - Gris  : fin de journée ou inconnu
+ *
+ * Un tap affiche un snackbar avec le détail de la source et la qualité.
+ */
+@Composable
+private fun SourceQualityDot(
+    quote: Quote,
+    onTap: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val dotColor = when (quote.dataMode) {
+        "realtime" -> Color(0xFF22C55E)  // green-500
+        "polling" -> Color(0xFFF59E0B)   // amber-500
+        else -> Color(0xFF9CA3AF)        // gray-400
+    }
+
+    val tooltipMessage = remember(quote.sourceName, quote.dataMode, quote.quality) {
+        buildSourceTooltip(quote)
+    }
+
+    Box(
+        modifier = modifier
+            .size(6.dp)
+            .clip(CircleShape)
+            .background(dotColor)
+            .clickable { onTap(tooltipMessage) }
+            .semantics {
+                contentDescription = tooltipMessage
+            },
+    )
+}
+
+/**
+ * Construit le message tooltip pour la source d'un quote.
+ *
+ * Exemples :
+ * - "Temps réel via Investing.com (q=82)"
+ * - "Différé ~60s via Yahoo (q=70)"
+ * - "Fin de journée via Stooq"
+ * - "Source inconnue"
+ */
+private fun buildSourceTooltip(quote: Quote): String {
+    val modeLabel = when (quote.dataMode) {
+        "realtime" -> "Temps réel"
+        "polling" -> "Différé ~60s"
+        "eod" -> "Fin de journée"
+        else -> null
+    }
+
+    val sourcePart = quote.sourceName?.replaceFirstChar { it.uppercase() }
+    val qualityPart = quote.quality?.let { " (q=$it)" } ?: ""
+
+    return when {
+        modeLabel != null && sourcePart != null -> "$modeLabel via $sourcePart$qualityPart"
+        modeLabel != null -> "$modeLabel$qualityPart"
+        sourcePart != null -> "Via $sourcePart$qualityPart"
+        else -> "Source inconnue"
     }
 }
 

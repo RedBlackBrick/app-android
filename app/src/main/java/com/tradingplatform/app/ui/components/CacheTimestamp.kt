@@ -5,6 +5,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -13,16 +14,11 @@ import java.time.format.DateTimeFormatter
  * Affiche l'horodatage de la dernière synchronisation du cache.
  *
  * - Si [syncedAt] == 0L : ne rien afficher.
- * - Si < 1 min depuis la sync : affiche "À jour".
- * - Sinon : affiche "Données du HH:mm".
+ * - Si < 1 min depuis la sync : affiche "À jour" (Couleur neutre).
+ * - Si < 5 min : affiche "Données du HH:mm" (Couleur warning/jaune).
+ * - Si > 5 min : affiche "Données du HH:mm" (Couleur offline/rouge).
  *
- * Couleur : [MaterialTheme.colorScheme.onSurfaceVariant] (subtile).
  * Style : [MaterialTheme.typography.labelSmall].
- *
- * Usage :
- * ```kotlin
- * CacheTimestamp(syncedAt = position.syncedAt)
- * ```
  */
 @Composable
 fun CacheTimestamp(
@@ -31,24 +27,34 @@ fun CacheTimestamp(
 ) {
     if (syncedAt == 0L) return
 
-    val now = remember { System.currentTimeMillis() }
+    val extendedColors = LocalExtendedColors.current
+    val neutralColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val now = System.currentTimeMillis()
     val ageMs = now - syncedAt
 
-    val text = if (ageMs < 60_000L) {
-        "À jour"
-    } else {
-        val time = remember(syncedAt) {
+    val (text, color) = remember(syncedAt, ageMs) {
+        val ageMins = ageMs / 60_000L
+        val textColor = when {
+            ageMins < 1 -> neutralColor
+            ageMins < 5 -> extendedColors.onWarningContainer
+            else -> extendedColors.statusOffline
+        }
+
+        val label = if (ageMins < 1) {
+            "À jour"
+        } else {
             val instant = Instant.ofEpochMilli(syncedAt)
             val local = instant.atZone(ZoneId.systemDefault())
-            DateTimeFormatter.ofPattern("HH:mm").format(local)
+            val time = DateTimeFormatter.ofPattern("HH:mm").format(local)
+            "Données du $time"
         }
-        "Données du $time"
+        label to textColor
     }
 
     Text(
         text = text,
         style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        color = color,
         modifier = modifier,
     )
 }

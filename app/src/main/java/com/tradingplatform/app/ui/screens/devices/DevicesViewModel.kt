@@ -16,7 +16,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
+
+private const val DEVICE_COMMAND_TIMEOUT_MS = 15_000L
 
 // ── DevicesUiState — liste des devices ────────────────────────────────────────
 
@@ -190,7 +193,16 @@ class DeviceDetailViewModel @Inject constructor(
     fun confirmUnpair(deviceId: String) {
         viewModelScope.launch {
             _unpairState.value = UnpairState.InProgress
-            unpairDeviceUseCase(deviceId)
+            val result = withTimeoutOrNull(DEVICE_COMMAND_TIMEOUT_MS) {
+                unpairDeviceUseCase(deviceId)
+            }
+            if (result == null) {
+                _unpairState.value = UnpairState.Error(
+                    "Le device ne répond pas — réessayez"
+                )
+                return@launch
+            }
+            result
                 .onSuccess {
                     _unpairState.value = UnpairState.Success
                 }
@@ -224,7 +236,16 @@ class DeviceDetailViewModel @Inject constructor(
     fun sendCommand(deviceId: String, commandType: CommandType) {
         viewModelScope.launch {
             _commandState.value = CommandState.InProgress
-            sendDeviceCommandUseCase(deviceId, commandType.apiValue)
+            val result = withTimeoutOrNull(DEVICE_COMMAND_TIMEOUT_MS) {
+                sendDeviceCommandUseCase(deviceId, commandType.apiValue)
+            }
+            if (result == null) {
+                _commandState.value = CommandState.Error(
+                    "Le device ne répond pas — réessayez"
+                )
+                return@launch
+            }
+            result
                 .onSuccess {
                     _commandState.value = CommandState.Success(commandType)
                 }

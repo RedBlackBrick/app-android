@@ -3,6 +3,7 @@ package com.tradingplatform.app.ui.screens.devices
 import app.cash.turbine.test
 import com.tradingplatform.app.domain.model.Device
 import com.tradingplatform.app.domain.model.DeviceStatus
+import com.tradingplatform.app.domain.usecase.device.GetBrokerConnectionsUseCase
 import com.tradingplatform.app.domain.usecase.device.GetDevicesUseCase
 import com.tradingplatform.app.domain.usecase.device.GetDeviceStatusUseCase
 import com.tradingplatform.app.domain.usecase.device.SendDeviceCommandUseCase
@@ -191,6 +192,7 @@ class DeviceDetailViewModelTest {
     private val getDeviceStatusUseCase = mockk<GetDeviceStatusUseCase>()
     private val unpairDeviceUseCase = mockk<UnpairDeviceUseCase>(relaxed = true)
     private val sendDeviceCommandUseCase = mockk<SendDeviceCommandUseCase>(relaxed = true)
+    private val getBrokerConnectionsUseCase = mockk<GetBrokerConnectionsUseCase>(relaxed = true)
     private lateinit var viewModel: DeviceDetailViewModel
 
     private val fakeDevice = Device(
@@ -207,6 +209,7 @@ class DeviceDetailViewModelTest {
             getDeviceStatusUseCase = getDeviceStatusUseCase,
             unpairDeviceUseCase = unpairDeviceUseCase,
             sendDeviceCommandUseCase = sendDeviceCommandUseCase,
+            getBrokerConnectionsUseCase = getBrokerConnectionsUseCase,
         )
     }
 

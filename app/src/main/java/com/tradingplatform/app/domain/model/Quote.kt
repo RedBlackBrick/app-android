@@ -13,4 +13,8 @@ data class Quote(
     val changePercent: Double,
     val timestamp: Instant,
     val source: String,
+    val sourceName: String? = null,
+    val sourceType: String? = null,
+    val quality: Int? = null,
+    val dataMode: String? = null,
 )

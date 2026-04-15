@@ -15,6 +15,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
@@ -22,44 +23,38 @@ import androidx.compose.ui.text.style.TextAlign
 import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.Motion
 import com.tradingplatform.app.ui.theme.TradingNumbers
-import com.tradingplatform.app.ui.theme.pnlColor
 import kotlinx.coroutines.delay
 import java.math.BigDecimal
 
 /**
- * Animated P&L text that flashes on value changes.
+ * Animated price text that flashes on value changes.
  *
- * When the value changes, the text briefly flashes a brighter version of the
- * P&L color before settling to the standard color. Uses [AnimatedContent] for
- * the value transition and [animateColorAsState] for the color flash.
- *
- * Uses [Motion.ValueUpdateDuration] (500ms) for the flash animation as defined
- * in the design system.
+ * Flashes green when the price increases, red when it decreases.
+ * Returns to [MaterialTheme.colorScheme.onSurface] after the flash.
  */
 @Composable
-fun AnimatedPnlText(
+fun AnimatedPriceText(
     value: BigDecimal,
     modifier: Modifier = Modifier,
     currencySymbol: String = "€",
-    style: TextStyle = MaterialTheme.typography.bodyLarge,
+    decimals: Int = 2,
+    style: TextStyle = TradingNumbers.bodyLarge,
 ) {
     val extendedColors = LocalExtendedColors.current
-    val targetColor = pnlColor(value)
+    val neutralColor = MaterialTheme.colorScheme.onSurface
 
-    // Flash color: brighter version for the brief highlight
-    val flashColor = when {
-        value > BigDecimal.ZERO -> extendedColors.pnlPositiveFlash
-        value < BigDecimal.ZERO -> extendedColors.pnlNegativeFlash
-        else -> MaterialTheme.colorScheme.onSurface
-    }
-
-    // Track whether we're in the "flash" state
+    // Flash color based on price direction
+    var flashColor by remember { mutableStateOf(neutralColor) }
     var isFlashing by remember { mutableStateOf(false) }
     var previousValue by remember { mutableStateOf(value) }
 
-    // Detect value changes and trigger flash
     LaunchedEffect(value) {
         if (value != previousValue) {
+            flashColor = if (value > previousValue) {
+                extendedColors.pnlPositive
+            } else {
+                extendedColors.pnlNegative
+            }
             isFlashing = true
             delay(Motion.ValueUpdateDuration.toLong())
             isFlashing = false
@@ -68,25 +63,15 @@ fun AnimatedPnlText(
     }
 
     val animatedColor by animateColorAsState(
-        targetValue = if (isFlashing) flashColor else targetColor,
+        targetValue = if (isFlashing) flashColor else neutralColor,
         animationSpec = tween(
             durationMillis = if (isFlashing) Motion.ShortDuration else Motion.ValueUpdateDuration,
         ),
-        label = "pnl_color_flash",
+        label = "price_color_flash",
     )
 
-    // Memoize formatted strings — formatPnlAmount allocates a NumberFormat and
-    // concatenates strings on each call. With WS quotes arriving every ~1s, this
-    // avoids redundant allocations when value/currencySymbol haven't changed.
-    // Keys: value (BigDecimal, structural equality) + currencySymbol (String).
-    val (formatted, verboseDescription) = remember(value, currencySymbol) {
-        val fmt = formatPnlAmount(value, currencySymbol)
-        val label = when {
-            value > BigDecimal.ZERO -> "Gain"
-            value < BigDecimal.ZERO -> "Perte"
-            else -> "Gain/Perte"
-        }
-        fmt to "$label : $fmt"
+    val formatted = remember(value, currencySymbol, decimals) {
+        formatMoneyAmount(value, currencySymbol, decimals)
     }
 
     AnimatedContent(
@@ -95,17 +80,17 @@ fun AnimatedPnlText(
             fadeIn(tween(Motion.ValueUpdateDuration)) togetherWith
                 fadeOut(tween(Motion.ExitDuration))
         },
-        label = "pnl_value_transition",
+        label = "price_value_transition",
     ) { targetFormatted ->
         Text(
             text = targetFormatted,
-            style = style.merge(TradingNumbers.bodyLarge).copy(
+            style = style.copy(
                 textAlign = TextAlign.End,
             ),
             color = animatedColor,
             textAlign = TextAlign.End,
             modifier = modifier.semantics {
-                contentDescription = verboseDescription
+                contentDescription = "Prix : $targetFormatted"
             },
         )
     }

@@ -26,4 +26,5 @@ data class DeviceEntity(
     @ColumnInfo(name = "broker_gateway_enabled") val brokerGatewayEnabled: Boolean? = null,
     @ColumnInfo(name = "broker_gateway_status") val brokerGatewayStatus: String? = null,
     @ColumnInfo(name = "broker_gateway_broker_id") val brokerGatewayBrokerId: Int? = null,
+    @ColumnInfo(name = "available_memory_mb") val availableMemoryMb: Int? = null,
 )

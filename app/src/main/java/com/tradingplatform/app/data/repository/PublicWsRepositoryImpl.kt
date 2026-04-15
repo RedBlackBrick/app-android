@@ -69,5 +69,9 @@ class PublicWsRepositoryImpl @Inject constructor(
         changePercent = 0.0,
         timestamp = timestamp,
         source = "ws_public",
+        sourceName = sourceName,
+        sourceType = sourceType,
+        quality = quality,
+        dataMode = dataMode,
     )
 }

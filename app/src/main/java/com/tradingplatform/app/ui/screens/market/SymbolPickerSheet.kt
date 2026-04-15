@@ -36,6 +36,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.tradingplatform.app.ui.components.rememberHapticFeedback
 import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.Spacing
 
@@ -52,6 +53,7 @@ fun SymbolPickerSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var searchQuery by remember { mutableStateOf("") }
+    val haptic = rememberHapticFeedback()
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -189,8 +191,10 @@ fun SymbolPickerSheet(
                                     isInWatchlist = isInWatchlist,
                                     onToggle = {
                                         if (isInWatchlist) {
+                                            haptic.reject()
                                             onRemoveSymbol(symbol)
                                         } else {
+                                            haptic.confirm()
                                             onAddSymbol(symbol)
                                         }
                                     },

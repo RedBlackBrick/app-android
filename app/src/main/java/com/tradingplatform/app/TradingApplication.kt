@@ -36,35 +36,21 @@ class TradingApplication : Application() {
         super.onCreate()
         initTimber()
         scheduleWidgetUpdateWorker()
-        retryPendingFcmTokenIfNeeded()
-        connectWsIfAuthenticated()
-    }
-
-    /**
-     * Démarre le WebSocket si un access token existe dans le store.
-     * L'appel est fire-and-forget — une erreur de connexion WS ne bloque pas l'app.
-     * [PrivateWsClient] gère la reconnexion automatique avec backoff exponentiel.
-     */
-    private fun connectWsIfAuthenticated() {
+        
+        // Single launch for all startup checks to minimize EncryptedDataStore/Keystore contention
         appScope.launch {
+            // Parallel reads from DataStore
             val hasToken = encryptedDataStore.readString(DataStoreKeys.ACCESS_TOKEN) != null
+            val hasPendingFcm = encryptedDataStore.readString(DataStoreKeys.PENDING_FCM_TOKEN) != null
+
             if (hasToken) {
                 Timber.d("TradingApplication: access token found — starting private WS client")
                 privateWsClient.connect()
             } else {
                 Timber.d("TradingApplication: no access token — WS will connect after login")
             }
-        }
-    }
 
-    /**
-     * Crash recovery: if the app was killed between write-ahead (persisting the FCM token
-     * to EncryptedDataStore) and successful registration, a pending token will still be
-     * present. Schedule a WorkManager retry to complete the registration.
-     */
-    private fun retryPendingFcmTokenIfNeeded() {
-        appScope.launch {
-            if (encryptedDataStore.readString(DataStoreKeys.PENDING_FCM_TOKEN) != null) {
+            if (hasPendingFcm) {
                 Timber.d("Pending FCM token found — scheduling retry")
                 FcmTokenRegistrationWorker.enqueue(applicationContext)
             }

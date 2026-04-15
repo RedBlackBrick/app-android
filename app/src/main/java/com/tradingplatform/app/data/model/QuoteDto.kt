@@ -15,4 +15,8 @@ data class QuoteDto(
     @Json(name = "change_percent") val changePercent: Double,
     @Json(name = "timestamp") val timestamp: String,
     @Json(name = "source") val source: String,
+    @Json(name = "source_name") val sourceName: String? = null,
+    @Json(name = "source_type") val sourceType: String? = null,
+    @Json(name = "quality") val quality: Int? = null,
+    @Json(name = "data_mode") val dataMode: String? = null,
 )

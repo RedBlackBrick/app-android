@@ -19,5 +19,9 @@ data class QuoteEntity(
     @ColumnInfo(name = "change_percent") val changePercent: Double,
     @ColumnInfo(name = "quote_timestamp") val quoteTimestamp: Long,
     @ColumnInfo(name = "source") val source: String,
+    @ColumnInfo(name = "source_name") val sourceName: String? = null,
+    @ColumnInfo(name = "source_type") val sourceType: String? = null,
+    @ColumnInfo(name = "quality") val quality: Int? = null,
+    @ColumnInfo(name = "data_mode") val dataMode: String? = null,
     @ColumnInfo(name = "synced_at") val syncedAt: Long,
 )

@@ -37,14 +37,15 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tradingplatform.app.domain.model.Position
 import com.tradingplatform.app.domain.model.PositionStatus
+import com.tradingplatform.app.ui.components.AnimatedPnlText
 import com.tradingplatform.app.ui.components.CacheTimestamp
 import com.tradingplatform.app.ui.components.ClosedPositionBadge
 import com.tradingplatform.app.ui.components.EmptyPositionsIllustration
 import com.tradingplatform.app.ui.components.EmptyState
 import com.tradingplatform.app.ui.components.MoneyText
 import com.tradingplatform.app.ui.components.OpenPositionBadge
-import com.tradingplatform.app.ui.components.AnimatedPnlText
 import com.tradingplatform.app.ui.components.SkeletonPositionCard
+import com.tradingplatform.app.ui.components.rememberHapticFeedback
 import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.Spacing
 import com.tradingplatform.app.ui.theme.pnlColor
@@ -59,6 +60,7 @@ fun PositionsScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val selectedFilter by viewModel.selectedFilter.collectAsStateWithLifecycle()
+    val haptic = rememberHapticFeedback()
 
     val isRefreshing = uiState is PositionsUiState.Loading
 
@@ -131,7 +133,10 @@ fun PositionsScreen(
                             syncedAt = state.syncedAt,
                             selectedFilter = selectedFilter,
                             onFilterSelect = { viewModel.selectFilter(it) },
-                            onNavigateToDetail = onNavigateToDetail,
+                            onNavigateToDetail = { id ->
+                                haptic.click()
+                                onNavigateToDetail(id)
+                            },
                         )
                     }
                 }

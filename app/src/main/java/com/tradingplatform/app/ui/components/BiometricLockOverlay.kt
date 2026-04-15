@@ -17,6 +17,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -33,6 +34,9 @@ import androidx.fragment.app.FragmentActivity
 import com.tradingplatform.app.security.BiometricManager
 import com.tradingplatform.app.ui.theme.IconSize
 import com.tradingplatform.app.ui.theme.Spacing
+import kotlinx.coroutines.delay
+
+private const val ESCAPE_HATCH_DELAY_MS = 60_000L
 
 /**
  * Overlay opaque affiché lors du verrou biométrique.
@@ -70,6 +74,7 @@ fun BiometricLockOverlay(
     ) {
         val context = LocalContext.current
         var authError by remember { mutableStateOf<String?>(null) }
+        var showEscapeHatch by remember { mutableStateOf(false) }
 
         // Lancer automatiquement le prompt biométrique dès que l'overlay devient visible
         LaunchedEffect(Unit) {
@@ -80,6 +85,14 @@ fun BiometricLockOverlay(
                 onError = { authError = it },
                 onKeyInvalidated = onKeyInvalidated,
             )
+        }
+
+        // Escape hatch — if the user is still stuck on the lock overlay after 60 s
+        // (biometric hardware failure, prompt never appears, etc.), surface a
+        // "Se reconnecter" button that forces a logout via onKeyInvalidated.
+        LaunchedEffect(Unit) {
+            delay(ESCAPE_HATCH_DELAY_MS)
+            showEscapeHatch = true
         }
 
         Box(
@@ -140,6 +153,18 @@ fun BiometricLockOverlay(
                     },
                 ) {
                     Text("Déverrouiller")
+                }
+
+                if (showEscapeHatch) {
+                    Spacer(modifier = Modifier.height(Spacing.md))
+                    OutlinedButton(
+                        onClick = onKeyInvalidated,
+                        modifier = Modifier.semantics {
+                            contentDescription = "Problème biométrique — se reconnecter"
+                        },
+                    ) {
+                        Text("Se reconnecter")
+                    }
                 }
             }
         }

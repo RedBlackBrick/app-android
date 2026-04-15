@@ -23,4 +23,5 @@ data class DeviceDto(
     @Json(name = "last_ticks_sent") val lastTicksSent: Long? = null,
     @Json(name = "last_scraper_errors") val lastScraperErrors: Int? = null,
     @Json(name = "scrapers_circuit") val scrapersCircuit: Map<String, ScraperCircuitDto>? = null,
+    @Json(name = "available_memory_mb") val availableMemoryMb: Int? = null,
 )

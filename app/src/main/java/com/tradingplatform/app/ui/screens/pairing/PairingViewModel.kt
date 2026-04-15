@@ -12,6 +12,7 @@ import com.tradingplatform.app.domain.usecase.pairing.ScanDeviceQrUseCase
 import com.tradingplatform.app.domain.usecase.pairing.SendPinToDeviceUseCase
 import com.tradingplatform.app.domain.usecase.pairing.StoreDevicePairingResultUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -84,6 +85,9 @@ class PairingViewModel @Inject constructor(
     /** Device info captured when BothScanned is reached — persists through the pairing flow. */
     private val _deviceInfo = MutableStateFlow<DevicePairingInfo?>(null)
     val deviceInfo: StateFlow<DevicePairingInfo?> = _deviceInfo.asStateFlow()
+
+    /** Tracks the in-flight pairing coroutine so [reset] can abort a 120 s WaitingConfirmation. */
+    private var pairingJob: Job? = null
 
     // ── QR scan handlers ─────────────────────────────────────────────────────
 
@@ -169,7 +173,7 @@ class PairingViewModel @Inject constructor(
             return
         }
 
-        viewModelScope.launch {
+        pairingJob = viewModelScope.launch {
             _step.value = PairingStep.SendingPin
 
             // Step 1 — send encrypted PIN + nonce to Radxa device over LAN
@@ -243,15 +247,19 @@ class PairingViewModel @Inject constructor(
      * Called from [PairingDoneScreen] retry button — allows re-scanning both QR codes.
      */
     fun retry() {
+        pairingJob?.cancel()
+        pairingJob = null
         _step.value = PairingStep.Idle
         _deviceInfo.value = null
     }
 
     /**
-     * Resets the state machine to [PairingStep.Idle].
-     * Called on back-button press — session is abandoned on VPS at TTL expiry.
+     * Resets the state machine to [PairingStep.Idle] and cancels any in-flight pairing job.
+     * Called on back / cancel — session is abandoned on VPS at TTL expiry (120 s).
      */
     fun reset() {
+        pairingJob?.cancel()
+        pairingJob = null
         _step.value = PairingStep.Idle
         _deviceInfo.value = null
     }

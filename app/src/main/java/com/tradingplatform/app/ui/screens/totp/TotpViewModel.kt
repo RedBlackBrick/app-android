@@ -13,7 +13,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
+
+private const val TOTP_VERIFY_TIMEOUT_MS = 30_000L
 
 sealed interface TotpUiState {
     data object AwaitingInput : TotpUiState
@@ -61,7 +64,16 @@ class TotpViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.value = TotpUiState.Verifying
 
-            verify2faUseCase(sessionToken, totpCode)
+            val result = withTimeoutOrNull(TOTP_VERIFY_TIMEOUT_MS) {
+                verify2faUseCase(sessionToken, totpCode)
+            }
+            if (result == null) {
+                _uiState.value = TotpUiState.Error(
+                    "La vérification a expiré — vérifiez le VPN et réessayez"
+                )
+                return@launch
+            }
+            result
                 .onSuccess { (user, _) ->
                     // Vérification réussie — récupérer le portfolioId avant de naviguer
                     fetchPortfoliosAndSucceed(user.isAdmin)
