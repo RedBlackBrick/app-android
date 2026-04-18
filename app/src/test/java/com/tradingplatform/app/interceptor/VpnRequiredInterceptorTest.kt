@@ -20,6 +20,9 @@ class VpnRequiredInterceptorTest {
     private val mockServer = MockWebServer()
     private val vpnManager = mockk<WireGuardManager>()
     private val vpnState = MutableStateFlow<VpnState>(VpnState.Disconnected)
+    private val systemVpnMonitor = mockk<com.tradingplatform.app.vpn.SystemVpnMonitor>(relaxed = true).also {
+        every { it.active } returns MutableStateFlow(false)
+    }
 
     @Before
     fun setUp() {
@@ -33,7 +36,7 @@ class VpnRequiredInterceptorTest {
     }
 
     private fun buildInterceptor(): VpnRequiredInterceptor {
-        return VpnRequiredInterceptor(vpnManager)
+        return VpnRequiredInterceptor(vpnManager, systemVpnMonitor)
     }
 
     @Test

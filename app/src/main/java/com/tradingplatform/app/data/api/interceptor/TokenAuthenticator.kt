@@ -1,5 +1,6 @@
 package com.tradingplatform.app.data.api.interceptor
 
+import com.google.firebase.crashlytics.FirebaseCrashlytics
 import com.tradingplatform.app.data.api.AuthApi
 import com.tradingplatform.app.data.local.datastore.DataStoreKeys
 import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
@@ -42,12 +43,19 @@ class TokenAuthenticator @Inject constructor(
     private val authApi: dagger.Lazy<AuthApi>,
     private val sessionManager: SessionManager,
     private val appDatabase: AppDatabase,
+    private val cookieJar: EncryptedCookieJar,
 ) : Authenticator {
 
     companion object {
         private const val TAG = "TokenAuthenticator"
-        /** Timeout global pour le runBlocking (mutex + refresh réseau). */
-        private const val AUTHENTICATE_TIMEOUT_MS = 15_000L
+        /**
+         * Timeout global pour le runBlocking (mutex + refresh réseau).
+         *
+         * Réduit à 8s pour libérer plus vite les threads du pool OkHttp en cas de
+         * réseau saturé — si le refresh n'aboutit pas en 8s, la requête échoue et
+         * l'UI affichera l'erreur. Le prochain appel déclenchera un nouveau cycle.
+         */
+        private const val AUTHENTICATE_TIMEOUT_MS = 8_000L
     }
 
     private val mutex = Mutex()
@@ -136,11 +144,16 @@ class TokenAuthenticator @Inject constructor(
 
     private fun handleLogout() {
         tokenHolder.clear()
+        cookieJar.clear()
         runBlocking {
             try { appDatabase.clearAllTables() } catch (_: Exception) {}
             dataStore.clearAll()  // efface tous les tokens, cookies, is_admin, portfolio_id
         }
         Timber.tag(TAG).w("TokenAuthenticator: forced logout — all session data cleared")
+        FirebaseCrashlytics.getInstance().apply {
+            setCustomKey("forced_logout_source", "TokenAuthenticator")
+            log("Forced logout triggered — refresh token invalidated")
+        }
         sessionManager.notifyForcedLogout()
     }
 }

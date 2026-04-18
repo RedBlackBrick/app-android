@@ -193,6 +193,8 @@ class DeviceDetailViewModelTest {
     private val unpairDeviceUseCase = mockk<UnpairDeviceUseCase>(relaxed = true)
     private val sendDeviceCommandUseCase = mockk<SendDeviceCommandUseCase>(relaxed = true)
     private val getBrokerConnectionsUseCase = mockk<GetBrokerConnectionsUseCase>(relaxed = true)
+    private val testBrokerConnectionUseCase = mockk<com.tradingplatform.app.domain.usecase.device.TestBrokerConnectionUseCase>(relaxed = true)
+    private val removeBrokerConnectionUseCase = mockk<com.tradingplatform.app.domain.usecase.device.RemoveBrokerConnectionUseCase>(relaxed = true)
     private lateinit var viewModel: DeviceDetailViewModel
 
     private val fakeDevice = Device(
@@ -210,6 +212,8 @@ class DeviceDetailViewModelTest {
             unpairDeviceUseCase = unpairDeviceUseCase,
             sendDeviceCommandUseCase = sendDeviceCommandUseCase,
             getBrokerConnectionsUseCase = getBrokerConnectionsUseCase,
+            testBrokerConnectionUseCase = testBrokerConnectionUseCase,
+            removeBrokerConnectionUseCase = removeBrokerConnectionUseCase,
         )
     }
 

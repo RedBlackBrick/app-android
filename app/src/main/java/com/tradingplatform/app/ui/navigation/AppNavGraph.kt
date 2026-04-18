@@ -64,8 +64,11 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import timber.log.Timber
 import javax.inject.Inject
 
@@ -167,6 +170,15 @@ class AppNavViewModel @Inject constructor(
     val biometricManager: BiometricManager,
 ) : ViewModel() {
 
+    companion object {
+        /**
+         * Timeout pour le premier read EncryptedDataStore au démarrage.
+         * Si dépassé, on suppose une corruption Keystore et on affiche le dialog
+         * KeystoreCorruption plutôt que de laisser l'écran en blanc indéfiniment.
+         */
+        private const val AUTH_CONTEXT_TIMEOUT_MS = 3_000L
+    }
+
     /** In-app WireGuard tunnel state — used by the Settings screen to show the
      *  tunnel managed by this process.  The banner uses [effectiveVpnState]
      *  instead so a system-level VPN (official WireGuard app, OpenVPN, ...)
@@ -229,6 +241,9 @@ class AppNavViewModel @Inject constructor(
     /** Deep link events from FCM — navigates to the given destination route name. */
     val deepLinkEvents = sessionManager.deepLinkEvents
 
+    /** Clear le replay cache après consommation pour éviter re-navigation sur rotation. */
+    fun clearDeepLink() = sessionManager.clearDeepLink()
+
     /** Called by the UI when biometric authentication succeeds. */
     fun onBiometricUnlocked() {
         biometricLockManager.unlock()
@@ -265,7 +280,21 @@ class AppNavViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            val context = getAuthContextUseCase()
+            // Si le DataStore chiffré est illisible (Keystore invalidé après reboot
+            // sur certains devices), les reads suspendent indéfiniment. Timeout 3s →
+            // fallback KeystoreCorruption pour débloquer la navigation plutôt que de
+            // laisser un écran blanc éternel (retour = null).
+            val context = withTimeoutOrNull(AUTH_CONTEXT_TIMEOUT_MS) {
+                getAuthContextUseCase()
+            }
+            if (context == null) {
+                Timber.e("AppNavViewModel: auth context read timed out (${AUTH_CONTEXT_TIMEOUT_MS}ms) — treating as Keystore corruption")
+                _showKeystoreCorruption.value = true
+                _isAdmin.value = false
+                _isLoggedIn.value = false
+                _isSetupCompleted.value = true  // laisser passer Setup pour arriver sur Login
+                return@launch
+            }
             _isAdmin.value = context.isAdmin
             _isLoggedIn.value = context.isLoggedIn
             _isSetupCompleted.value = context.setupCompleted
@@ -297,6 +326,16 @@ class AppNavViewModel @Inject constructor(
 
     /** Called by the UI when the user acknowledges the Keystore corruption dialog. */
     fun onKeystoreCorruptionAcknowledged() {
+        _showKeystoreCorruption.value = false
+    }
+
+    /**
+     * Ferme tous les dialogs globaux avant une navigation forcée vers Login.
+     * Évite que les AlertDialog (upgradeRequired / keystoreCorruption) restent
+     * empilés au-dessus de LoginScreen après un logout forcé.
+     */
+    fun dismissAllDialogs() {
+        _showUpgradeRequired.value = false
         _showKeystoreCorruption.value = false
     }
 }
@@ -377,8 +416,13 @@ fun AppNavGraph(
     // Forced logout — triggered by SessionManager when TokenAuthenticator invalidates the session.
     // When isLoggedIn transitions to false after being true (expired token, forced logout),
     // navigate to Login and clear the entire backstack so the user can re-authenticate.
+    // Les dialogs globaux (upgradeRequired / keystoreCorruption) sont fermés explicitement
+    // sauf si c'est la corruption Keystore qui a déclenché le logout (dialog encore nécessaire).
     LaunchedEffect(isLoggedIn) {
         if (isLoggedIn == false) {
+            if (!showKeystoreCorruption) {
+                appNavViewModel.dismissAllDialogs()
+            }
             navController.navigate(Screen.Login.route) {
                 popUpTo(0) { inclusive = true }
                 launchSingleTop = true
@@ -388,13 +432,22 @@ fun AppNavGraph(
 
     // FCM deep link — collect events from SessionManager so it works for both
     // onCreate (cold start from notification) and onNewIntent (app already in foreground).
-    LaunchedEffect(Unit) {
+    // [SessionManager.deepLinkEvents] utilise replay=1 : un event émis avant la composition
+    // (cold start depuis notification) est re-joué au premier subscribe. On attend que
+    // le NavController ait chargé sa destination de départ avant de consommer, puis on
+    // clear le replay cache après consommation pour éviter une re-navigation sur rotation.
+    LaunchedEffect(loggedIn) {
         appNavViewModel.deepLinkEvents.collect { destination ->
             if (destination == "alerts" && loggedIn) {
+                // Attendre que la back stack soit initialisée (cold start depuis notification)
+                androidx.compose.runtime.snapshotFlow { navController.currentBackStackEntry }
+                    .filterNotNull()
+                    .first()
                 navController.navigate(Screen.Alerts.route) {
                     popUpTo(Screen.Dashboard.route) { saveState = false }
                     launchSingleTop = true
                 }
+                appNavViewModel.clearDeepLink()
             }
         }
     }

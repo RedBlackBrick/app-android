@@ -1,5 +1,6 @@
 package com.tradingplatform.app.data.session
 
+import com.google.firebase.crashlytics.FirebaseCrashlytics
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -28,6 +29,7 @@ class SessionManager @Inject constructor() {
     val forcedLogoutEvents: SharedFlow<Unit> = _forcedLogoutEvents.asSharedFlow()
 
     fun notifyForcedLogout() {
+        FirebaseCrashlytics.getInstance().log("SessionManager: forced logout")
         _forcedLogoutEvents.tryEmit(Unit)
     }
 
@@ -50,14 +52,33 @@ class SessionManager @Inject constructor() {
     val keystoreCorruptionEvents: SharedFlow<Unit> = _keystoreCorruptionEvents.asSharedFlow()
 
     fun notifyKeystoreCorruption() {
+        FirebaseCrashlytics.getInstance().apply {
+            setCustomKey("keystore_corruption_detected", true)
+            log("SessionManager: Keystore corruption detected")
+        }
         _keystoreCorruptionEvents.tryEmit(Unit)
     }
 
-    private val _deepLinkEvents = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    /**
+     * Deep link events — replay=1 pour que les events émis par [MainActivity.handleDeepLinkIntent]
+     * en `onCreate` (avant que `setContent` ne démarre les collecteurs) soient délivrés au
+     * premier subscribe (cold start depuis notification FCM).
+     */
+    private val _deepLinkEvents = MutableSharedFlow<String>(replay = 1, extraBufferCapacity = 1)
     val deepLinkEvents: SharedFlow<String> = _deepLinkEvents.asSharedFlow()
 
     fun notifyDeepLink(destination: String) {
         _deepLinkEvents.tryEmit(destination)
+    }
+
+    /**
+     * Efface la dernière valeur replayée du deep link flow après consommation.
+     * Empêche la re-navigation vers la même destination si le ViewModel est recréé
+     * (rotation d'écran, process kill + restore).
+     */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    fun clearDeepLink() {
+        _deepLinkEvents.resetReplayCache()
     }
 
     private val _pendingTotpToken = AtomicReference<String?>(null)

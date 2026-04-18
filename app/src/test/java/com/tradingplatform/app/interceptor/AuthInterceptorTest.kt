@@ -1,12 +1,8 @@
 package com.tradingplatform.app.interceptor
 
 import com.tradingplatform.app.data.api.interceptor.AuthInterceptor
-import com.tradingplatform.app.data.local.datastore.DataStoreKeys
-import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
-import com.tradingplatform.app.data.local.datastore.SecureReadResult
 import com.tradingplatform.app.data.session.SessionManager
 import com.tradingplatform.app.data.session.TokenHolder
-import io.mockk.coEvery
 import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.test.runTest
@@ -19,18 +15,20 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Before
 import org.junit.Test
-import java.security.GeneralSecurityException
 
+/**
+ * Tests d'intégration pour [AuthInterceptor] après refactor : l'interceptor ne fait plus
+ * de fallback disque via runBlocking. Il lit uniquement le cache mémoire [TokenHolder]
+ * (pré-chargé par [TradingApplication] au startup) et déclenche un logout forcé si absent.
+ */
 class AuthInterceptorTest {
     private val mockServer = MockWebServer()
     private val tokenHolder = TokenHolder()
-    private val dataStore = mockk<EncryptedDataStore>()
     private val sessionManager = mockk<SessionManager>(relaxed = true)
 
     @Before
     fun setUp() {
         mockServer.start()
-        // Clear TokenHolder before each test so the interceptor falls back to dataStore
         tokenHolder.clear()
     }
 
@@ -39,18 +37,13 @@ class AuthInterceptorTest {
         mockServer.shutdown()
     }
 
-    // ── Helper ────────────────────────────────────────────────────────────────
-
     private fun buildClient(): OkHttpClient = OkHttpClient.Builder()
-        .addInterceptor(AuthInterceptor(tokenHolder, dataStore, sessionManager))
+        .addInterceptor(AuthInterceptor(tokenHolder, sessionManager))
         .build()
 
-    // ── Normal token path ─────────────────────────────────────────────────────
-
     @Test
-    fun `adds Authorization header when token available`() = runTest {
-        coEvery { dataStore.readStringSafe(DataStoreKeys.ACCESS_TOKEN) } returns SecureReadResult.Found("test_token_123")
-
+    fun `adds Authorization header when TokenHolder is populated`() = runTest {
+        tokenHolder.setToken("test_token_123")
         mockServer.enqueue(MockResponse().setResponseCode(200))
 
         buildClient().newCall(
@@ -63,89 +56,35 @@ class AuthInterceptorTest {
     }
 
     @Test
-    fun `X-App-Version header is always present when token is valid`() = runTest {
-        coEvery { dataStore.readStringSafe(DataStoreKeys.ACCESS_TOKEN) } returns SecureReadResult.Found("any_token")
+    fun `when TokenHolder is empty forced logout is triggered and request never hits network`() = runTest {
+        // TokenHolder vide → logout forcé + réponse 401 synthétique
+        val response = buildClient().newCall(
+            Request.Builder().url(mockServer.url("/test")).build()
+        ).execute()
 
+        verify(exactly = 1) { sessionManager.notifyForcedLogout() }
+        assertEquals(401, response.code)
+        assertEquals(0, mockServer.requestCount)
+    }
+
+    @Test
+    fun `public paths bypass the token check and reach the server`() = runTest {
         mockServer.enqueue(MockResponse().setResponseCode(200))
 
         buildClient().newCall(
-            Request.Builder().url(mockServer.url("/ping")).build()
+            Request.Builder().url(mockServer.url("/v1/auth/login")).build()
         ).execute()
 
-        assertNotNull(mockServer.takeRequest().getHeader("X-App-Version"))
-    }
-
-    // ── Absent token path ─────────────────────────────────────────────────────
-
-    @Test
-    fun `when token is absent forced logout is triggered`() = runTest {
-        coEvery { dataStore.readStringSafe(DataStoreKeys.ACCESS_TOKEN) } returns SecureReadResult.NotFound
-
-        // No response enqueued — the request must NOT reach the server.
-        val response = buildClient().newCall(
-            Request.Builder().url(mockServer.url("/test")).build()
-        ).execute()
-
-        // Interceptor must have called notifyForcedLogout exactly once
-        verify(exactly = 1) { sessionManager.notifyForcedLogout() }
-
-        // A synthetic 401 is returned without hitting the network
-        assertEquals(401, response.code)
-
-        // MockWebServer must have received zero requests
-        assertEquals(0, mockServer.requestCount)
+        val recorded = mockServer.takeRequest()
+        // No Authorization header on public path
+        assertEquals(null, recorded.getHeader("Authorization"))
+        // But X-App-Version is still present
+        assertNotNull(recorded.getHeader("X-App-Version"))
+        verify(exactly = 0) { sessionManager.notifyForcedLogout() }
     }
 
     @Test
-    fun `when token is absent response does not reach the server`() = runTest {
-        coEvery { dataStore.readStringSafe(DataStoreKeys.ACCESS_TOKEN) } returns SecureReadResult.NotFound
-
-        val response = buildClient().newCall(
-            Request.Builder().url(mockServer.url("/test")).build()
-        ).execute()
-
-        // The synthetic response is never transmitted over the network, so no
-        // Authorization header is ever sent to an external server.
-        assertEquals(401, response.code)
-        assertEquals(0, mockServer.requestCount)
-    }
-
-    @Test
-    fun `when token is absent no network request is made`() = runTest {
-        coEvery { dataStore.readStringSafe(DataStoreKeys.ACCESS_TOKEN) } returns SecureReadResult.NotFound
-
-        buildClient().newCall(
-            Request.Builder().url(mockServer.url("/sensitive-data")).build()
-        ).execute()
-
-        // Critically: no request must reach the server — token absence is caught before the wire.
-        assertEquals(0, mockServer.requestCount)
-    }
-
-    // ── EncryptedDataStore corruption path ────────────────────────────────────
-
-    @Test
-    fun `when Keystore is corrupted keystoreCorruption is triggered`() = runTest {
-        // Simulate Keystore invalidation (reboot, biometric removal, device reset).
-        // readStringSafe returns Corrupted — AuthInterceptor calls notifyKeystoreCorruption.
-        coEvery { dataStore.readStringSafe(DataStoreKeys.ACCESS_TOKEN) } returns
-            SecureReadResult.Corrupted(GeneralSecurityException("Keystore invalidated"))
-
-        val response = buildClient().newCall(
-            Request.Builder().url(mockServer.url("/test")).build()
-        ).execute()
-
-        verify(exactly = 1) { sessionManager.notifyKeystoreCorruption() }
-        assertEquals(401, response.code)
-        assertEquals(0, mockServer.requestCount)
-    }
-
-    @Test
-    fun `consecutive requests with missing token each trigger logout notification`() = runTest {
-        // Each independent intercepted request that finds no token must notify the bus,
-        // since the OkHttp interceptor is stateless and does not track previous events.
-        coEvery { dataStore.readStringSafe(DataStoreKeys.ACCESS_TOKEN) } returns SecureReadResult.NotFound
-
+    fun `consecutive requests without token each trigger a logout notification`() = runTest {
         repeat(2) {
             buildClient().newCall(
                 Request.Builder().url(mockServer.url("/test")).build()
@@ -156,51 +95,16 @@ class AuthInterceptorTest {
         assertEquals(0, mockServer.requestCount)
     }
 
-    // ── TokenHolder hot path ─────────────────────────────────────────────────
-
     @Test
-    fun `uses TokenHolder when token is cached in memory`() = runTest {
-        tokenHolder.setToken("cached_jwt")
-
+    fun `SessionManager is never called when a valid token is cached`() = runTest {
+        tokenHolder.setToken("valid_jwt")
         mockServer.enqueue(MockResponse().setResponseCode(200))
 
         buildClient().newCall(
             Request.Builder().url(mockServer.url("/api/portfolio")).build()
         ).execute()
 
-        val recorded = mockServer.takeRequest()
-        assertEquals("Bearer cached_jwt", recorded.getHeader("Authorization"))
-        // dataStore.readStringSafe should not be called when TokenHolder has a value
-    }
-
-    // ── Regression: valid token path is unaffected ────────────────────────────
-
-    @Test
-    fun `SessionManager is never called when a valid token is present`() = runTest {
-        coEvery { dataStore.readStringSafe(DataStoreKeys.ACCESS_TOKEN) } returns SecureReadResult.Found("valid_jwt")
-
-        mockServer.enqueue(MockResponse().setResponseCode(200))
-
-        buildClient().newCall(
-            Request.Builder().url(mockServer.url("/api/portfolio")).build()
-        ).execute()
-
-        // Verify no forced logout event is fired for a healthy session
         verify(exactly = 0) { sessionManager.notifyForcedLogout() }
         verify(exactly = 0) { sessionManager.notifyKeystoreCorruption() }
-    }
-
-    @Test
-    fun `Authorization header is absent from server request when token is missing`() = runTest {
-        // Guard: if somehow the request did reach the server, it must not carry a Bearer token.
-        // Combined with the mockServer.requestCount == 0 check, this double-confirms safety.
-        coEvery { dataStore.readStringSafe(DataStoreKeys.ACCESS_TOKEN) } returns SecureReadResult.NotFound
-
-        buildClient().newCall(
-            Request.Builder().url(mockServer.url("/test")).build()
-        ).execute()
-
-        // No request reached the server → the recorded request count is zero
-        assertEquals(0, mockServer.requestCount)
     }
 }

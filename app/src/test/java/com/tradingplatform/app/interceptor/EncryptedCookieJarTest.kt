@@ -5,19 +5,25 @@ import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import okhttp3.Cookie
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.junit.Before
 import org.junit.Test
 
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class EncryptedCookieJarTest {
     private val dataStore = mockk<EncryptedDataStore>(relaxed = true)
     private lateinit var cookieJar: EncryptedCookieJar
+    private val testScope = CoroutineScope(SupervisorJob() + UnconfinedTestDispatcher())
 
     @Before
     fun setUp() {
-        cookieJar = EncryptedCookieJar(dataStore)
+        cookieJar = EncryptedCookieJar(dataStore, testScope)
     }
 
     @Test
@@ -52,14 +58,15 @@ class EncryptedCookieJarTest {
     @Test
     fun `loads cookies only for refresh path`() = runTest {
         coEvery { dataStore.loadCookies() } returns emptyList()
+        cookieJar.preload()
 
         val refreshUrl = "https://10.42.0.1:443/v1/auth/refresh".toHttpUrl()
         val otherUrl = "https://10.42.0.1:443/v1/portfolios".toHttpUrl()
 
         cookieJar.loadForRequest(refreshUrl)
-        coVerify { dataStore.loadCookies() }
-
         cookieJar.loadForRequest(otherUrl)
-        coVerify(exactly = 1) { dataStore.loadCookies() }  // pas de deuxième appel
+        // loadCookies() n'est plus appelé par loadForRequest (cache mémoire) —
+        // seul preload() le déclenche.
+        coVerify(exactly = 1) { dataStore.loadCookies() }
     }
 }

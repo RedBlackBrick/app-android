@@ -12,6 +12,7 @@ import com.tradingplatform.app.domain.usecase.pairing.ScanDeviceQrUseCase
 import com.tradingplatform.app.domain.usecase.pairing.SendPinToDeviceUseCase
 import com.tradingplatform.app.domain.usecase.pairing.StoreDevicePairingResultUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -174,68 +175,80 @@ class PairingViewModel @Inject constructor(
         }
 
         pairingJob = viewModelScope.launch {
-            _step.value = PairingStep.SendingPin
+            try {
+                _step.value = PairingStep.SendingPin
 
-            // Step 1 — send encrypted PIN + nonce to Radxa device over LAN
-            sendPinToDeviceUseCase(
-                deviceIp = current.device.localIp,
-                devicePort = current.device.port,
-                sessionId = current.session.sessionId,
-                sessionPin = current.session.sessionPin,   // never logged by the UseCase ([REDACTED])
-                localToken = current.session.localToken,   // never logged ([REDACTED])
-                nonce = current.session.nonce,              // never logged ([REDACTED])
-                radxaWgPubkey = current.device.wgPubkey,
-            ).onFailure { e ->
-                Timber.d("PairingViewModel: SendPin failed — ${e.message}")
-                _step.value = PairingStep.Error(
-                    message = e.localizedMessage ?: "Erreur lors de l'envoi du PIN",
-                    retryable = false,
-                )
-                return@launch
-            }
+                // Step 1 — send encrypted PIN + nonce to Radxa device over LAN
+                sendPinToDeviceUseCase(
+                    deviceIp = current.device.localIp,
+                    devicePort = current.device.port,
+                    sessionId = current.session.sessionId,
+                    sessionPin = current.session.sessionPin,   // never logged by the UseCase ([REDACTED])
+                    localToken = current.session.localToken,   // never logged ([REDACTED])
+                    nonce = current.session.nonce,              // never logged ([REDACTED])
+                    radxaWgPubkey = current.device.wgPubkey,
+                ).onFailure { e ->
+                    Timber.d("PairingViewModel: SendPin failed — ${e.message}")
+                    _step.value = PairingStep.Error(
+                        message = e.localizedMessage ?: "Erreur lors de l'envoi du PIN",
+                        retryable = false,
+                    )
+                    return@launch
+                }
 
-            // Step 2 — poll Radxa for pairing confirmation
-            _step.value = PairingStep.WaitingConfirmation
+                // Step 2 — poll Radxa for pairing confirmation
+                _step.value = PairingStep.WaitingConfirmation
 
-            confirmPairingUseCase(
-                deviceIp = current.device.localIp,
-                devicePort = current.device.port,
-                sessionId = current.session.sessionId,
-            ).onSuccess { status ->
-                Timber.d("PairingViewModel: ConfirmPairing result — status=$status")
-                if (status == PairingStatus.PAIRED) {
-                    storeDevicePairingResultUseCase(
-                        deviceId = current.device.deviceId,
-                        localToken = current.session.localToken,
-                        wgPubkey = current.device.wgPubkey,
-                        localIp = current.device.localIp,
-                    ).onSuccess {
-                        _step.value = PairingStep.Success
-                    }.onFailure { e ->
-                        Timber.e(e, "PairingViewModel: StoreDevicePairingResult failed")
+                confirmPairingUseCase(
+                    deviceIp = current.device.localIp,
+                    devicePort = current.device.port,
+                    sessionId = current.session.sessionId,
+                ).onSuccess { status ->
+                    Timber.d("PairingViewModel: ConfirmPairing result — status=$status")
+                    if (status == PairingStatus.PAIRED) {
+                        storeDevicePairingResultUseCase(
+                            deviceId = current.device.deviceId,
+                            localToken = current.session.localToken,
+                            wgPubkey = current.device.wgPubkey,
+                            localIp = current.device.localIp,
+                        ).onSuccess {
+                            _step.value = PairingStep.Success
+                        }.onFailure { e ->
+                            Timber.e(e, "PairingViewModel: StoreDevicePairingResult failed")
+                            _step.value = PairingStep.Error(
+                                message = "Échec de la sauvegarde des clés du device",
+                                retryable = false,
+                            )
+                        }
+                    } else {
                         _step.value = PairingStep.Error(
-                            message = "Échec de la sauvegarde des clés du device",
+                            message = "Le device n'a pas pu être appairé",
                             retryable = false,
                         )
                     }
-                } else {
+                }.onFailure { e ->
+                    Timber.d("PairingViewModel: ConfirmPairing failed — ${e.message}")
+                    val message = when (e) {
+                        is PairingTimeoutException ->
+                            "Session expirée — relancez le pairing depuis le VPS"
+                        else ->
+                            e.localizedMessage ?: "Erreur de confirmation"
+                    }
                     _step.value = PairingStep.Error(
-                        message = "Le device n'a pas pu être appairé",
+                        message = message,
                         retryable = false,
                     )
                 }
-            }.onFailure { e ->
-                Timber.d("PairingViewModel: ConfirmPairing failed — ${e.message}")
-                val message = when (e) {
-                    is PairingTimeoutException ->
-                        "Session expirée — relancez le pairing depuis le VPS"
-                    else ->
-                        e.localizedMessage ?: "Erreur de confirmation"
-                }
-                _step.value = PairingStep.Error(
-                    message = message,
-                    retryable = false,
-                )
+            } catch (e: CancellationException) {
+                // Annulation normale (reset() / navigation back) — OkHttp propage cancel()
+                // à toute Call en vol, ce qui ferme immédiatement la socket TCP LAN côté client.
+                // Re-throw pour respecter la structured concurrency.
+                Timber.d("PairingViewModel: pairing job cancelled — LAN socket closed via coroutine cancel")
+                throw e
+            } finally {
+                // Garantir que pairingJob ne retient plus la coroutine terminée.
+                // Pas d'IO ici — la cleanup réseau est gérée par OkHttp sur cancel().
+                pairingJob = null
             }
         }
     }

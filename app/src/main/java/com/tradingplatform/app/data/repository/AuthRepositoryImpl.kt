@@ -3,6 +3,7 @@ package com.tradingplatform.app.data.repository
 import com.squareup.moshi.Moshi
 import com.tradingplatform.app.data.api.AuthApi
 import com.tradingplatform.app.data.api.interceptor.CsrfInterceptor
+import com.tradingplatform.app.data.api.interceptor.EncryptedCookieJar
 import com.tradingplatform.app.data.local.datastore.DataStoreKeys
 import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
 import com.tradingplatform.app.data.model.ApiErrorDto
@@ -33,6 +34,7 @@ class AuthRepositoryImpl @Inject constructor(
     private val dataStore: EncryptedDataStore,
     private val moshi: Moshi,
     private val csrfInterceptor: CsrfInterceptor,
+    private val cookieJar: EncryptedCookieJar,
     private val okHttpClient: OkHttpClient,
 ) : AuthRepository {
 
@@ -100,6 +102,7 @@ class AuthRepositoryImpl @Inject constructor(
             Timber.tag(TAG).e(e, "AuthRepository: clearAll failed during logout — session data may be stale")
         }
         csrfInterceptor.clearToken()
+        cookieJar.clear()
         try { okHttpClient.cache?.evictAll() } catch (_: Exception) {}
     }
 

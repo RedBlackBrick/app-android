@@ -6,10 +6,16 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import com.tradingplatform.app.data.api.interceptor.CsrfInterceptor
+import com.tradingplatform.app.data.api.interceptor.EncryptedCookieJar
 import com.tradingplatform.app.data.local.datastore.DataStoreKeys
 import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
+import com.tradingplatform.app.data.local.datastore.SecureReadResult
+import com.tradingplatform.app.data.session.SessionManager
+import com.tradingplatform.app.data.session.TokenHolder
 import com.tradingplatform.app.data.websocket.PrivateWsClient
 import com.tradingplatform.app.fcm.FcmTokenRegistrationWorker
+import com.tradingplatform.app.security.BiometricLockManager
 import com.tradingplatform.app.widget.WidgetUpdateWorker
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
@@ -31,21 +37,52 @@ class TradingApplication : Application() {
     @Inject lateinit var privateWsClient: PrivateWsClient
     @Inject lateinit var encryptedDataStore: EncryptedDataStore
     @Inject lateinit var appScope: CoroutineScope
+    @Inject lateinit var tokenHolder: TokenHolder
+    @Inject lateinit var sessionManager: SessionManager
+    @Inject lateinit var cookieJar: EncryptedCookieJar
+    @Inject lateinit var csrfInterceptor: CsrfInterceptor
+    @Inject lateinit var biometricLockManager: BiometricLockManager
 
     override fun onCreate() {
         super.onCreate()
         initTimber()
         scheduleWidgetUpdateWorker()
-        
-        // Single launch for all startup checks to minimize EncryptedDataStore/Keystore contention
+
+        // Pré-chargement synchrone des caches mémoire (token + cookies) pour éviter
+        // les runBlocking sur le thread OkHttp au cold start. Le premier appel réseau
+        // doit trouver TokenHolder et EncryptedCookieJar déjà peuplés.
         appScope.launch {
-            // Parallel reads from DataStore
-            val hasToken = encryptedDataStore.readString(DataStoreKeys.ACCESS_TOKEN) != null
+            // Restaurer le verrou biométrique AVANT tout autre init — si l'app a été
+            // tuée en étant verrouillée, l'overlay doit être visible dès la première
+            // composition pour éviter toute exposition des données de trading.
+            biometricLockManager.restorePersistedState()
+        }
+        appScope.launch {
+            val tokenResult = encryptedDataStore.readStringSafe(DataStoreKeys.ACCESS_TOKEN)
+            val hasToken = when (tokenResult) {
+                is SecureReadResult.Found -> {
+                    tokenHolder.setToken(tokenResult.value)
+                    Timber.d("TradingApplication: access token preloaded into TokenHolder")
+                    true
+                }
+                is SecureReadResult.NotFound -> false
+                is SecureReadResult.Corrupted -> {
+                    Timber.e(tokenResult.cause, "TradingApplication: Keystore corrupted at startup")
+                    sessionManager.notifyKeystoreCorruption()
+                    false
+                }
+            }
+
+            cookieJar.preload()
+
             val hasPendingFcm = encryptedDataStore.readString(DataStoreKeys.PENDING_FCM_TOKEN) != null
 
             if (hasToken) {
                 Timber.d("TradingApplication: access token found — starting private WS client")
                 privateWsClient.connect()
+                // Pré-fetch CSRF pour que le premier POST/PUT/DELETE ne bloque pas un thread
+                // OkHttp avec un runBlocking synchrone.
+                csrfInterceptor.preFetch()
             } else {
                 Timber.d("TradingApplication: no access token — WS will connect after login")
             }
