@@ -31,15 +31,14 @@ import com.tradingplatform.app.ui.components.QrScannerView
 import com.tradingplatform.app.ui.theme.Spacing
 
 /**
- * Screen to scan the Radxa device pairing QR code.
+ * Écran de scan du QR code Radxa.
  *
- * Displays the camera viewfinder and instructions to scan the QR code shown on the
- * Radxa e-ink screen. Delegates QR parsing to [PairingViewModel.onDeviceQrScanned].
+ * - VpsScanned (état d'arrivée) → caméra active, scanne le QR device.
+ * - BothScanned → navigation vers PairingProgressScreen.
+ * - Error → banner, retry ramène l'utilisateur à [ScanVpsQrScreen] (l'état VPS a été reset).
  *
- * Navigation:
- * - [PairingStep.BothScanned] → [PairingProgressScreen]
- * - [PairingStep.DeviceScanned] → stays on screen waiting for VPS QR (scanned out of order)
- * - [PairingStep.Error] → stays on screen and shows [ErrorBanner] with retry option
+ * La caméra est pausée dès qu'un état terminal est atteint (BothScanned / Error) pour éviter
+ * toute relecture parasite du même QR avant la navigation.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -50,13 +49,14 @@ fun ScanDeviceQrScreen(
 ) {
     val step by viewModel.step.collectAsStateWithLifecycle()
 
-    // Navigate to progress screen when both QR codes are scanned
     LaunchedEffect(step) {
-        when (step) {
-            is PairingStep.BothScanned -> onNavigateToProgress()
-            else -> Unit
+        if (step is PairingStep.BothScanned) {
+            onNavigateToProgress()
         }
     }
+
+    val isCameraPaused = step is PairingStep.BothScanned ||
+        step is PairingStep.Error
 
     Scaffold(
         topBar = {
@@ -87,34 +87,38 @@ fun ScanDeviceQrScreen(
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
-            // Camera viewfinder — occupies full screen
             QrScannerView(
                 onQrDetected = { raw -> viewModel.onDeviceQrScanned(raw) },
+                isPaused = isCameraPaused,
                 modifier = Modifier.fillMaxSize(),
             )
 
-            // Instruction overlay at the bottom of the camera feed
-            DeviceInstructionOverlay(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = Spacing.xl),
-            )
-
-            // Error banner — shown on QR parse failure, allows retry
-            if (step is PairingStep.Error) {
-                val errorStep = step as PairingStep.Error
-                ErrorBanner(
-                    message = errorStep.message,
-                    onRetry = if (errorStep.retryable) {
-                        { viewModel.reset() }
-                    } else {
-                        null
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .align(Alignment.BottomCenter),
-                )
+            when (val current = step) {
+                is PairingStep.Error -> {
+                    // retry reset l'état et ramène à l'écran VPS pour repartir d'un état propre
+                    ErrorBanner(
+                        message = current.message,
+                        onRetry = if (current.retryable) {
+                            {
+                                viewModel.reset()
+                                onBack()
+                            }
+                        } else {
+                            null
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .align(Alignment.BottomCenter),
+                    )
+                }
+                else -> {
+                    DeviceInstructionOverlay(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = Spacing.xl),
+                    )
+                }
             }
         }
     }

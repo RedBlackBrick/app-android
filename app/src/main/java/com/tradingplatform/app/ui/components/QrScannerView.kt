@@ -50,13 +50,15 @@ import java.util.concurrent.Executors
  * - Si accordée : affiche le viewfinder caméra et scanne en continu
  * - Si refusée : affiche un message d'invite avec bouton de demande de permission
  *
- * [onQrDetected] est appelé une seule fois par QR détecté (debounce via flag interne).
- * Le scan s'arrête après la première détection pour éviter les callbacks multiples.
+ * [onQrDetected] est appelé une seule fois par QR détecté. Après détection, la caméra
+ * s'auto-pause (flag interne). Le parent peut forcer la pause/reprise via [isPaused] —
+ * c'est indispensable pour que le scan puisse reprendre après un reset/retry ViewModel.
  *
  * Usage :
  * ```kotlin
  * QrScannerView(
  *     onQrDetected = { rawValue -> viewModel.onQrScanned(rawValue) },
+ *     isPaused = step is PairingStep.VpsScanned,  // freeze camera after success
  *     modifier = Modifier.fillMaxSize(),
  * )
  * ```
@@ -66,6 +68,7 @@ import java.util.concurrent.Executors
 fun QrScannerView(
     onQrDetected: (String) -> Unit,
     modifier: Modifier = Modifier,
+    isPaused: Boolean = false,
 ) {
     val context = LocalContext.current
 
@@ -99,6 +102,7 @@ fun QrScannerView(
     } else {
         CameraPreviewWithQrScanner(
             onQrDetected = onQrDetected,
+            isPaused = isPaused,
             modifier = modifier,
         )
     }
@@ -109,13 +113,19 @@ fun QrScannerView(
 @Composable
 private fun CameraPreviewWithQrScanner(
     onQrDetected: (String) -> Unit,
+    isPaused: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    // Flag d'arrêt du scan — un seul callback par QR détecté
+    // Flag d'arrêt du scan — un seul callback par QR détecté.
+    // Synced avec isPaused : quand le parent unpause, on réactive le scan.
     var scanCompleted by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isPaused) {
+        scanCompleted = isPaused
+    }
 
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
     val barcodeScanner = remember { BarcodeScanning.getClient() }

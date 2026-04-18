@@ -54,6 +54,10 @@ class PairingViewModelTest {
     @Before
     fun setUp() {
         coEvery { storeDevicePairingResultUseCase(any(), any(), any(), any()) } returns Result.success(Unit)
+        // Default fallbacks — cross-validation tries both parsers in each handler.
+        // Individual tests can override these with their own coEvery {}.
+        coEvery { parseVpsQrUseCase(any()) } returns Result.failure(UnrecognizedQrException())
+        coEvery { scanDeviceQrUseCase(any()) } returns Result.failure(UnrecognizedQrException())
         viewModel = PairingViewModel(
             parseVpsQrUseCase = parseVpsQrUseCase,
             scanDeviceQrUseCase = scanDeviceQrUseCase,
@@ -143,6 +147,40 @@ class PairingViewModelTest {
             val both = next as PairingStep.BothScanned
             assertEquals(fakeSession.sessionId, both.session.sessionId)
             assertEquals(fakeDevice.deviceId, both.device.deviceId)
+        }
+    }
+
+    // ── Cross-validation: each handler accepts either QR type ─────────────────
+
+    @Test
+    fun `onVpsQrScanned with Device QR falls back to DeviceScanned`() = runTest {
+        // VPS parse fails (default), Device parse succeeds → should transition to DeviceScanned.
+        coEvery { scanDeviceQrUseCase(any()) } returns Result.success(fakeDevice)
+
+        viewModel.step.test {
+            assertIs<PairingStep.Idle>(awaitItem())
+
+            viewModel.onVpsQrScanned("pairing://radxa?...")
+
+            val next = awaitItem()
+            assertIs<PairingStep.DeviceScanned>(next)
+            assertEquals(fakeDevice.deviceId, (next as PairingStep.DeviceScanned).device.deviceId)
+        }
+    }
+
+    @Test
+    fun `onDeviceQrScanned with VPS QR falls back to VpsScanned`() = runTest {
+        // Device parse fails (default), VPS parse succeeds → should transition to VpsScanned.
+        coEvery { parseVpsQrUseCase(any()) } returns Result.success(fakeSession)
+
+        viewModel.step.test {
+            assertIs<PairingStep.Idle>(awaitItem())
+
+            viewModel.onDeviceQrScanned("{valid-vps-qr}")
+
+            val next = awaitItem()
+            assertIs<PairingStep.VpsScanned>(next)
+            assertEquals(fakeSession.sessionId, (next as PairingStep.VpsScanned).session.sessionId)
         }
     }
 

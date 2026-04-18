@@ -94,64 +94,82 @@ class PairingViewModel @Inject constructor(
 
     /**
      * Called when a QR code is detected in [ScanVpsQrScreen].
-     * Parses the raw value and transitions state accordingly.
+     * Tries the VPS parser first, then the Device parser as a fallback — this matches the
+     * CLAUDE.md contract "L'app scanne les deux QR dans n'importe quel ordre". It also
+     * prevents the camera from looping on a misread when one QR is still in frame after
+     * a screen transition.
      * session_pin is NEVER logged.
      */
     fun onVpsQrScanned(raw: String) {
         viewModelScope.launch {
-            parseVpsQrUseCase(raw)
-                .onSuccess { session ->
-                    Timber.d("PairingViewModel: VPS QR parsed — sessionId=${session.sessionId} pin=[REDACTED]")
-                    val current = _step.value
-                    _step.value = when (current) {
-                        is PairingStep.DeviceScanned -> {
-                            _deviceInfo.value = current.device
-                            PairingStep.BothScanned(
-                                session = session,
-                                device = current.device,
-                            )
-                        }
-                        else -> PairingStep.VpsScanned(session = session)
-                    }
-                }
-                .onFailure { e ->
-                    Timber.d("PairingViewModel: VPS QR parse failed — ${e.message}")
-                    _step.value = PairingStep.Error(
-                        message = "QR non reconnu, réessayez",
-                        retryable = true,
-                    )
-                }
+            val vpsResult = parseVpsQrUseCase(raw)
+            if (vpsResult.isSuccess) {
+                applyVpsScan(vpsResult.getOrThrow())
+                return@launch
+            }
+            // Fallback: the user may have scanned the Radxa QR by mistake on this screen
+            val deviceResult = scanDeviceQrUseCase(raw)
+            if (deviceResult.isSuccess) {
+                applyDeviceScan(deviceResult.getOrThrow())
+                return@launch
+            }
+            Timber.d("PairingViewModel: VPS QR parse failed — ${vpsResult.exceptionOrNull()?.message}")
+            _step.value = PairingStep.Error(
+                message = "QR non reconnu, réessayez",
+                retryable = true,
+            )
         }
     }
 
     /**
      * Called when a QR code is detected in [ScanDeviceQrScreen].
-     * Parses the raw value and transitions state accordingly.
+     * Tries the Device parser first, then the VPS parser as a fallback.
      */
     fun onDeviceQrScanned(raw: String) {
         viewModelScope.launch {
-            scanDeviceQrUseCase(raw)
-                .onSuccess { device ->
-                    Timber.d("PairingViewModel: Device QR parsed — deviceId=${device.deviceId} ip=${device.localIp}")
-                    val current = _step.value
-                    _step.value = when (current) {
-                        is PairingStep.VpsScanned -> {
-                            _deviceInfo.value = device
-                            PairingStep.BothScanned(
-                                session = current.session,
-                                device = device,
-                            )
-                        }
-                        else -> PairingStep.DeviceScanned(device = device)
-                    }
-                }
-                .onFailure { e ->
-                    Timber.d("PairingViewModel: Device QR parse failed — ${e.message}")
-                    _step.value = PairingStep.Error(
-                        message = "QR non reconnu, réessayez",
-                        retryable = true,
-                    )
-                }
+            val deviceResult = scanDeviceQrUseCase(raw)
+            if (deviceResult.isSuccess) {
+                applyDeviceScan(deviceResult.getOrThrow())
+                return@launch
+            }
+            val vpsResult = parseVpsQrUseCase(raw)
+            if (vpsResult.isSuccess) {
+                applyVpsScan(vpsResult.getOrThrow())
+                return@launch
+            }
+            Timber.d("PairingViewModel: Device QR parse failed — ${deviceResult.exceptionOrNull()?.message}")
+            _step.value = PairingStep.Error(
+                message = "QR non reconnu, réessayez",
+                retryable = true,
+            )
+        }
+    }
+
+    private fun applyVpsScan(session: PairingSession) {
+        Timber.d("PairingViewModel: VPS QR parsed — sessionId=${session.sessionId} pin=[REDACTED]")
+        val current = _step.value
+        _step.value = when (current) {
+            is PairingStep.DeviceScanned -> {
+                _deviceInfo.value = current.device
+                PairingStep.BothScanned(session = session, device = current.device)
+            }
+            is PairingStep.BothScanned ->
+                PairingStep.BothScanned(session = session, device = current.device)
+            else -> PairingStep.VpsScanned(session = session)
+        }
+    }
+
+    private fun applyDeviceScan(device: DevicePairingInfo) {
+        Timber.d("PairingViewModel: Device QR parsed — deviceId=${device.deviceId} ip=${device.localIp}")
+        val current = _step.value
+        _step.value = when (current) {
+            is PairingStep.VpsScanned -> {
+                _deviceInfo.value = device
+                PairingStep.BothScanned(session = current.session, device = device)
+            }
+            is PairingStep.BothScanned ->
+                PairingStep.BothScanned(session = current.session, device = device)
+            else -> PairingStep.DeviceScanned(device = device)
         }
     }
 
