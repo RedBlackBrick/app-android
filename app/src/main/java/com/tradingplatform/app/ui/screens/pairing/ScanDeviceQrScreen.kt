@@ -61,12 +61,7 @@ fun ScanDeviceQrScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = {
-                    Text(
-                        text = "Scan QR Device",
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                },
+                title = { Text(text = "Scan QR Device") },
                 navigationIcon = {
                     IconButton(
                         onClick = {

@@ -26,7 +26,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
  *     radxaWgPubkeyBase64 = radxaWgPubkey,
  *     payload = payloadJson.toByteArray(Charsets.UTF_8),
  * )
- * val response = pairingApi.sendPin("http://$deviceIp:$port/pin", body)
+ * val response = pairingApi.sendPin("https://$deviceIp:$port/pin", body)
  * ```
  */
 fun SealedBoxHelper.sealLanBody(

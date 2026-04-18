@@ -46,6 +46,9 @@ import java.time.Instant
 class WidgetUpdateWorkerTest {
 
     private val vpnManager = mockk<WireGuardManager>()
+    private val systemVpnMonitor = mockk<com.tradingplatform.app.vpn.SystemVpnMonitor>(relaxed = true).apply {
+        every { active } returns MutableStateFlow(false)
+    }
     private val dataStore = mockk<EncryptedDataStore>()
     private val getPositionsUseCase = mockk<GetPositionsUseCase>()
     private val getPnlUseCase = mockk<GetPnlUseCase>()
@@ -126,6 +129,7 @@ class WidgetUpdateWorkerTest {
                         context = appContext,
                         workerParams = workerParameters,
                         vpnManager = vpnManager,
+                        systemVpnMonitor = systemVpnMonitor,
                         dataStore = dataStore,
                         getPositionsUseCase = getPositionsUseCase,
                         getPnlUseCase = getPnlUseCase,

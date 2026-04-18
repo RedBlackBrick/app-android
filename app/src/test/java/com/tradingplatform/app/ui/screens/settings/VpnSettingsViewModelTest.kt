@@ -3,6 +3,7 @@ package com.tradingplatform.app.ui.screens.settings
 import com.tradingplatform.app.data.local.datastore.DataStoreKeys
 import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
 import com.tradingplatform.app.util.MainDispatcherRule
+import com.tradingplatform.app.vpn.SystemVpnMonitor
 import com.tradingplatform.app.vpn.VpnState
 import com.tradingplatform.app.vpn.WireGuardManager
 import io.mockk.coEvery
@@ -26,6 +27,9 @@ class VpnSettingsViewModelTest {
 
     private val wireGuardManager = mockk<WireGuardManager>(relaxed = true)
     private val dataStore = mockk<EncryptedDataStore>()
+    private val systemVpnMonitor = mockk<SystemVpnMonitor>(relaxed = true).apply {
+        every { active } returns MutableStateFlow(false)
+    }
 
     // Minimal valid WireGuard config JSON stored in datastore
     private val validConfigJson = """
@@ -49,6 +53,7 @@ class VpnSettingsViewModelTest {
     private fun createViewModel(): VpnSettingsViewModel = VpnSettingsViewModel(
         wireGuardManager = wireGuardManager,
         dataStore = dataStore,
+        systemVpnMonitor = systemVpnMonitor,
     )
 
     // ── vpnState reflects WireGuardManager state ──────────────────────────────

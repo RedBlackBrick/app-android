@@ -147,7 +147,7 @@ class TokenAuthenticator @Inject constructor(
         cookieJar.clear()
         runBlocking {
             try { appDatabase.clearAllTables() } catch (_: Exception) {}
-            dataStore.clearAll()  // efface tous les tokens, cookies, is_admin, portfolio_id
+            dataStore.clearSession()  // efface tokens/cookies/is_admin/portfolio_id — préserve WG_* + SETUP_COMPLETED
         }
         Timber.tag(TAG).w("TokenAuthenticator: forced logout — all session data cleared")
         FirebaseCrashlytics.getInstance().apply {

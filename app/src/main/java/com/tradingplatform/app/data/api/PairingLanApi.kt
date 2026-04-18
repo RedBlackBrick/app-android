@@ -19,12 +19,12 @@ interface PairingLanApi {
 
     @POST
     suspend fun sendPin(
-        @Url url: String,    // "http://{radxa_ip}:8099/pin"
+        @Url url: String,    // "https://{radxa_ip}:8099/pin"
         @Body body: RequestBody,   // application/octet-stream (bytes chiffrés libsodium)
     ): Response<Unit>
 
     @GET
     suspend fun getStatus(
-        @Url url: String,    // "http://{radxa_ip}:8099/status"
+        @Url url: String,    // "https://{radxa_ip}:8099/status"
     ): Response<Map<String, Any>>
 }

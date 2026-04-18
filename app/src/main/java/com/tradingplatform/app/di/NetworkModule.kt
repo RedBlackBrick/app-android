@@ -22,6 +22,13 @@ import com.tradingplatform.app.data.model.BigDecimalAdapter
 import com.tradingplatform.app.data.model.InstantAdapter
 import android.content.Context
 import com.tradingplatform.app.security.CertificatePinnerProvider
+import com.tradingplatform.app.security.LanTrustManager
+import com.tradingplatform.app.security.isLocalNetwork
+import okhttp3.HttpUrl
+import okhttp3.Interceptor
+import okhttp3.Protocol
+import okhttp3.Response
+import javax.net.ssl.HostnameVerifier
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -142,24 +149,64 @@ object NetworkModule {
     }
 
     // ── OkHttpClient @Named("lan") ─────────────────────────────────────────────
-    // Utilisé par PairingRepositoryImpl pour les appels HTTP vers la Radxa (LAN, port 8099).
-    // Pas de CSRF ni Auth interceptors (LAN, pas VPS).
-    // VpnRequiredInterceptor est inclus : la connexion vers radxa_ip:8099 exige VPN actif
-    // (CLAUDE.md §8 : "La connexion vers radxa_ip:8099 doit être faite uniquement si VpnState.Connected").
-    // La validation isLocalNetwork() est effectuée dans PairingRepositoryImpl.
+    // Utilisé par PairingRepositoryImpl et LocalMaintenanceRepositoryImpl pour
+    // parler au pairing-server de la Radxa (LAN, port 8099, HTTPS avec cert
+    // auto-signé). Le pairing-server refuse désormais de démarrer sans TLS —
+    // d'où le switch http → https et le TrustManager permissif scopé LAN.
+    //
+    // Garde-fou anti-fuite (LanOnlyHttpsGuard) : avant chaque requête, on
+    // refuse immédiatement toute URL qui n'est ni HTTPS ni RFC-1918. Ça limite
+    // strictement le TrustManager permissif à sa surface légitime (8099 sur
+    // le LAN du foyer) et empêche qu'il soit réutilisé par erreur pour un
+    // autre host.
+    //
+    // Pas de CSRF ni Auth interceptors (LAN, pas VPS). VpnRequiredInterceptor
+    // est inclus : la connexion vers radxa_ip:8099 exige VPN actif (CLAUDE.md
+    // §8). La validation isLocalNetwork() reste effectuée en Repository.
 
     @Provides
     @Singleton
     @Named("lan")
     fun provideLanOkHttpClient(
         vpnRequiredInterceptor: VpnRequiredInterceptor,
-    ): OkHttpClient = OkHttpClient.Builder()
-        .addInterceptor(vpnRequiredInterceptor)
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
-        // Pas de CertificatePinner — HTTP non chiffré (LAN local uniquement)
-        // Pas d'intercepteurs VPS (CSRF, Auth) — LAN only
-        .build()
+    ): OkHttpClient {
+        val (sslSocketFactory, trustManager) = LanTrustManager.socketFactory()
+
+        // Le cert auto-signé est émis pour le hostname du Radxa (CN=radxa-…)
+        // mais les clients s'y connectent par IP RFC-1918 — on accepte tant que
+        // l'IP est site-local/link-local. La validation protocole/IP est faite
+        // par lanOnlyHttpsGuard avant même que la socket soit ouverte.
+        val lanHostnameVerifier = HostnameVerifier { hostname, _ -> isLocalNetwork(hostname) }
+
+        return OkHttpClient.Builder()
+            .addInterceptor(lanOnlyHttpsGuard())
+            .addInterceptor(vpnRequiredInterceptor)
+            .sslSocketFactory(sslSocketFactory, trustManager)
+            .hostnameVerifier(lanHostnameVerifier)
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(10, TimeUnit.SECONDS)
+            .build()
+    }
+
+    /**
+     * Refuse toute requête non-HTTPS ou qui cible un hôte non RFC-1918.
+     * Confine le TrustManager permissif au seul cas d'usage légitime
+     * (pairing-server Radxa sur LAN 8099 via WireGuard).
+     */
+    private fun lanOnlyHttpsGuard(): Interceptor = Interceptor { chain ->
+        val url: HttpUrl = chain.request().url
+        if (!url.isHttps || !isLocalNetwork(url.host)) {
+            Response.Builder()
+                .request(chain.request())
+                .protocol(Protocol.HTTP_1_1)
+                .code(495)  // 495 Invalid SSL Certificate — repurposed to signal policy break
+                .message("LAN client refused non-HTTPS or non-RFC-1918 target (${url.host})")
+                .body(okhttp3.ResponseBody.create(null, ByteArray(0)))
+                .build()
+        } else {
+            chain.proceed(chain.request())
+        }
+    }
 
     // ── Retrofit principal (VPS) ───────────────────────────────────────────────
 

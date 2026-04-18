@@ -98,12 +98,7 @@ fun PairingProgressScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = {
-                    Text(
-                        text = "Pairing en cours",
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                },
+                title = { Text(text = "Pairing en cours") },
                 navigationIcon = {
                     IconButton(
                         onClick = cancel,

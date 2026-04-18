@@ -63,12 +63,7 @@ fun ScanVpsQrScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = {
-                    Text(
-                        text = "Scan QR VPS",
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                },
+                title = { Text(text = "Scan QR VPS") },
                 navigationIcon = {
                     IconButton(
                         onClick = {

@@ -2,6 +2,7 @@ package com.tradingplatform.app.data.api.interceptor
 
 import com.tradingplatform.app.data.local.datastore.DataStoreKeys
 import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
+import com.tradingplatform.app.data.session.TokenHolder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -44,6 +45,7 @@ class CsrfInterceptor @Inject constructor(
     @Named("base_url") private val baseUrl: String,
     private val applicationScope: CoroutineScope,
     private val dataStore: EncryptedDataStore,
+    private val tokenHolder: TokenHolder,
 ) : Interceptor {
 
     companion object {
@@ -207,10 +209,16 @@ class CsrfInterceptor @Inject constructor(
 
     private suspend fun fetchCsrfToken(): String {
         Timber.tag(TAG).d("CsrfInterceptor: fetching new CSRF token")
-        val req = Request.Builder()
+        // Le VPS lie le CSRF au user_id extrait du JWT (voir app/core/security/csrf.py).
+        // Sans Bearer ici, on recevrait un token anonyme qui serait rejeté sur les POST
+        // authentifiés (CSRF_001 "missing or invalid"). Attacher le token si disponible.
+        val requestBuilder = Request.Builder()
             .url("$baseUrl/csrf-token")
             .get()
-            .build()
+        tokenHolder.accessToken?.let { token ->
+            requestBuilder.header("Authorization", "Bearer $token")
+        }
+        val req = requestBuilder.build()
         val token = try {
             bareHttpClient.newCall(req).execute().use { resp ->
                 if (!resp.isSuccessful) {

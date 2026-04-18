@@ -1,6 +1,8 @@
 package com.tradingplatform.app
 
 import android.app.Application
+import androidx.hilt.work.HiltWorkerFactory
+import androidx.work.Configuration
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
@@ -25,7 +27,18 @@ import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
 @HiltAndroidApp
-class TradingApplication : Application() {
+class TradingApplication : Application(), Configuration.Provider {
+
+    // Injecté par Hilt — permet à WorkManager d'instancier les workers annotés
+    // @HiltWorker (comme WidgetUpdateWorker). Sans ça, WorkManager cherche un
+    // constructeur (Context, WorkerParameters) et échoue avec NoSuchMethodException.
+    @Inject lateinit var workerFactory: HiltWorkerFactory
+
+    override val workManagerConfiguration: Configuration
+        get() = Configuration.Builder()
+            .setWorkerFactory(workerFactory)
+            .build()
+
 
     /**
      * Injecté par Hilt après super.onCreate() (garantie @HiltAndroidApp).

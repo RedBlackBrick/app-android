@@ -381,9 +381,27 @@ class PrivateWsClient @Inject constructor(
             _connectionState.value = WsConnectionState.Disconnected
             emit(WsEvent.Disconnected(reason = reason.ifBlank { null }))
 
-            // Reconnexion automatique sauf fermeture normale intentionnelle (1000 depuis disconnect())
-            if (code != 1000) {
+            // Distinguer les codes côté serveur (cf. app/websocket/constants.py
+            // dans trading-platform2) :
+            //   - 1000 Normal / 1001 Going Away → fermeture propre, pas de reconnect
+            //   - 4003 Admin required, 4010 Origin not allowed → erreurs
+            //     terminales liées à l'identité du client ; retry = boucle
+            //     infinie silencieuse. On log seulement — la session reste
+            //     ouverte côté REST, c'est TokenAuthenticator qui décidera
+            //     d'un logout au prochain appel HTTP s'il détecte un 401.
+            //   - 4001 Token expired → la prochaine reconnexion récupère
+            //     un nouveau ws-token via authRepository.getWsToken(), qui
+            //     déclenchera le refresh access-token si nécessaire.
+            //   - Tous les autres (4000 heartbeat, 4008/4009 limits,
+            //     4011 idle) → reconnexion avec backoff.
+            val terminal = code in setOf(1000, 1001, 4003, 4010)
+            if (!terminal) {
                 scheduleReconnect()
+            } else if (code == 4003 || code == 4010) {
+                Timber.tag(TAG).w(
+                    "WS closed with terminal code $code — not reconnecting. " +
+                        "Session auth will re-validate on next REST call."
+                )
             }
         }
 

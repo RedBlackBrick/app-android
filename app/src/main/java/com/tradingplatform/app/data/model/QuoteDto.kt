@@ -10,9 +10,13 @@ data class QuoteDto(
     @Json(name = "price") val price: BigDecimal,
     @Json(name = "bid") val bid: BigDecimal? = null,
     @Json(name = "ask") val ask: BigDecimal? = null,
-    @Json(name = "volume") val volume: Long,
-    @Json(name = "change") val change: BigDecimal,
-    @Json(name = "change_percent") val changePercent: Double,
+    // Nullable mirroring the Pydantic `QuoteResponse` on the server. These
+    // fields can legitimately be `null` (e.g. an index with no volume, a
+    // freshly-opened market with no change yet) and a non-null Kotlin type
+    // would crash Moshi at parse time.
+    @Json(name = "volume") val volume: Long? = null,
+    @Json(name = "change") val change: BigDecimal? = null,
+    @Json(name = "change_percent") val changePercent: Double? = null,
     @Json(name = "timestamp") val timestamp: String,
     @Json(name = "source") val source: String,
     @Json(name = "source_name") val sourceName: String? = null,

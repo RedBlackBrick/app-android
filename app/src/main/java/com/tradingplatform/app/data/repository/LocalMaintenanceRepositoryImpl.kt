@@ -47,7 +47,7 @@ class LocalMaintenanceRepositoryImpl @Inject constructor(
             payload = payloadJson.toByteArray(Charsets.UTF_8),
         )
 
-        val url = "http://$deviceIp:$devicePort/command"
+        val url = "https://$deviceIp:$devicePort/command"
         val response = maintenanceApi.sendCommand(url, body)
         if (!response.isSuccessful) error("command failed: HTTP ${response.code()}")
         // ResponseBody doit être consommé dans use { } pour garantir la fermeture du flux
@@ -64,7 +64,7 @@ class LocalMaintenanceRepositoryImpl @Inject constructor(
         devicePort: Int,
     ): Result<DeviceLocalStatus> = runCatching {
         if (!isLocalNetwork(deviceIp)) error("Refused: $deviceIp is not RFC-1918")
-        val url = "http://$deviceIp:$devicePort/status"
+        val url = "https://$deviceIp:$devicePort/status"
         val response = maintenanceApi.getStatus(url)
         if (!response.isSuccessful) error("status failed: HTTP ${response.code()}")
         val body = response.body() ?: error("Empty status response")
@@ -86,7 +86,7 @@ class LocalMaintenanceRepositoryImpl @Inject constructor(
         devicePort: Int,
     ): Result<DeviceIdentity> = runCatching {
         if (!isLocalNetwork(deviceIp)) error("Refused: $deviceIp is not RFC-1918")
-        val url = "http://$deviceIp:$devicePort/identity"
+        val url = "https://$deviceIp:$devicePort/identity"
         val response = maintenanceApi.getIdentity(url)
         if (!response.isSuccessful) error("identity failed: HTTP ${response.code()}")
         val body = response.body() ?: error("Empty identity response")

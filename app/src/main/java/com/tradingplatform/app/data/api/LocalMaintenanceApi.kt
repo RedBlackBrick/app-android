@@ -20,17 +20,17 @@ interface LocalMaintenanceApi {
 
     @POST
     suspend fun sendCommand(
-        @Url url: String,    // "http://{radxa_ip}:8099/command"
+        @Url url: String,    // "https://{radxa_ip}:8099/command"
         @Body body: RequestBody,   // application/octet-stream (bytes chiffrés libsodium)
     ): Response<ResponseBody>
 
     @GET
     suspend fun getStatus(
-        @Url url: String,    // "http://{radxa_ip}:8099/status"
+        @Url url: String,    // "https://{radxa_ip}:8099/status"
     ): Response<Map<String, String>>
 
     @GET
     suspend fun getIdentity(
-        @Url url: String,    // "http://{radxa_ip}:8099/identity"
+        @Url url: String,    // "https://{radxa_ip}:8099/identity"
     ): Response<Map<String, String>>
 }

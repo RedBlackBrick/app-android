@@ -29,12 +29,12 @@ class ParseVpsQrUseCase @Inject constructor() {
             throw UnrecognizedQrException("JSON invalide : ${e.message}")
         }
 
-        val sessionId = obj.optString("session_id").takeIf { it.isNotEmpty() }
+        val sessionId = (obj.optString("session_id").takeIf { it.isNotEmpty() }
+            ?: obj.optString("pairing_id").takeIf { it.isNotEmpty() })
             ?: throw MalformedQrException("session_id")
         val sessionPin = obj.optString("session_pin").takeIf { it.isNotEmpty() }
             ?: throw MalformedQrException("session_pin")
-        val deviceWgIp = obj.optString("device_wg_ip").takeIf { it.isNotEmpty() }
-            ?: throw MalformedQrException("device_wg_ip")
+        val deviceWgIp = obj.optString("device_wg_ip").takeIf { it.isNotEmpty() } ?: ""
         val localToken = obj.optString("local_token").takeIf { it.isNotEmpty() }
             ?: throw MalformedQrException("local_token")
         val nonce = obj.optString("nonce").takeIf { it.isNotEmpty() }

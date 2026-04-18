@@ -78,6 +78,19 @@ class EncryptedDataStore(
         DataStoreKeys.WG_SERVER_PUBKEY.name,
         DataStoreKeys.WG_TUNNEL_IP.name,
         DataStoreKeys.WG_DNS.name,
+        DataStoreKeys.SETUP_COMPLETED.name,
+    )
+
+    // Clés préservées par clearSession() — identité device, pas session utilisateur.
+    private val devicePersistentKeys = setOf(
+        DataStoreKeys.WG_PRIVATE_KEY.name,
+        DataStoreKeys.WG_CONFIG.name,
+        DataStoreKeys.WG_ENDPOINT.name,
+        DataStoreKeys.WG_SERVER_PUBKEY.name,
+        DataStoreKeys.WG_TUNNEL_IP.name,
+        DataStoreKeys.WG_DNS.name,
+        DataStoreKeys.SETUP_COMPLETED.name,
+        DataStoreKeys.DEFAULT_QUOTE_SYMBOL.name,
     )
 
     /**
@@ -237,7 +250,8 @@ class EncryptedDataStore(
 
     suspend fun writeBoolean(key: Preferences.Key<Boolean>, value: Boolean) = withContext(Dispatchers.IO) {
         val prefs = sharedPreferences ?: return@withContext
-        prefs.edit { putBoolean(key.name, value) }
+        val commit = key.name in criticalKeys
+        prefs.edit(commit = commit) { putBoolean(key.name, value) }
     }
 
     suspend fun remove(key: Preferences.Key<*>) = withContext(Dispatchers.IO) {
@@ -245,10 +259,31 @@ class EncryptedDataStore(
         prefs.edit { remove(key.name) }
     }
 
-    /** Efface toutes les données (logout) */
+    /** Efface toutes les données (reset device complet — pas utilisé par le logout normal). */
     suspend fun clearAll() = withContext(Dispatchers.IO) {
         val prefs = sharedPreferences ?: return@withContext
         prefs.edit { clear() }
+    }
+
+    /**
+     * Efface uniquement les données de session (tokens, cookies, user identity).
+     * Préserve les clés device-level (WG_*, SETUP_COMPLETED, DEFAULT_QUOTE_SYMBOL,
+     * local_token_*) — un logout ne doit pas forcer un re-scan du QR d'onboarding.
+     */
+    suspend fun clearSession() = withContext(Dispatchers.IO) {
+        val prefs = sharedPreferences ?: return@withContext
+        val toRemove = try {
+            prefs.all.keys.filter { key ->
+                key !in devicePersistentKeys && !key.startsWith("local_token_")
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "clearSession: enumeration failed — falling back to clearAll")
+            prefs.edit(commit = true) { clear() }
+            return@withContext
+        }
+        prefs.edit(commit = true) {
+            toRemove.forEach { remove(it) }
+        }
     }
 
     /**

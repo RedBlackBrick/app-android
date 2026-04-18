@@ -60,7 +60,7 @@ class PairingRepositoryImpl @Inject constructor(
             payload = payloadJson.toByteArray(Charsets.UTF_8),
         )
 
-        val url = "http://$deviceIp:$devicePort/pin"
+        val url = "https://$deviceIp:$devicePort/pin"
         val response = pairingApi.sendPin(url, body)
         if (!response.isSuccessful) {
             val errorBody = response.errorBody()?.string()?.takeIf { it.isNotBlank() } ?: ""
@@ -87,7 +87,7 @@ class PairingRepositoryImpl @Inject constructor(
             return@flow
         }
 
-        val url = "http://$deviceIp:$devicePort/status?session_id=$sessionId"
+        val url = "https://$deviceIp:$devicePort/status?session_id=$sessionId"
 
         while (true) {
             val status = runCatching {

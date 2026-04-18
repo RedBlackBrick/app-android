@@ -35,11 +35,24 @@ class GetAuthContextUseCase @Inject constructor(
         val tokenDeferred = async { dataStore.readString(DataStoreKeys.ACCESS_TOKEN) }
         val adminDeferred = async { dataStore.readBoolean(DataStoreKeys.IS_ADMIN) }
         val setupDeferred = async { dataStore.readBoolean(DataStoreKeys.SETUP_COMPLETED) }
+        val wgKeyDeferred = async { dataStore.readString(DataStoreKeys.WG_PRIVATE_KEY) }
+
+        val setupFlag = setupDeferred.await()
+        val wgPresent = wgKeyDeferred.await() != null
+        val isLoggedIn = tokenDeferred.await() != null
+        // Invariant : on ne peut pas être loggé sans avoir fait le setup (VPN requis pour
+        // tout appel API). Si WG_PRIVATE_KEY est présente, idem — device déjà onboardé.
+        // Ce fallback corrige l'état après un clearAll() legacy ou un apply() async perdu.
+        val setupCompleted = setupFlag == true || wgPresent || isLoggedIn
+
+        if (setupFlag != true && setupCompleted) {
+            dataStore.writeBoolean(DataStoreKeys.SETUP_COMPLETED, true)
+        }
 
         AuthContext(
-            isLoggedIn = tokenDeferred.await() != null,
+            isLoggedIn = isLoggedIn,
             isAdmin = adminDeferred.await() ?: false,
-            setupCompleted = setupDeferred.await() ?: false,
+            setupCompleted = setupCompleted,
         )
     }
 }

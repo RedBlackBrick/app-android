@@ -383,10 +383,11 @@ private fun WatchlistCard(
             // Bid/Ask + Volume row
             if (quote != null) {
                 val hasBidAsk = quote.bid != null && quote.ask != null
-                val volumeFormatted = remember(quote.volume) {
-                    NumberFormat.getNumberInstance(Locale.FRENCH).format(quote.volume)
+                val volumeValue = quote.volume ?: 0L
+                val volumeFormatted = remember(volumeValue) {
+                    NumberFormat.getNumberInstance(Locale.FRENCH).format(volumeValue)
                 }
-                if (hasBidAsk || quote.volume > 0) {
+                if (hasBidAsk || volumeValue > 0) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -402,7 +403,7 @@ private fun WatchlistCard(
                                 },
                             )
                         }
-                        if (quote.volume > 0) {
+                        if (volumeValue > 0) {
                             Text(
                                 text = "Vol: $volumeFormatted",
                                 style = MaterialTheme.typography.labelSmall,
@@ -499,10 +500,25 @@ private fun buildSourceTooltip(quote: Quote): String {
 
 @Composable
 private fun ChangePercentText(
-    changePercent: Double,
-    change: BigDecimal,
+    changePercent: Double?,
+    change: BigDecimal?,
     modifier: Modifier = Modifier,
 ) {
+    if (changePercent == null || change == null) {
+        // Pas d'historique comparable sur la journée (marché fraîchement
+        // ouvert, symbole sans cours de clôture précédent) — afficher un
+        // placeholder plutôt que crasher.
+        Text(
+            text = "—",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = modifier.semantics {
+                contentDescription = "Variation indisponible"
+            },
+        )
+        return
+    }
+
     val percentFormatted = remember(changePercent) {
         val prefix = if (changePercent > 0) "+" else ""
         "${prefix}${"%.2f".format(changePercent)}%"

@@ -24,7 +24,7 @@ class DeviceRepositoryImpl @Inject constructor(
         if (!response.isSuccessful) {
             error("Get devices failed: HTTP ${response.code()}")
         }
-        val devices = response.body()?.map { it.toDomain() } ?: emptyList()
+        val devices = response.body()?.devices?.map { it.toDomain() } ?: emptyList()
 
         // Purge Room APRÈS sync réussie — transaction atomique
         val now = System.currentTimeMillis()
@@ -51,7 +51,7 @@ class DeviceRepositoryImpl @Inject constructor(
         if (!response.isSuccessful) {
             error("Get devices (fallback for status) failed: HTTP ${response.code()}")
         }
-        val devices = response.body()?.map { it.toDomain() } ?: emptyList()
+        val devices = response.body()?.devices?.map { it.toDomain() } ?: emptyList()
 
         val now = System.currentTimeMillis()
         deviceDao.upsertAllAndPurge(

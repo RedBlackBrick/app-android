@@ -16,6 +16,7 @@ import com.tradingplatform.app.domain.usecase.market.GetQuoteUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPnlUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPositionsUseCase
 import com.tradingplatform.app.vpn.VpnNotConnectedException
+import com.tradingplatform.app.vpn.SystemVpnMonitor
 import com.tradingplatform.app.vpn.VpnState
 import com.tradingplatform.app.vpn.WireGuardManager
 import dagger.assisted.Assisted
@@ -52,6 +53,7 @@ class WidgetUpdateWorker @AssistedInject constructor(
     @Assisted context: Context,
     @Assisted workerParams: WorkerParameters,
     private val vpnManager: WireGuardManager,
+    private val systemVpnMonitor: SystemVpnMonitor,
     private val dataStore: EncryptedDataStore,
     private val getPositionsUseCase: GetPositionsUseCase,
     private val getPnlUseCase: GetPnlUseCase,
@@ -92,8 +94,13 @@ class WidgetUpdateWorker @AssistedInject constructor(
         applicationContext.getSharedPreferences(SYNC_PREFS_NAME, Context.MODE_PRIVATE)
             .edit { putLong(KEY_LAST_SYNC_ATTEMPT, System.currentTimeMillis()) }
 
-        // 1. Vérification VPN — si absent, garder le cache daté affiché sans retry
-        if (vpnManager.state.value !is VpnState.Connected) {
+        // 1. Vérification VPN — si absent, garder le cache daté affiché sans retry.
+        //    Accepter aussi le VPN système (app WireGuard externe) : cohérent avec
+        //    VpnStatusBanner / VpnSettingsViewModel qui considèrent le tunnel up
+        //    dès qu'un VPN actif est détecté par ConnectivityManager.
+        val inAppConnected = vpnManager.state.value is VpnState.Connected
+        val systemConnected = systemVpnMonitor.active.value
+        if (!inAppConnected && !systemConnected) {
             Timber.tag(TAG).d("WidgetUpdateWorker — VPN not connected, skipping sync (cache retained)")
             return Result.success()
         }

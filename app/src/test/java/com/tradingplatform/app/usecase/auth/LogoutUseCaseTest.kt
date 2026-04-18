@@ -30,7 +30,7 @@ class LogoutUseCaseTest {
         val result = useCase()
 
         assertTrue(result.isSuccess)
-        coVerify { dataStore.clearAll() }
+        coVerify { dataStore.clearSession() }
     }
 
     @Test
@@ -40,7 +40,7 @@ class LogoutUseCaseTest {
         val result = useCase()
 
         assertTrue(result.isFailure)
-        // clearAll must always be called regardless of API outcome
-        coVerify { dataStore.clearAll() }
+        // clearSession must always be called regardless of API outcome
+        coVerify { dataStore.clearSession() }
     }
 }

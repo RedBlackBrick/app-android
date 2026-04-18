@@ -17,9 +17,14 @@ data class DeviceCommandRequestDto(
     @Json(name = "params") val params: Map<String, Any>? = null,
 )
 
+@JsonClass(generateAdapter = true)
+data class DeviceListResponseDto(
+    @Json(name = "devices") val devices: List<DeviceDto>,
+)
+
 interface DeviceApi {
     @GET("v1/edge/devices")
-    suspend fun getDevices(): Response<List<DeviceDto>>
+    suspend fun getDevices(): Response<DeviceListResponseDto>
 
     @DELETE("v1/edge/devices/{deviceId}")
     suspend fun unpairDevice(@Path("deviceId") deviceId: String): Response<Unit>

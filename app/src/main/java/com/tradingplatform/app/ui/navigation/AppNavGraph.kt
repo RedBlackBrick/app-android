@@ -620,7 +620,9 @@ fun AppNavGraph(
                         navController.navigate(Screen.DeviceDetail.createRoute(deviceId))
                     },
                     onNavigateToPairing = {
-                        navController.navigate(pairingGraphRoute(PAIRING_SOURCE_DEVICES))
+                        navController.navigate(pairingGraphRoute(PAIRING_SOURCE_DEVICES)) {
+                            launchSingleTop = true
+                        }
                     },
                 )
             }

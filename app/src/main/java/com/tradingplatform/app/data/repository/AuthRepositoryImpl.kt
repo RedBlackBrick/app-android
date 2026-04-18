@@ -92,14 +92,14 @@ class AuthRepositoryImpl @Inject constructor(
             Timber.tag(TAG).w(e, "AuthRepository: logout API call failed, clearing local data anyway")
         }
         // Invalider le cache mémoire AVANT le DataStore — empêche AuthInterceptor d'utiliser
-        // un token périmé pendant que clearAll() est en cours (IO disque).
+        // un token périmé pendant que clearSession() est en cours (IO disque).
         tokenHolder.clear()
-        // clearAll() wrappé séparément — on doit toujours réussir le logout local
-        // même si EncryptedSharedPreferences est corrompu ou le Keystore invalidé
+        // clearSession() préserve les clés device (WG_*, SETUP_COMPLETED) pour éviter
+        // de forcer un re-scan du QR d'onboarding à chaque logout.
         try {
-            dataStore.clearAll()
+            dataStore.clearSession()
         } catch (e: Exception) {
-            Timber.tag(TAG).e(e, "AuthRepository: clearAll failed during logout — session data may be stale")
+            Timber.tag(TAG).e(e, "AuthRepository: clearSession failed during logout — session data may be stale")
         }
         csrfInterceptor.clearToken()
         cookieJar.clear()

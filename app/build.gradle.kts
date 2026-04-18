@@ -214,8 +214,15 @@ dependencies {
     // Sécurité
     implementation(libs.rootbeer)
 
-    // Libsodium (chiffrement LAN)
-    implementation(libs.lazysodium.android)
+    // Libsodium (chiffrement LAN).
+    // JNA @aar obligatoire : le JAR standard (tiré transitivement par lazysodium-android) ne
+    // contient que libjnidispatch pour Mac/Windows/Linux. Sans le AAR, SodiumAndroid.<init>
+    // crash avec UnsatisfiedLinkError "libjnidispatch.so not found" sur arm64-v8a.
+    // Exclure le JAR transitif pour éviter le conflit "Duplicate class com.sun.jna.*".
+    implementation(libs.lazysodium.android) {
+        exclude(group = "net.java.dev.jna", module = "jna")
+    }
+    implementation("net.java.dev.jna:jna:5.17.0@aar")
 
     // Utilitaires
     implementation(libs.timber)

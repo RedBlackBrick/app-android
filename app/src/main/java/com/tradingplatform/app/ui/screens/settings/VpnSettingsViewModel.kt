@@ -4,12 +4,16 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tradingplatform.app.data.local.datastore.DataStoreKeys
 import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
+import com.tradingplatform.app.vpn.SystemVpnMonitor
 import com.tradingplatform.app.vpn.VpnState
 import com.tradingplatform.app.vpn.WireGuardConfig
 import com.tradingplatform.app.vpn.WireGuardManager
 import com.tradingplatform.app.vpn.WireGuardPeer
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import javax.inject.Inject
@@ -28,10 +32,25 @@ import javax.inject.Inject
 class VpnSettingsViewModel @Inject constructor(
     private val wireGuardManager: WireGuardManager,
     private val dataStore: EncryptedDataStore,
+    systemVpnMonitor: SystemVpnMonitor,
 ) : ViewModel() {
 
-    /** Immutable view of the VPN tunnel state — UI must not mutate this. */
-    val vpnState: StateFlow<VpnState> = wireGuardManager.state
+    /**
+     * Etat effectif du VPN : Connected si le tunnel interne est up OU si un VPN système
+     * (app WireGuard externe) est actif. Aligne le comportement avec [VpnStatusBanner].
+     */
+    val vpnState: StateFlow<VpnState> =
+        combine(wireGuardManager.state, systemVpnMonitor.active) { inApp, sysActive ->
+            when {
+                inApp is VpnState.Connected -> inApp
+                sysActive -> VpnState.Connected(serverIp = "")
+                else -> inApp
+            }
+        }.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.Eagerly,
+            initialValue = wireGuardManager.state.value,
+        )
 
     /**
      * Initiates the WireGuard tunnel.

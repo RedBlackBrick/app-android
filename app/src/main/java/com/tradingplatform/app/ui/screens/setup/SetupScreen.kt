@@ -1,5 +1,6 @@
 package com.tradingplatform.app.ui.screens.setup
 
+import android.app.Activity
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -9,18 +10,25 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
@@ -40,6 +48,7 @@ import com.tradingplatform.app.ui.theme.Spacing
  *
  * Navigation: [onSetupComplete] pops this screen and navigates to LoginScreen.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SetupScreen(
     onSetupComplete: () -> Unit,
@@ -47,22 +56,42 @@ fun SetupScreen(
     viewModel: SetupViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
 
-    // Navigate as soon as Connected state is reached — single-shot side effect
     LaunchedEffect(uiState) {
         if (uiState is SetupUiState.Connected) {
             onSetupComplete()
         }
     }
 
-    // Intercept system back during Connecting so the user can abort the VPN attempt
-    // instead of being stuck on a spinner with no feedback. In Scanning state we let
-    // back fall through to the system (standard root-screen behavior = exit app).
     BackHandler(enabled = uiState is SetupUiState.Connecting) {
         viewModel.cancelConnecting()
     }
 
-    Scaffold(modifier = modifier) { innerPadding ->
+    Scaffold(
+        modifier = modifier,
+        topBar = {
+            if (uiState is SetupUiState.Scanning || uiState is SetupUiState.Error) {
+                TopAppBar(
+                    title = { Text(text = "Configuration initiale") },
+                    actions = {
+                        IconButton(
+                            onClick = { (context as? Activity)?.finish() },
+                            modifier = Modifier.semantics {
+                                contentDescription = "Quitter l'application"
+                            },
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Close,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurface,
+                            )
+                        }
+                    },
+                )
+            }
+        },
+    ) { innerPadding ->
         when (val state = uiState) {
             is SetupUiState.Scanning -> {
                 ScanningContent(
@@ -143,13 +172,6 @@ private fun SetupInstructionOverlay(
                 .padding(Spacing.lg),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text(
-                text = "Configuration initiale",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                textAlign = TextAlign.Center,
-            )
-            Spacer(modifier = Modifier.height(Spacing.sm))
             Text(
                 text = "Scannez le QR code affiché sur le panel web",
                 style = MaterialTheme.typography.bodyMedium,

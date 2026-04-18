@@ -20,8 +20,19 @@ data class DeviceDto(
     @Json(name = "broker_gateway_enabled") val brokerGatewayEnabled: Boolean? = null,
     @Json(name = "broker_gateway_status") val brokerGatewayStatus: String? = null,
     @Json(name = "broker_gateway_broker_id") val brokerGatewayBrokerId: Int? = null,
-    @Json(name = "last_ticks_sent") val lastTicksSent: Long? = null,
-    @Json(name = "last_scraper_errors") val lastScraperErrors: Int? = null,
+    // Server keys are `ticks_sent` / `scraper_errors` (match the SQL column
+    // names in identity.edge_devices and the Pydantic DeviceResponse schema).
+    // The "last_" prefix was a doc-only fiction that yielded silent nulls on
+    // the device dashboard. Kotlin property names kept with "last" for UI
+    // continuity — only the JSON key changes.
+    @Json(name = "ticks_sent") val lastTicksSent: Long? = null,
+    @Json(name = "scraper_errors") val lastScraperErrors: Int? = null,
     @Json(name = "scrapers_circuit") val scrapersCircuit: Map<String, ScraperCircuitDto>? = null,
     @Json(name = "available_memory_mb") val availableMemoryMb: Int? = null,
+    // WireGuard link quality — populated from heartbeat (Pydantic DeviceResponse
+    // exposes these fields but the DTO was silently dropping them).
+    @Json(name = "wg_available") val wgAvailable: Boolean? = null,
+    @Json(name = "wg_handshake_age_s") val wgHandshakeAgeSeconds: Int? = null,
+    @Json(name = "wg_rx_bytes") val wgRxBytes: Long? = null,
+    @Json(name = "wg_tx_bytes") val wgTxBytes: Long? = null,
 )
