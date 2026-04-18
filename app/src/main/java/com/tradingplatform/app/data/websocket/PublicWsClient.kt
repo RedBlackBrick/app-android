@@ -28,7 +28,6 @@ import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Named
 import javax.inject.Singleton
-import kotlin.math.pow
 
 /**
  * Client WebSocket public vers `wss://{vps}/ws/public`.
@@ -97,9 +96,6 @@ class PublicWsClient @Inject constructor(
 
     companion object {
         private const val TAG = "PublicWsClient"
-        private const val BACKOFF_INITIAL_MS = 5_000L
-        private const val BACKOFF_MAX_MS = 300_000L
-        private const val BACKOFF_MULTIPLIER = 2.0
     }
 
     // ── Lifecycle app ──────────────────────────────────────────────────────────
@@ -229,10 +225,7 @@ class PublicWsClient @Inject constructor(
 
         reconnectJob?.cancel()
         val attempts = reconnectAttempts.getAndIncrement()
-        val delayMs = minOf(
-            (BACKOFF_INITIAL_MS * BACKOFF_MULTIPLIER.pow(attempts)).toLong(),
-            BACKOFF_MAX_MS,
-        )
+        val delayMs = WsBackoff.computeDelayMs(attempts)
 
         Timber.tag(TAG).d("Scheduling public WS reconnect in ${delayMs}ms (attempt #${attempts + 1})")
         reconnectJob = appScope.launch(Dispatchers.IO) {

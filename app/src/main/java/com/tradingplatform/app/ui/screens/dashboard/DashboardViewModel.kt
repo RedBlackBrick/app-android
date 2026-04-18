@@ -2,7 +2,6 @@ package com.tradingplatform.app.ui.screens.dashboard
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.tradingplatform.app.domain.model.AppDefaults
 import com.tradingplatform.app.domain.model.NavSummary
 import com.tradingplatform.app.domain.model.PnlPeriod
 import com.tradingplatform.app.domain.model.PnlSummary
@@ -11,6 +10,7 @@ import com.tradingplatform.app.domain.model.WsConnectionState
 import com.tradingplatform.app.domain.model.ActivityItem
 import com.tradingplatform.app.domain.usecase.activity.GetActivityFeedUseCase
 import com.tradingplatform.app.domain.usecase.auth.GetPortfolioIdUseCase
+import com.tradingplatform.app.domain.usecase.market.GetDefaultQuoteSymbolUseCase
 import com.tradingplatform.app.domain.usecase.market.GetQuoteStreamUseCase
 import com.tradingplatform.app.domain.usecase.market.GetQuoteUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPnlUseCase
@@ -106,6 +106,7 @@ class DashboardViewModel @Inject constructor(
     private val getPortfolioNavUseCase: GetPortfolioNavUseCase,
     private val getQuoteUseCase: GetQuoteUseCase,
     private val getQuoteStreamUseCase: GetQuoteStreamUseCase,
+    private val getDefaultQuoteSymbolUseCase: GetDefaultQuoteSymbolUseCase,
     private val getPortfolioIdUseCase: GetPortfolioIdUseCase,
     private val getPortfolioWsUpdatesUseCase: GetPortfolioWsUpdatesUseCase,
     getWsConnectionStateUseCase: GetWsConnectionStateUseCase,
@@ -186,6 +187,15 @@ class DashboardViewModel @Inject constructor(
      */
     private val _isRefreshing = AtomicBoolean(false)
 
+    /**
+     * Symbole effectivement suivi pour le cours du Dashboard — résolu au démarrage par
+     * [GetDefaultQuoteSymbolUseCase] (préférence utilisateur > premier symbole watchlist
+     * > [AppDefaults.DEFAULT_QUOTE_SYMBOL]). Consommé par [refresh] pour rejouer un fetch
+     * REST quand le polling fallback est actif.
+     */
+    @Volatile
+    private var dashboardQuoteSymbol: String = ""
+
     init {
         viewModelScope.launch {
             val portfolioId = getPortfolioIdUseCase()
@@ -202,9 +212,15 @@ class DashboardViewModel @Inject constructor(
         startWsPrivateCollection()
 
         // Démarrer l'abonnement WS public pour les cours en temps réel.
+        // Symbole résolu via [GetDefaultQuoteSymbolUseCase] — préférence utilisateur,
+        // sinon premier symbole de la watchlist, sinon fallback hardcodé.
         // Si le WS échoue (erreur de connexion, VPN coupé), le fallback polling REST
         // prend le relais via startPollingFallback().
-        startWsQuoteSubscription(AppDefaults.DEFAULT_QUOTE_SYMBOL)
+        viewModelScope.launch {
+            val symbol = getDefaultQuoteSymbolUseCase()
+            dashboardQuoteSymbol = symbol
+            startWsQuoteSubscription(symbol)
+        }
 
         // Collect merged activity feed from all WS streams.
         // New items are prepended; list is capped at ACTIVITY_FEED_MAX_ITEMS.
@@ -401,8 +417,8 @@ class DashboardViewModel @Inject constructor(
         }
         // Pour le cours : forcer un fetch REST immédiat si on est en mode polling,
         // ou si le WS est actif le prochain update arrivera naturellement.
-        if (pollingJob?.isActive == true) {
-            viewModelScope.launch { fetchQuote(AppDefaults.DEFAULT_QUOTE_SYMBOL) }
+        if (pollingJob?.isActive == true && dashboardQuoteSymbol.isNotEmpty()) {
+            viewModelScope.launch { fetchQuote(dashboardQuoteSymbol) }
         }
     }
 

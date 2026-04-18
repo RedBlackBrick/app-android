@@ -13,6 +13,7 @@ import com.tradingplatform.app.domain.model.PnlSummary
 import com.tradingplatform.app.domain.model.Position
 import com.tradingplatform.app.domain.model.PositionStatus
 import com.tradingplatform.app.domain.model.Quote
+import com.tradingplatform.app.domain.usecase.market.GetDefaultQuoteSymbolUseCase
 import com.tradingplatform.app.domain.usecase.market.GetQuoteUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPnlUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPositionsUseCase
@@ -49,6 +50,7 @@ class WidgetUpdateWorkerTest {
     private val getPositionsUseCase = mockk<GetPositionsUseCase>()
     private val getPnlUseCase = mockk<GetPnlUseCase>()
     private val getQuoteUseCase = mockk<GetQuoteUseCase>()
+    private val getDefaultQuoteSymbolUseCase = mockk<GetDefaultQuoteSymbolUseCase>()
     private val alertDao = mockk<AlertDao>(relaxed = true)
     private val quoteDao = mockk<QuoteDao>(relaxed = true)
 
@@ -99,6 +101,7 @@ class WidgetUpdateWorkerTest {
         coEvery { getPnlUseCase(any(), any()) } returns Result.success(fakePnl)
         coEvery { quoteDao.getAllSymbols() } returns listOf("AAPL")
         coEvery { getQuoteUseCase(any()) } returns Result.success(fakeQuote)
+        coEvery { getDefaultQuoteSymbolUseCase() } returns "AAPL"
     }
 
     // ── Factory helper ─────────────────────────────────────────────────────────
@@ -127,6 +130,7 @@ class WidgetUpdateWorkerTest {
                         getPositionsUseCase = getPositionsUseCase,
                         getPnlUseCase = getPnlUseCase,
                         getQuoteUseCase = getQuoteUseCase,
+                        getDefaultQuoteSymbolUseCase = getDefaultQuoteSymbolUseCase,
                         alertDao = alertDao,
                         quoteDao = quoteDao,
                     )
@@ -198,28 +202,45 @@ class WidgetUpdateWorkerTest {
     }
 
     @Test
-    fun `doWork returns retry on IOException from positions sync`() = runTest {
+    fun `doWork returns success when only positions sync fails (partial failure does not retry)`() = runTest {
+        // Règle après refactor : Result.retry() uniquement si TOUTES les sections IO
+        // échouent. Un échec isolé (positions) ne déclenche pas un re-run complet —
+        // le cycle 15min re-tentera de toute façon. Évite de re-sync PnL+quotes en boucle.
         every { vpnManager.state } returns MutableStateFlow(VpnState.Connected())
         coEvery { getPositionsUseCase(any()) } returns Result.failure(java.io.IOException("Timeout"))
 
         val result = buildWorker().doWork()
 
-        assertEquals(ListenableWorker.Result.retry(), result)
+        assertEquals(ListenableWorker.Result.success(), result)
     }
 
     @Test
-    fun `doWork returns retry on IOException from PnL sync`() = runTest {
+    fun `doWork returns success when only PnL sync fails (partial failure does not retry)`() = runTest {
         every { vpnManager.state } returns MutableStateFlow(VpnState.Connected())
         coEvery { getPnlUseCase(any(), any()) } returns Result.failure(java.io.IOException("Network error"))
 
         val result = buildWorker().doWork()
 
-        assertEquals(ListenableWorker.Result.retry(), result)
+        assertEquals(ListenableWorker.Result.success(), result)
     }
 
     @Test
-    fun `doWork returns retry on IOException from quotes sync`() = runTest {
+    fun `doWork returns success when only quotes sync fails (partial failure does not retry)`() = runTest {
         every { vpnManager.state } returns MutableStateFlow(VpnState.Connected())
+        coEvery { getQuoteUseCase(any()) } returns Result.failure(java.io.IOException("Timeout"))
+
+        val result = buildWorker().doWork()
+
+        assertEquals(ListenableWorker.Result.success(), result)
+    }
+
+    @Test
+    fun `doWork returns retry when ALL sections fail with IOException`() = runTest {
+        // Seul cas qui justifie Result.retry() : toutes les sections IO ont échoué,
+        // suggérant un problème réseau transitoire global.
+        every { vpnManager.state } returns MutableStateFlow(VpnState.Connected())
+        coEvery { getPositionsUseCase(any()) } returns Result.failure(java.io.IOException("Timeout"))
+        coEvery { getPnlUseCase(any(), any()) } returns Result.failure(java.io.IOException("Timeout"))
         coEvery { getQuoteUseCase(any()) } returns Result.failure(java.io.IOException("Timeout"))
 
         val result = buildWorker().doWork()
@@ -277,6 +298,33 @@ class WidgetUpdateWorkerTest {
         assertEquals(ListenableWorker.Result.success(), result)
         // Doit utiliser le symbole par défaut (AAPL)
         coVerify(exactly = 1) { getQuoteUseCase("AAPL") }
+    }
+
+    @Test
+    fun `doWork uses user-configured default symbol when cache is empty`() = runTest {
+        every { vpnManager.state } returns MutableStateFlow(VpnState.Connected())
+        coEvery { quoteDao.getAllSymbols() } returns emptyList()
+        coEvery { getDefaultQuoteSymbolUseCase() } returns "TSLA"
+        coEvery { getQuoteUseCase("TSLA") } returns Result.success(fakeQuote.copy(symbol = "TSLA"))
+
+        buildWorker().doWork()
+
+        // La résolution du symbole passe par GetDefaultQuoteSymbolUseCase
+        // (préférence utilisateur EncryptedDataStore > watchlist > AppDefaults)
+        coVerify(exactly = 1) { getDefaultQuoteSymbolUseCase() }
+        coVerify(exactly = 1) { getQuoteUseCase("TSLA") }
+        coVerify(exactly = 0) { getQuoteUseCase("AAPL") }
+    }
+
+    @Test
+    fun `doWork does not call default symbol resolver when cache is populated`() = runTest {
+        every { vpnManager.state } returns MutableStateFlow(VpnState.Connected())
+        coEvery { quoteDao.getAllSymbols() } returns listOf("AAPL", "MSFT")
+
+        buildWorker().doWork()
+
+        // Pas besoin d'appeler le resolver si la watchlist cache a déjà des symboles
+        coVerify(exactly = 0) { getDefaultQuoteSymbolUseCase() }
     }
 
     @Test

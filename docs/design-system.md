@@ -251,6 +251,89 @@ val colors = LocalExtendedColors.current
 Text(color = colors.pnlPositive, text = "+1,250.00 €")
 ```
 
+### Toggle manuel
+
+Le thème suit `isSystemInDarkTheme()` par défaut — il n'existe pas (et il ne doit pas
+exister) de switch "Clair / Sombre / Système" dans `SecuritySettingsScreen`. Changer
+le thème dans les paramètres Android (Réglages → Affichage → Thème sombre) ou via le
+Quick Settings tile bascule l'app automatiquement. La cohérence avec le thème web est
+conservée dans les deux modes.
+
+Pour tester rapidement en développement :
+- Émulateur : `adb shell "cmd uimode night yes"` / `adb shell "cmd uimode night no"`
+- Device physique : Quick Settings → tuile "Dark theme"
+- Android Studio preview : annoter `@Preview(uiMode = UI_MODE_NIGHT_YES)` en complément
+  du `@Preview` standard (light). Voir exemples dans `app/src/main/java/com/tradingplatform/app/ui/components/*.kt`.
+
+### Screenshot tests (Paparazzi)
+
+Les composants visuellement sensibles (P&L, valeurs monétaires, métriques device,
+widgets) sont couverts par des snapshots Paparazzi dans
+`app/src/test/java/com/tradingplatform/app/snapshots/`. Chaque composant a deux
+snapshots — light + dark — stockés dans `app/src/test/snapshots/images/`.
+
+Le plugin Paparazzi est **opt-in** (n'alourdit pas les builds courants) :
+
+```bash
+# Régénérer les snapshots après un changement UI volontaire
+./gradlew recordPaparazziDebug -PenablePaparazzi=true
+
+# Vérifier en CI que rien n'a changé visuellement
+./gradlew verifyPaparazziDebug -PenablePaparazzi=true
+```
+
+Workflow :
+1. Modifier un composant → `verifyPaparazziDebug` échoue avec un diff PNG
+2. Inspecter visuellement la différence (Gradle affiche le chemin de l'image)
+3. Si le changement est intentionnel → `recordPaparazziDebug` pour régénérer
+4. Commit les nouveaux PNG avec le changement de code
+
+Composants couverts actuellement :
+- `PnlText` (3 valeurs × 2 modes = 6 snapshots)
+- `AnimatedPnlText` (4 valeurs × 2 modes)
+- `MetricsComponents` (3 seuils × 2 modes)
+
+Ajouter un nouveau composant critique → créer `XxxSnapshotTest.kt` dans le même dossier,
+pattern `TradingPlatformTheme(darkTheme = ...) { ... }` pour forcer le mode.
+
+### Tester chaque composant en dark mode — checklist avant merge
+
+Chaque nouveau composant Compose DOIT être vérifié en light ET dark avant merge.
+Le rendu dark n'est pas équivalent au rendu light : un code couleur mal choisi
+(ex : `Color.Black` au lieu de `MaterialTheme.colorScheme.onSurface`) ne saute
+aux yeux qu'en dark mode.
+
+Procédure minimale :
+
+1. **Preview** : annoter le composable avec `@Preview` et `@Preview(uiMode = UI_MODE_NIGHT_YES)`.
+   Vérifier visuellement le rendu dans les deux panneaux Android Studio.
+2. **Screenshot test Paparazzi** (si composant critique : P&L, monnaies, badges,
+   widgets) : deux snapshots par composant — light + dark. Voir
+   `app/src/test/java/com/tradingplatform/app/snapshots/` pour les exemples.
+3. **Émulateur** : lancer l'app en light, basculer dark via `adb shell "cmd uimode night yes"`,
+   parcourir les écrans modifiés.
+4. **Contraste** : WCAG AA ≥ 4.5:1 pour le texte sur fond. Matériel 3 garantit le
+   contraste sur `colorScheme.*` mais pas sur les couleurs custom (`ExtendedColors`).
+   Vérifier `pnlPositive` / `pnlNegative` sur `surface` en dark avec
+   [webaim.org/resources/contrastchecker](https://webaim.org/resources/contrastchecker/).
+
+Les quatre règles critiques qui cassent en dark et pas en light :
+
+| Symptôme en dark | Cause probable | Correction |
+|------------------|----------------|------------|
+| Texte invisible / blanc sur blanc | `Color.Black` ou `Color(0xFF...)` hardcodé | Utiliser `MaterialTheme.colorScheme.onSurface` |
+| Card invisible sur fond | Pas d'élévation + `surface == background` | Utiliser `surfaceVariant` ou `elevation` M3 |
+| Badge illisible | `Color.Red` / `Color.Green` au lieu des tokens P&L | `LocalExtendedColors.current.pnlPositive/Negative` |
+| Icône qui disparaît | `tint = Color.Black` ou `tint = Color.Unspecified` sur icon sombre | `tint = MaterialTheme.colorScheme.onSurface` |
+
+### Composants non-Compose (widgets Glance, notifications)
+
+- **Glance widgets** : utiliser `GlanceTheme.colors.*` (mappe automatiquement sur la
+  palette M3 du theme). Les couleurs custom P&L widget sont définies dans
+  `WidgetColors` — tester sur l'écran d'accueil en light ET dark.
+- **Notifications FCM** : `NotificationCompat.Builder` utilise la couleur d'accentuation
+  du launcher — ne pas essayer de forcer un thème. L'icône `ic_dialog_info` est neutre.
+
 ---
 
 ## Patterns UI spécifiques trading

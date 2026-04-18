@@ -77,17 +77,24 @@ internal fun formatPnlAmount(value: BigDecimal, currencySymbol: String): String 
 }
 
 /**
- * Génère une description accessible pour TalkBack.
- * Positif : "Gain non réalisé : +1 250,00 €"
- * Négatif : "Perte : -300,00 €"
- * Zéro : "Gain/Perte : 0,00 €"
+ * Génère une description accessible pour TalkBack — forme verbose lue par les synthèses
+ * vocales sans ambigüité (le signe "+"/"-" est souvent omis par TalkBack en mode rapide,
+ * ce qui transforme "-300" en "300" lu comme un gain).
+ *
+ * Positif : "Gain de 1 250,00 €"
+ * Négatif : "Perte de 300,00 €"
+ * Zéro    : "Aucun gain ni perte, 0,00 €"
  */
-private fun buildPnlDescription(value: BigDecimal, currencySymbol: String): String {
-    val formatted = formatPnlAmount(value, currencySymbol)
-    val label = when {
-        value > BigDecimal.ZERO -> "Gain"
-        value < BigDecimal.ZERO -> "Perte"
-        else -> "Gain/Perte"
+internal fun buildPnlDescription(value: BigDecimal, currencySymbol: String): String {
+    // Utilise la valeur absolue pour éviter de lire le signe — le mot "Gain"/"Perte"
+    // porte déjà l'information directionnelle et est moins ambigu que "moins trois cents".
+    val absolute = value.abs()
+    return when {
+        value > BigDecimal.ZERO ->
+            "Gain de ${formatMoneyAmount(absolute, currencySymbol)}"
+        value < BigDecimal.ZERO ->
+            "Perte de ${formatMoneyAmount(absolute, currencySymbol)}"
+        else ->
+            "Aucun gain ni perte, ${formatMoneyAmount(absolute, currencySymbol)}"
     }
-    return "$label : $formatted"
 }

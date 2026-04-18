@@ -9,6 +9,16 @@ plugins {
     alias(libs.plugins.room)
     alias(libs.plugins.google.services)
     alias(libs.plugins.firebase.crashlytics)
+    // Paparazzi — opt-in via `-PenablePaparazzi=true` pour ne pas bloquer les builds courants
+    // si l'AGP dépasse la compatibilité de la version Paparazzi pinée.
+    // Les tests screenshot vivent dans app/src/test/java/com/tradingplatform/app/snapshots/.
+    // Commande : ./gradlew recordPaparazziDebug -PenablePaparazzi=true pour régénérer.
+    //            ./gradlew verifyPaparazziDebug -PenablePaparazzi=true en CI.
+    alias(libs.plugins.paparazzi) apply false
+}
+
+if (project.findProperty("enablePaparazzi") == "true") {
+    apply(plugin = "app.cash.paparazzi")
 }
 
 val localProperties = Properties().apply {
@@ -95,6 +105,18 @@ android {
                 it.maxHeapSize = "4g"
                 it.forkEvery = 1
             }
+        }
+    }
+
+}
+
+// Les tests Paparazzi dépendent du plugin qui est opt-in via -PenablePaparazzi=true.
+// Sans le plugin, les classes `app.cash.paparazzi.*` ne sont pas sur le classpath —
+// on exclut le dossier snapshots/ de la compilation des tests pour ne pas casser le build.
+if (project.findProperty("enablePaparazzi") != "true") {
+    tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+        if (name.contains("UnitTest", ignoreCase = true)) {
+            exclude("**/snapshots/**")
         }
     }
 }
@@ -215,5 +237,8 @@ dependencies {
     testImplementation(kotlin("test"))
     androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.compose.ui.test)
+    androidTestImplementation(libs.room.testing)
+    androidTestImplementation(libs.test.core)
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
     debugImplementation(libs.compose.ui.test.manifest)
 }

@@ -36,6 +36,17 @@ import java.math.BigDecimal
  * Uses [Motion.ValueUpdateDuration] (500ms) for the flash animation as defined
  * in the design system.
  */
+/**
+ * Magnitude maximale acceptée avant de considérer la valeur comme corrompue.
+ * Un P&L > 1 trilliard est presque certainement une erreur de parsing / corruption
+ * source (ex: nombre parsé comme string brute, conversion Double/Float invalide).
+ * Afficher "—" plutôt qu'un nombre astronomique qui casse le layout.
+ */
+private val PNL_MAX_MAGNITUDE: BigDecimal = BigDecimal("1000000000000")
+
+private fun BigDecimal.isDisplayable(): Boolean =
+    this.abs() < PNL_MAX_MAGNITUDE
+
 @Composable
 fun AnimatedPnlText(
     value: BigDecimal,
@@ -43,6 +54,20 @@ fun AnimatedPnlText(
     currencySymbol: String = "€",
     style: TextStyle = MaterialTheme.typography.bodyLarge,
 ) {
+    if (!value.isDisplayable()) {
+        Text(
+            text = "—",
+            style = style.merge(TradingNumbers.bodyLarge).copy(
+                textAlign = TextAlign.End,
+            ),
+            color = MaterialTheme.colorScheme.onSurface,
+            textAlign = TextAlign.End,
+            modifier = modifier.semantics {
+                contentDescription = "Gain/Perte indisponible"
+            },
+        )
+        return
+    }
     val extendedColors = LocalExtendedColors.current
     val targetColor = pnlColor(value)
 
@@ -81,12 +106,10 @@ fun AnimatedPnlText(
     // Keys: value (BigDecimal, structural equality) + currencySymbol (String).
     val (formatted, verboseDescription) = remember(value, currencySymbol) {
         val fmt = formatPnlAmount(value, currencySymbol)
-        val label = when {
-            value > BigDecimal.ZERO -> "Gain"
-            value < BigDecimal.ZERO -> "Perte"
-            else -> "Gain/Perte"
-        }
-        fmt to "$label : $fmt"
+        // Réutilise la description verbose canonique de PnlText pour rester cohérent
+        // (TalkBack lira "Gain de X €" / "Perte de X €" plutôt que le signe numérique
+        // qui peut être interprété comme une simple ponctuation par certaines voix).
+        fmt to buildPnlDescription(value, currencySymbol)
     }
 
     AnimatedContent(

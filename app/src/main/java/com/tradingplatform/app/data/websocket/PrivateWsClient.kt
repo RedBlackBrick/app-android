@@ -3,6 +3,7 @@ package com.tradingplatform.app.data.websocket
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
+import com.google.firebase.crashlytics.FirebaseCrashlytics
 import com.tradingplatform.app.BuildConfig
 import com.tradingplatform.app.domain.model.WsConnectionState
 import com.tradingplatform.app.domain.repository.AuthRepository
@@ -31,7 +32,6 @@ import javax.inject.Inject
 import javax.inject.Named
 import javax.inject.Singleton
 import kotlin.math.max
-import kotlin.math.pow
 
 /**
  * Client WebSocket privé vers `wss://{vps}/v1/ws/private`.
@@ -113,9 +113,6 @@ class PrivateWsClient @Inject constructor(
 
     companion object {
         private const val TAG = "PrivateWsClient"
-        private const val BACKOFF_INITIAL_MS = 5_000L
-        private const val BACKOFF_MAX_MS = 300_000L
-        private const val BACKOFF_MULTIPLIER = 2.0
 
         /** Refresh le token WS à 80% de son TTL (même stratégie que le frontend SvelteKit). */
         private const val TOKEN_REFRESH_RATIO = 0.80
@@ -144,8 +141,12 @@ class PrivateWsClient @Inject constructor(
             // Proactive refresh évite le backoff exponentiel (5-300s sans données).
             val expiresAt = currentTokenExpiresAt
             if (expiresAt != null && Instant.now().isAfter(expiresAt)) {
-                Timber.tag(TAG).d("onStart — WS token expired during background, refreshing proactively")
-                appScope.launch(Dispatchers.IO) { refreshWsToken() }
+                Timber.tag(TAG).d("onStart — WS token expired during background, closing to force clean reconnect with fresh token")
+                // Fermer activement la connexion actuelle : le onClosed handler relance
+                // scheduleReconnect() qui obtiendra un nouveau token via openWebSocket().
+                // Évite d'envoyer un message refresh_token avec un authToken déjà expiré
+                // côté serveur (qui fermerait avec 4001 → backoff 5s sans données).
+                webSocket?.close(1000, "Token expired during background")
             } else {
                 // Token encore valide — relancer le timer de refresh proactif
                 // (il a pu être annulé ou expirer pendant le background)
@@ -251,10 +252,7 @@ class PrivateWsClient @Inject constructor(
 
         reconnectJob?.cancel()
         val attempts = reconnectAttempts.getAndIncrement()
-        val delayMs = minOf(
-            (BACKOFF_INITIAL_MS * BACKOFF_MULTIPLIER.pow(attempts)).toLong(),
-            BACKOFF_MAX_MS,
-        )
+        val delayMs = WsBackoff.computeDelayMs(attempts)
 
         Timber.tag(TAG).d("Scheduling reconnect in ${delayMs}ms (attempt #${attempts + 1})")
         // Transition a Connecting pour l'UI (F5) — le debounce ViewModel evite le flicker
@@ -367,6 +365,13 @@ class PrivateWsClient @Inject constructor(
 
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
             Timber.tag(TAG).i("WS onClosed code=$code reason=$reason")
+            // Breadcrumb Crashlytics pour diagnostiquer les fermetures serveur critiques
+            // (≥ 4000 = codes applicatifs, ex: 4001 token expiré, 4003 forbidden).
+            if (code >= 4000) {
+                FirebaseCrashlytics.getInstance().log(
+                    "PrivateWs closed code=$code reason=$reason"
+                )
+            }
             tokenRefreshJob?.cancel()
             tokenRefreshJob = null
             currentTokenExpiresAt = null

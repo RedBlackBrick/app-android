@@ -612,7 +612,7 @@ fun isLocalNetwork(ip: String): Boolean {
 | Spacing | `Spacing.lg` (16dp) par défaut — via `Spacing.*` (jamais de `.dp` hardcodé) |
 | Métriques santé device | Utiliser les composants partagés `MetricsComponents.kt` : `metricColor()`, `CompactHealthBar`, `HealthStatusBadge`, `MetricRow` |
 | Seuils métriques | CPU/RAM warn 70% crit 90%, Temp warn 60°C crit 75°C, Disk warn 70% crit 85% — définis dans `MetricsComponents.kt` |
-| Dark mode | Tester chaque composant en light et dark avant de le merger |
+| Dark mode | Tester chaque composant en light ET dark avant merge — `@Preview(uiMode = UI_MODE_NIGHT_YES)` + émulateur via `adb shell "cmd uimode night yes"`. Checklist détaillée : `docs/design-system.md` §"Tester chaque composant en dark mode" |
 | DynamicColor | Désactivé — thème fixe pour cohérence avec le web |
 
 Référence complète : `docs/design-system.md`

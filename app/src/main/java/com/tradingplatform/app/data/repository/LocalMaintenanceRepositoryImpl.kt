@@ -1,14 +1,12 @@
 package com.tradingplatform.app.data.repository
 
-import android.util.Base64
 import com.tradingplatform.app.data.api.LocalMaintenanceApi
 import com.tradingplatform.app.domain.model.DeviceIdentity
 import com.tradingplatform.app.domain.model.DeviceLocalStatus
 import com.tradingplatform.app.domain.repository.LocalMaintenanceRepository
 import com.tradingplatform.app.security.SealedBoxHelper
 import com.tradingplatform.app.security.isLocalNetwork
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.RequestBody.Companion.toRequestBody
+import com.tradingplatform.app.security.sealLanBody
 import org.json.JSONObject
 import javax.inject.Inject
 import javax.inject.Named
@@ -37,22 +35,19 @@ class LocalMaintenanceRepositoryImpl @Inject constructor(
         radxaWgPubkey: String,
         params: Map<String, String>,
     ): Result<String> = runCatching {
-        if (!isLocalNetwork(deviceIp)) {
-            error("Refused: $deviceIp is not a local network address (RFC-1918 required)")
-        }
-
         val payloadJson = JSONObject().apply {
             put("action", action)
             put("local_token", localToken)
             put("params", JSONObject(params))
         }.toString()
 
-        val pubkeyBytes = Base64.decode(radxaWgPubkey, Base64.NO_WRAP)
-        val encrypted = sealedBoxHelper.seal(payloadJson.toByteArray(Charsets.UTF_8), pubkeyBytes)
+        val body = sealedBoxHelper.sealLanBody(
+            deviceIp = deviceIp,
+            radxaWgPubkeyBase64 = radxaWgPubkey,
+            payload = payloadJson.toByteArray(Charsets.UTF_8),
+        )
 
         val url = "http://$deviceIp:$devicePort/command"
-        val body = encrypted.toRequestBody("application/octet-stream".toMediaType())
-
         val response = maintenanceApi.sendCommand(url, body)
         if (!response.isSuccessful) error("command failed: HTTP ${response.code()}")
         // ResponseBody doit être consommé dans use { } pour garantir la fermeture du flux

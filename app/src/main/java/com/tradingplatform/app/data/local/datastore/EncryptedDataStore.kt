@@ -34,6 +34,14 @@ object DataStoreKeys {
     // FCM token registration retry (write-ahead)
     val PENDING_FCM_TOKEN = stringPreferencesKey("pending_fcm_token")
     val PENDING_FCM_FINGERPRINT = stringPreferencesKey("pending_fcm_fingerprint")
+    // Biometric inactivity lock state — persisté pour restaurer le verrou après un
+    // process kill (app tuée pendant qu'elle était verrouillée → redémarrage → encore verrouillée)
+    val BIOMETRIC_LOCKED = booleanPreferencesKey("biometric_locked")
+    // Symbole par défaut affiché par le Dashboard et utilisé pour le sync quote initial
+    // des widgets (fallback). Configurable par l'utilisateur via ProfileScreen. Non sensible
+    // stricto-sensu, mais stocké dans EncryptedDataStore pour homogénéité avec les autres
+    // préférences applicatives (évite un second SharedPreferences store à maintenir).
+    val DEFAULT_QUOTE_SYMBOL = stringPreferencesKey("default_quote_symbol")
     // Cookies : clé dynamique "cookie_${name}"
 }
 

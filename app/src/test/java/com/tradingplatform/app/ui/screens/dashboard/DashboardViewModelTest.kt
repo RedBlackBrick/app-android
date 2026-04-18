@@ -48,6 +48,7 @@ class DashboardViewModelTest {
     private val getPortfolioNavUseCase = mockk<GetPortfolioNavUseCase>()
     private val getQuoteUseCase = mockk<GetQuoteUseCase>()
     private val getQuoteStreamUseCase = mockk<GetQuoteStreamUseCase>()
+    private val getDefaultQuoteSymbolUseCase = mockk<com.tradingplatform.app.domain.usecase.market.GetDefaultQuoteSymbolUseCase>()
     private val getPortfolioIdUseCase = mockk<GetPortfolioIdUseCase>()
     private val getPortfolioWsUpdatesUseCase = mockk<GetPortfolioWsUpdatesUseCase>()
     private val getWsConnectionStateUseCase = mockk<GetWsConnectionStateUseCase>()
@@ -103,6 +104,7 @@ class DashboardViewModelTest {
         every { getQuoteStreamUseCase(any()) } returns flow { throw IOException("WS not available in tests") }
         // Activity feed — empty flow by default (not the focus of these tests)
         every { getActivityFeedUseCase() } returns emptyFlow()
+        coEvery { getDefaultQuoteSymbolUseCase() } returns "AAPL"
     }
 
     private fun createViewModel(): DashboardViewModel = DashboardViewModel(
@@ -110,6 +112,7 @@ class DashboardViewModelTest {
         getPortfolioNavUseCase = getPortfolioNavUseCase,
         getQuoteUseCase = getQuoteUseCase,
         getQuoteStreamUseCase = getQuoteStreamUseCase,
+        getDefaultQuoteSymbolUseCase = getDefaultQuoteSymbolUseCase,
         getPortfolioIdUseCase = getPortfolioIdUseCase,
         getPortfolioWsUpdatesUseCase = getPortfolioWsUpdatesUseCase,
         getWsConnectionStateUseCase = getWsConnectionStateUseCase,

@@ -10,8 +10,8 @@ import com.tradingplatform.app.data.local.datastore.DataStoreKeys
 import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
 import com.tradingplatform.app.data.local.db.dao.AlertDao
 import com.tradingplatform.app.data.local.db.dao.QuoteDao
-import com.tradingplatform.app.domain.model.AppDefaults
 import com.tradingplatform.app.domain.model.PnlPeriod
+import com.tradingplatform.app.domain.usecase.market.GetDefaultQuoteSymbolUseCase
 import com.tradingplatform.app.domain.usecase.market.GetQuoteUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPnlUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPositionsUseCase
@@ -23,6 +23,8 @@ import dagger.assisted.AssistedInject
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import timber.log.Timber
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
@@ -54,6 +56,7 @@ class WidgetUpdateWorker @AssistedInject constructor(
     private val getPositionsUseCase: GetPositionsUseCase,
     private val getPnlUseCase: GetPnlUseCase,
     private val getQuoteUseCase: GetQuoteUseCase,
+    private val getDefaultQuoteSymbolUseCase: GetDefaultQuoteSymbolUseCase,
     private val alertDao: AlertDao,
     private val quoteDao: QuoteDao,
 ) : CoroutineWorker(context, workerParams) {
@@ -61,6 +64,13 @@ class WidgetUpdateWorker @AssistedInject constructor(
     companion object {
         private const val TAG = "WidgetUpdateWorker"
         private const val ALERT_RETENTION_MS = 30L * 24 * 60 * 60 * 1000L  // 30 jours
+
+        /**
+         * Nombre max de requêtes quote simultanées — protège contre OOM si la watchlist
+         * devient volumineuse (edge case : utilisateur suivant des centaines de symboles).
+         * 5 permet un débit correct tout en bornant la pression mémoire et la charge VPS.
+         */
+        private const val QUOTES_CONCURRENCY = 5
 
         // SharedPreferences — données non sensibles (timestamp d'UI uniquement)
         const val SYNC_PREFS_NAME = "widget_sync_prefs"
@@ -103,7 +113,13 @@ class WidgetUpdateWorker @AssistedInject constructor(
             return Result.success()
         }
 
-        val anyRetryNeeded = AtomicBoolean(false)
+        // Compteur des sections qui ont échoué sur IOException (réseau transitoire).
+        // Result.retry() est retourné uniquement si TOUTES les sections IO ont échoué —
+        // évite de re-sync positions+PnL si seules les quotes ont eu un hiccup (WorkManager
+        // re-run complet sinon). Le cycle périodique 15min re-tentera de toute façon.
+        val ioSectionsTotal = 3
+        val ioFailures = AtomicBoolean(false)
+        val ioFailCount = java.util.concurrent.atomic.AtomicInteger(0)
 
         supervisorScope {
             // 2, 2b, 3. Sync positions, PnL, and quotes in parallel
@@ -112,8 +128,8 @@ class WidgetUpdateWorker @AssistedInject constructor(
                     try {
                         syncPositions(portfolioId)
                     } catch (e: IOException) {
-                        Timber.tag(TAG).w(e, "WidgetUpdateWorker — positions sync failed (IOException), will retry")
-                        anyRetryNeeded.set(true)
+                        Timber.tag(TAG).w(e, "WidgetUpdateWorker — positions sync failed (IOException)")
+                        ioFailCount.incrementAndGet()
                     } catch (e: VpnNotConnectedException) {
                         Timber.tag(TAG).d("WidgetUpdateWorker — VPN disconnected during positions sync")
                     } catch (e: android.database.SQLException) {
@@ -124,8 +140,8 @@ class WidgetUpdateWorker @AssistedInject constructor(
                     try {
                         syncPnl(portfolioId)
                     } catch (e: IOException) {
-                        Timber.tag(TAG).w(e, "WidgetUpdateWorker — PnL sync failed (IOException), will retry")
-                        anyRetryNeeded.set(true)
+                        Timber.tag(TAG).w(e, "WidgetUpdateWorker — PnL sync failed (IOException)")
+                        ioFailCount.incrementAndGet()
                     } catch (e: VpnNotConnectedException) {
                         Timber.tag(TAG).d("WidgetUpdateWorker — VPN disconnected during PnL sync")
                     } catch (e: android.database.SQLException) {
@@ -136,12 +152,12 @@ class WidgetUpdateWorker @AssistedInject constructor(
                     try {
                         val anyQuoteFailed = syncQuotes()
                         if (anyQuoteFailed) {
-                            Timber.tag(TAG).w("WidgetUpdateWorker — some quotes failed (IOException), will retry")
-                            anyRetryNeeded.set(true)
+                            Timber.tag(TAG).w("WidgetUpdateWorker — some quotes failed (IOException)")
+                            ioFailCount.incrementAndGet()
                         }
                     } catch (e: IOException) {
-                        Timber.tag(TAG).w(e, "WidgetUpdateWorker — quotes sync failed entirely (IOException), will retry")
-                        anyRetryNeeded.set(true)
+                        Timber.tag(TAG).w(e, "WidgetUpdateWorker — quotes sync failed entirely (IOException)")
+                        ioFailCount.incrementAndGet()
                     } catch (e: VpnNotConnectedException) {
                         Timber.tag(TAG).d("WidgetUpdateWorker — VPN disconnected during quotes sync")
                     } catch (e: android.database.SQLException) {
@@ -151,6 +167,11 @@ class WidgetUpdateWorker @AssistedInject constructor(
             )
             jobs.awaitAll()
         }
+
+        // Ne retry que si TOUTES les sections IO ont échoué — indique un problème réseau
+        // global plutôt qu'une panne isolée.
+        val shouldRetry = ioFailCount.get() == ioSectionsTotal
+        ioFailures.set(shouldRetry)
 
         // 4. Purge des alertes (30 jours / 500 max) — local uniquement, jamais réseau
         try {
@@ -166,7 +187,7 @@ class WidgetUpdateWorker @AssistedInject constructor(
             Timber.tag(TAG).w(e, "WidgetUpdateWorker — widget refresh failed (non-blocking)")
         }
 
-        return if (anyRetryNeeded.get()) Result.retry() else Result.success()
+        return if (ioFailures.get()) Result.retry() else Result.success()
     }
 
     // ── Sync positions ──────────────────────────────────────────────────────────
@@ -233,25 +254,34 @@ class WidgetUpdateWorker @AssistedInject constructor(
     private suspend fun syncQuotes(): Boolean = supervisorScope {
         // Récupérer les symboles actuellement en cache pour les rafraîchir
         val cachedSymbols = quoteDao.getAllSymbols()
-        val symbolsToSync = if (cachedSymbols.isEmpty()) listOf(AppDefaults.DEFAULT_QUOTE_SYMBOL) else cachedSymbols
+        val symbolsToSync = if (cachedSymbols.isEmpty()) {
+            listOf(getDefaultQuoteSymbolUseCase())
+        } else {
+            cachedSymbols
+        }
 
         val anySymbolFailed = AtomicBoolean(false)
+        // Borner la concurrence — empêche l'OOM et limite la charge VPS si la watchlist
+        // est grande. Chaque permit représente une requête en vol.
+        val semaphore = Semaphore(QUOTES_CONCURRENCY)
         val jobs = symbolsToSync.map { symbol ->
             async {
-                getQuoteUseCase(symbol)
-                    .onSuccess {
-                        Timber.tag(TAG).d("WidgetUpdateWorker — quote synced: $symbol @ ${it.price}")
-                    }
-                    .onFailure { e ->
-                        when (e) {
-                            is VpnNotConnectedException -> throw e
-                            is IOException -> {
-                                Timber.tag(TAG).w(e, "WidgetUpdateWorker — quote sync failed for $symbol, continuing with others")
-                                anySymbolFailed.set(true)
-                            }
-                            else -> Timber.tag(TAG).w(e, "WidgetUpdateWorker — quote error for $symbol (non-retryable): ${e.message}")
+                semaphore.withPermit {
+                    getQuoteUseCase(symbol)
+                        .onSuccess {
+                            Timber.tag(TAG).d("WidgetUpdateWorker — quote synced: $symbol @ ${it.price}")
                         }
-                    }
+                        .onFailure { e ->
+                            when (e) {
+                                is VpnNotConnectedException -> throw e
+                                is IOException -> {
+                                    Timber.tag(TAG).w(e, "WidgetUpdateWorker — quote sync failed for $symbol, continuing with others")
+                                    anySymbolFailed.set(true)
+                                }
+                                else -> Timber.tag(TAG).w(e, "WidgetUpdateWorker — quote error for $symbol (non-retryable): ${e.message}")
+                            }
+                        }
+                }
             }
         }
         jobs.awaitAll()
