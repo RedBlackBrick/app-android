@@ -41,10 +41,6 @@ sealed class Screen(val route: String) {
         fun createRoute(deviceId: String): String = "device/${Uri.encode(deviceId)}"
     }
 
-    data object LocalMaintenance : Screen("local-maintenance/{deviceId}") {
-        fun createRoute(deviceId: String): String = "local-maintenance/${Uri.encode(deviceId)}"
-    }
-
     data object ScanVpsQr : Screen("pairing/scan-vps")
 
     data object ScanDeviceQr : Screen("pairing/scan-device")

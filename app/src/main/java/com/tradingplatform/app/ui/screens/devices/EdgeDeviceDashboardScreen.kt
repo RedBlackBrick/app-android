@@ -75,7 +75,6 @@ import com.tradingplatform.app.ui.theme.Spacing
  *
  * @param deviceId identifiant du device (navigation args)
  * @param onNavigateBack retour à la liste
- * @param onNavigateToLocalMaintenance ouvre le dépannage LAN si OFFLINE
  * @param viewModel injecté par Hilt
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -83,14 +82,12 @@ import com.tradingplatform.app.ui.theme.Spacing
 fun EdgeDeviceDashboardScreen(
     deviceId: String,
     onNavigateBack: () -> Unit,
-    onNavigateToLocalMaintenance: () -> Unit = {},
     viewModel: DeviceDetailViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val unpairState by viewModel.unpairState.collectAsStateWithLifecycle()
     val commandState by viewModel.commandState.collectAsStateWithLifecycle()
     val brokerState by viewModel.brokerState.collectAsStateWithLifecycle()
-    val brokerTestState by viewModel.brokerTestState.collectAsStateWithLifecycle()
     val haptic = rememberHapticFeedback()
 
     val deviceName = (uiState as? DeviceDetailUiState.Success)?.device?.name ?: "ce device"
@@ -341,17 +338,10 @@ fun EdgeDeviceDashboardScreen(
                             device = state.device,
                             syncedAt = state.syncedAt,
                             brokerState = brokerState,
-                            brokerTestState = brokerTestState,
-                            onNavigateToLocalMaintenance = onNavigateToLocalMaintenance,
                             onUnpair = { viewModel.requestUnpair() },
                             onSendCommand = { commandType ->
                                 viewModel.requestCommand(commandType)
                             },
-                            onTestBroker = { viewModel.testBrokerConnection(deviceId) },
-                            onRemoveBroker = { portfolioId ->
-                                viewModel.removeBrokerConnection(deviceId, portfolioId)
-                            },
-                            onResetBrokerTest = { viewModel.resetBrokerTestState() },
                         )
                     }
 
@@ -395,13 +385,8 @@ private fun DashboardContent(
     device: Device,
     syncedAt: Long,
     brokerState: BrokerUiState,
-    brokerTestState: BrokerTestState,
-    onNavigateToLocalMaintenance: () -> Unit,
     onUnpair: () -> Unit,
     onSendCommand: (CommandType) -> Unit,
-    onTestBroker: () -> Unit,
-    onRemoveBroker: (String) -> Unit,
-    onResetBrokerTest: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val extendedColors = LocalExtendedColors.current
@@ -657,15 +642,11 @@ private fun DashboardContent(
             }
         }
 
-        // ── Card "Broker Gateway" ────────────────────────────────────────────
+        // ── Card "Broker Gateway" (consultation seule) ───────────────────────
         item {
             BrokerGatewayCard(
                 brokerGateway = device.brokerGateway,
                 brokerState = brokerState,
-                brokerTestState = brokerTestState,
-                onTestBroker = onTestBroker,
-                onRemoveBroker = onRemoveBroker,
-                onResetBrokerTest = onResetBrokerTest,
             )
         }
 
@@ -737,21 +718,6 @@ private fun DashboardContent(
             )
         }
 
-        // ── Bouton "Dépannage local" (OFFLINE uniquement) ─────────────────────
-        if (device.status == DeviceStatus.OFFLINE) {
-            item {
-                OutlinedButton(
-                    onClick = onNavigateToLocalMaintenance,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .semantics {
-                            contentDescription = "Ouvrir le dépannage local pour ${device.name}"
-                        },
-                ) {
-                    Text("Dépannage local")
-                }
-            }
-        }
 
         // ── Bouton "Désappairer" ──────────────────────────────────────────────
         item {
@@ -781,10 +747,6 @@ private fun DashboardContent(
 private fun BrokerGatewayCard(
     brokerGateway: BrokerGatewayStatus?,
     brokerState: BrokerUiState,
-    brokerTestState: BrokerTestState,
-    onTestBroker: () -> Unit,
-    onRemoveBroker: (String) -> Unit,
-    onResetBrokerTest: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val extendedColors = LocalExtendedColors.current
@@ -883,77 +845,9 @@ private fun BrokerGatewayCard(
                         )
                     } else {
                         brokerState.connections.forEach { connection ->
-                            BrokerConnectionRow(
-                                connection = connection,
-                                onRemove = {
-                                    connection.portfolioId?.let { onRemoveBroker(it) }
-                                },
-                            )
+                            BrokerConnectionRow(connection = connection)
                             Spacer(modifier = Modifier.height(Spacing.sm))
                         }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(Spacing.md))
-
-            // Test connection button
-            if (brokerGateway != null && brokerGateway.enabled) {
-                OutlinedButton(
-                    onClick = onTestBroker,
-                    enabled = brokerTestState !is BrokerTestState.Testing,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .semantics {
-                            contentDescription = "Tester la connexion broker"
-                        },
-                ) {
-                    if (brokerTestState is BrokerTestState.Testing) {
-                        CircularProgressIndicator(
-                            modifier = Modifier
-                                .height(Spacing.lg)
-                                .padding(end = Spacing.sm),
-                            strokeWidth = Spacing.xs,
-                        )
-                    }
-                    Text("Tester la connexion")
-                }
-
-                // Test result display
-                when (brokerTestState) {
-                    is BrokerTestState.Result -> {
-                        Spacer(modifier = Modifier.height(Spacing.sm))
-                        val resultColor = if (brokerTestState.healthy) {
-                            extendedColors.pnlPositive
-                        } else {
-                            MaterialTheme.colorScheme.error
-                        }
-                        val resultText = if (brokerTestState.healthy) {
-                            "Connexion OK"
-                        } else {
-                            brokerTestState.message ?: "Connexion \u00e9chou\u00e9e"
-                        }
-                        Text(
-                            text = resultText,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = resultColor,
-                            modifier = Modifier.semantics {
-                                contentDescription = "R\u00e9sultat du test : $resultText"
-                            },
-                        )
-                    }
-
-                    is BrokerTestState.Error -> {
-                        Spacer(modifier = Modifier.height(Spacing.sm))
-                        Text(
-                            text = brokerTestState.message,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                    }
-
-                    else -> {
-                        // Idle or Testing — no result to display
                     }
                 }
             }
@@ -961,12 +855,12 @@ private fun BrokerGatewayCard(
     }
 }
 
+
 // ── Ligne connexion broker ────────────────────────────────────────────────────
 
 @Composable
 private fun BrokerConnectionRow(
     connection: BrokerConnection,
-    onRemove: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val extendedColors = LocalExtendedColors.current
@@ -1009,19 +903,6 @@ private fun BrokerConnectionRow(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-            }
-        }
-        if (connection.portfolioId != null) {
-            TextButton(
-                onClick = onRemove,
-                colors = ButtonDefaults.textButtonColors(
-                    contentColor = MaterialTheme.colorScheme.error,
-                ),
-            ) {
-                Text(
-                    text = "Retirer",
-                    style = MaterialTheme.typography.labelSmall,
-                )
             }
         }
     }

@@ -5,7 +5,6 @@ import com.tradingplatform.app.BuildConfig
 import com.tradingplatform.app.data.api.AuthApi
 import com.tradingplatform.app.data.api.BrokerConnectionApi
 import com.tradingplatform.app.data.api.DeviceApi
-import com.tradingplatform.app.data.api.LocalMaintenanceApi
 import com.tradingplatform.app.data.api.MarketDataApi
 import com.tradingplatform.app.data.api.MyDevicesApi
 import com.tradingplatform.app.data.api.NotificationApi
@@ -269,12 +268,6 @@ object NetworkModule {
     @Named("lan")
     fun providePairingLanApi(@Named("lan") lanRetrofit: Retrofit): PairingLanApi =
         lanRetrofit.create(PairingLanApi::class.java)
-
-    @Provides
-    @Singleton
-    @Named("lan")
-    fun provideLocalMaintenanceApi(@Named("lan") lanRetrofit: Retrofit): LocalMaintenanceApi =
-        lanRetrofit.create(LocalMaintenanceApi::class.java)
 
     @Provides
     @Singleton

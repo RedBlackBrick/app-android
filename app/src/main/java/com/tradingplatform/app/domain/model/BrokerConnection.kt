@@ -7,8 +7,3 @@ data class BrokerConnection(
     val connectionStatus: String?,
     val executionMode: String?,
 )
-
-data class BrokerTestResult(
-    val healthy: Boolean,
-    val message: String?,
-)

@@ -4,7 +4,6 @@ import com.tradingplatform.app.data.repository.AlertRepositoryImpl
 import com.tradingplatform.app.data.repository.AuthRepositoryImpl
 import com.tradingplatform.app.data.repository.BrokerConnectionRepositoryImpl
 import com.tradingplatform.app.data.repository.DeviceRepositoryImpl
-import com.tradingplatform.app.data.repository.LocalMaintenanceRepositoryImpl
 import com.tradingplatform.app.data.repository.MyDevicesRepositoryImpl
 import com.tradingplatform.app.data.repository.MarketDataRepositoryImpl
 import com.tradingplatform.app.data.repository.MobileProvisioningRepositoryImpl
@@ -17,7 +16,6 @@ import com.tradingplatform.app.domain.repository.AlertRepository
 import com.tradingplatform.app.domain.repository.AuthRepository
 import com.tradingplatform.app.domain.repository.BrokerConnectionRepository
 import com.tradingplatform.app.domain.repository.DeviceRepository
-import com.tradingplatform.app.domain.repository.LocalMaintenanceRepository
 import com.tradingplatform.app.domain.repository.MyDevicesRepository
 import com.tradingplatform.app.domain.repository.MarketDataRepository
 import com.tradingplatform.app.domain.repository.MobileProvisioningRepository
@@ -63,10 +61,6 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindPairingRepository(impl: PairingRepositoryImpl): PairingRepository
-
-    @Binds
-    @Singleton
-    abstract fun bindLocalMaintenanceRepository(impl: LocalMaintenanceRepositoryImpl): LocalMaintenanceRepository
 
     @Binds
     @Singleton

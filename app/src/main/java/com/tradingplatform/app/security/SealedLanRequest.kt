@@ -7,10 +7,9 @@ import okhttp3.RequestBody.Companion.toRequestBody
 
 /**
  * Construit un [RequestBody] octet-stream chiffré via `crypto_box_seal` prêt à être POSTé
- * vers un device LAN (Radxa : pairing, maintenance).
+ * vers un device LAN (Radxa) lors du pairing.
  *
- * Factorise le pattern dupliqué entre [com.tradingplatform.app.data.repository.PairingRepositoryImpl]
- * et [com.tradingplatform.app.data.repository.LocalMaintenanceRepositoryImpl] :
+ * Étapes :
  *   1. Valide que [deviceIp] est RFC-1918 (anti-DNS-rebinding — CLAUDE.md §4)
  *   2. Décode la clé publique WireGuard base64 (44 chars → 32 bytes Curve25519)
  *   3. Chiffre le payload avec la clé publique

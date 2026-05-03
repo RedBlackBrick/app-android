@@ -40,7 +40,6 @@ import com.tradingplatform.app.ui.screens.auth.LoginScreen
 import com.tradingplatform.app.ui.screens.dashboard.DashboardScreen
 import com.tradingplatform.app.ui.screens.devices.DeviceListScreen
 import com.tradingplatform.app.ui.screens.devices.EdgeDeviceDashboardScreen
-import com.tradingplatform.app.ui.screens.maintenance.LocalMaintenanceScreen
 import com.tradingplatform.app.ui.screens.market.MarketDataScreen
 import com.tradingplatform.app.ui.screens.performance.PerformanceScreen
 import com.tradingplatform.app.ui.screens.pairing.PairingDoneScreen
@@ -636,22 +635,6 @@ fun AppNavGraph(
                 val deviceId = backStackEntry.arguments?.getString("deviceId") ?: ""
                 EdgeDeviceDashboardScreen(
                     deviceId = deviceId,
-                    onNavigateBack = { navController.popBackStack() },
-                    onNavigateToLocalMaintenance = {
-                        navController.navigate(Screen.LocalMaintenance.createRoute(deviceId))
-                    },
-                )
-            }
-
-            // ── Local maintenance (admin — device offline) ────────────────────
-
-            composable(
-                route = Screen.LocalMaintenance.route,
-                arguments = listOf(
-                    navArgument("deviceId") { type = NavType.StringType },
-                ),
-            ) {
-                LocalMaintenanceScreen(
                     onNavigateBack = { navController.popBackStack() },
                 )
             }
