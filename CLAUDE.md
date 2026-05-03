@@ -50,7 +50,7 @@ Instructions pour Claude Code lors du travail sur ce projet.
 com.tradingplatform.app/
 ├── di/                    # Hilt modules (AppModule, NetworkModule, VpnModule, SecurityModule, WebSocketModule)
 ├── data/
-│   ├── api/               # Interfaces Retrofit (AuthApi, PortfolioApi, MarketDataApi, DeviceApi, BrokerConnectionApi, PairingApi, LocalMaintenanceApi, NotificationApi)
+│   ├── api/               # Interfaces Retrofit (AuthApi, PortfolioApi, MarketDataApi, DeviceApi, BrokerConnectionApi, PairingApi, NotificationApi, MobileProvisioningApi)
 │   ├── repository/        # Implémentations des Repository interfaces du domaine
 │   ├── local/
 │   │   ├── db/            # Room : AppDatabase, DAOs, Entities (dont WatchlistEntity)
@@ -61,17 +61,16 @@ com.tradingplatform.app/
 │   ├── model/             # Domain models (purs Kotlin, sans annotations Android/Retrofit/Room)
 │   │                      # Inclut : PerformanceMetrics, ActivityItem, WsUpdate (OrderUpdate, StrategySignal, CatalystEvent), BrokerConnection
 │   ├── repository/        # Interfaces Repository (définies dans domain, implémentées dans data)
-│   │                      # Inclut : WatchlistRepository, LocalMaintenanceRepository, BrokerConnectionRepository
+│   │                      # Inclut : WatchlistRepository, BrokerConnectionRepository (lecture seule), MobileProvisioningRepository
 │   └── usecase/
 │       ├── auth/          # LoginUseCase, LogoutUseCase, GetUserProfileUseCase
 │       ├── portfolio/     # GetPortfolioUseCase, GetPositionsUseCase, GetPositionWsUpdatesUseCase, GetPerformanceUseCase
 │       ├── market/        # GetQuoteUseCase, GetQuoteStreamUseCase, GetAvailableSymbolsUseCase, GetSymbolHistoryUseCase, GetWatchlistUseCase, AddToWatchlistUseCase, RemoveFromWatchlistUseCase
 │       ├── activity/      # GetActivityFeedUseCase
-│       ├── device/        # GetDevicesUseCase, GetDeviceStatusUseCase, SendDeviceCommandUseCase, GetBrokerConnectionsUseCase, TestBrokerConnectionUseCase, RemoveBrokerConnectionUseCase
+│       ├── device/        # GetDevicesUseCase, GetDeviceStatusUseCase, SendDeviceCommandUseCase, GetBrokerConnectionsUseCase
 │       ├── alerts/        # GetAlertsUseCase, GetFilteredAlertsUseCase, MarkAlertReadUseCase
-│       ├── maintenance/   # SendLocalCommandUseCase, GetLocalStatusUseCase
 │       ├── notification/  # RegisterFcmTokenUseCase
-│       └── pairing/       # ParseVpsQrUseCase, ScanDeviceQrUseCase, SendPinToDeviceUseCase, ConfirmPairingUseCase, ParseSetupQrUseCase
+│       └── pairing/       # ParseVpsQrUseCase, ScanDeviceQrUseCase, SendPinToDeviceUseCase, ConfirmPairingUseCase, ParseSetupQrUseCase, ProvisionMobileVpnUseCase
 ├── ui/
 │   ├── theme/             # Color.kt, Theme.kt, Type.kt (Material 3)
 │   ├── navigation/        # AppNavGraph.kt — navigation globale
@@ -87,7 +86,6 @@ com.tradingplatform.app/
 │       ├── alerts/        # AlertListScreen + AlertsViewModel + AlertFilterBar
 │       ├── totp/          # TotpScreen + TotpViewModel (2FA post-login)
 │       ├── setup/         # SetupScreen + SetupViewModel (onboarding QR mobile)
-│       ├── maintenance/   # LocalMaintenanceScreen + LocalMaintenanceViewModel
 │       └── settings/      # VpnSettingsScreen, SecuritySettingsScreen, ProfileScreen, MyDevicesScreen + ViewModels
 ├── vpn/
 │   ├── WireGuardVpnService.kt   # VpnService Android — gère le tunnel

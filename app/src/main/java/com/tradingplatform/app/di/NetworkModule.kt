@@ -4,8 +4,10 @@ import com.squareup.moshi.Moshi
 import com.tradingplatform.app.BuildConfig
 import com.tradingplatform.app.data.api.AuthApi
 import com.tradingplatform.app.data.api.BrokerConnectionApi
+import com.tradingplatform.app.data.api.OrdersApi
+import com.tradingplatform.app.data.api.RiskApi
+import com.tradingplatform.app.data.api.StrategiesApi
 import com.tradingplatform.app.data.api.DeviceApi
-import com.tradingplatform.app.data.api.LocalMaintenanceApi
 import com.tradingplatform.app.data.api.MarketDataApi
 import com.tradingplatform.app.data.api.MyDevicesApi
 import com.tradingplatform.app.data.api.NotificationApi
@@ -149,10 +151,10 @@ object NetworkModule {
     }
 
     // ── OkHttpClient @Named("lan") ─────────────────────────────────────────────
-    // Utilisé par PairingRepositoryImpl et LocalMaintenanceRepositoryImpl pour
-    // parler au pairing-server de la Radxa (LAN, port 8099, HTTPS avec cert
-    // auto-signé). Le pairing-server refuse désormais de démarrer sans TLS —
-    // d'où le switch http → https et le TrustManager permissif scopé LAN.
+    // Utilisé par PairingRepositoryImpl pour parler au pairing-server de la
+    // Radxa (LAN, port 8099, HTTPS avec cert auto-signé). Le pairing-server
+    // refuse de démarrer sans TLS — d'où le switch http → https et le
+    // TrustManager permissif scopé LAN.
     //
     // Garde-fou anti-fuite (LanOnlyHttpsGuard) : avant chaque requête, on
     // refuse immédiatement toute URL qui n'est ni HTTPS ni RFC-1918. Ça limite
@@ -272,12 +274,6 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    @Named("lan")
-    fun provideLocalMaintenanceApi(@Named("lan") lanRetrofit: Retrofit): LocalMaintenanceApi =
-        lanRetrofit.create(LocalMaintenanceApi::class.java)
-
-    @Provides
-    @Singleton
     fun provideNotificationApi(retrofit: Retrofit): NotificationApi =
         retrofit.create(NotificationApi::class.java)
 
@@ -285,4 +281,19 @@ object NetworkModule {
     @Singleton
     fun provideBrokerConnectionApi(retrofit: Retrofit): BrokerConnectionApi =
         retrofit.create(BrokerConnectionApi::class.java)
+
+    @Provides
+    @Singleton
+    fun provideStrategiesApi(retrofit: Retrofit): StrategiesApi =
+        retrofit.create(StrategiesApi::class.java)
+
+    @Provides
+    @Singleton
+    fun provideRiskApi(retrofit: Retrofit): RiskApi =
+        retrofit.create(RiskApi::class.java)
+
+    @Provides
+    @Singleton
+    fun provideOrdersApi(retrofit: Retrofit): OrdersApi =
+        retrofit.create(OrdersApi::class.java)
 }

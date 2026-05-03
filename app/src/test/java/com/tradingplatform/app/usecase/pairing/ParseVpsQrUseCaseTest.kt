@@ -55,11 +55,13 @@ class ParseVpsQrUseCaseTest {
     }
 
     @Test
-    fun `missing device_wg_ip returns MalformedQrException`() = runTest {
+    fun `missing device_wg_ip is accepted with empty string`() = runTest {
+        // device_wg_ip is display-only (CLAUDE.md §8) — the parser tolerates its absence
+        // and falls back to "" so the pairing screen can render without it.
         val raw = """{"session_id":"abc-123","session_pin":"472938","local_token":"tok-xyz","nonce":"aabbcc"}"""
         val result = useCase(raw)
-        assertTrue(result.isFailure)
-        assertTrue(result.exceptionOrNull() is MalformedQrException)
+        assertTrue(result.isSuccess)
+        assertEquals("", result.getOrThrow().deviceWgIp)
     }
 
     @Test

@@ -62,14 +62,12 @@ import com.tradingplatform.app.ui.theme.Spacing
  *
  * @param deviceId identifiant du device à afficher (depuis navigation args)
  * @param onNavigateBack callback pour revenir à l'écran précédent
- * @param onNavigateToLocalMaintenance callback pour ouvrir la roue de secours LAN (device offline)
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DeviceDetailScreen(
     deviceId: String,
     onNavigateBack: () -> Unit,
-    onNavigateToLocalMaintenance: () -> Unit = {},
     viewModel: DeviceDetailViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -207,7 +205,6 @@ fun DeviceDetailScreen(
                     DeviceDetailContent(
                         device = state.device,
                         syncedAt = state.syncedAt,
-                        onNavigateToLocalMaintenance = onNavigateToLocalMaintenance,
                         onUnpair = { viewModel.requestUnpair() },
                     )
                 }
@@ -254,7 +251,6 @@ fun DeviceDetailScreen(
 private fun DeviceDetailContent(
     device: Device,
     syncedAt: Long,
-    onNavigateToLocalMaintenance: () -> Unit,
     onUnpair: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -349,22 +345,6 @@ private fun DeviceDetailContent(
             syncedAt = syncedAt,
             modifier = Modifier.align(Alignment.End),
         )
-
-        // Bouton dépannage local — visible uniquement quand le device est offline
-        if (device.status == DeviceStatus.OFFLINE) {
-            Spacer(modifier = Modifier.height(Spacing.lg))
-
-            OutlinedButton(
-                onClick = onNavigateToLocalMaintenance,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .semantics {
-                        contentDescription = "Ouvrir le dépannage local pour ${device.name}"
-                    },
-            ) {
-                Text("Dépannage local")
-            }
-        }
 
         Spacer(modifier = Modifier.height(Spacing.lg))
 

@@ -53,6 +53,10 @@ class DashboardViewModelTest {
     private val getPortfolioWsUpdatesUseCase = mockk<GetPortfolioWsUpdatesUseCase>()
     private val getWsConnectionStateUseCase = mockk<GetWsConnectionStateUseCase>()
     private val getActivityFeedUseCase = mockk<GetActivityFeedUseCase>()
+    private val getActiveStrategyCountUseCase =
+        mockk<com.tradingplatform.app.domain.usecase.portfolio.GetActiveStrategyCountUseCase>()
+    private val getPortfolioCircuitBreakerStatusUseCase =
+        mockk<com.tradingplatform.app.domain.usecase.risk.GetPortfolioCircuitBreakerStatusUseCase>()
 
     private lateinit var viewModel: DashboardViewModel
 
@@ -105,6 +109,10 @@ class DashboardViewModelTest {
         // Activity feed — empty flow by default (not the focus of these tests)
         every { getActivityFeedUseCase() } returns emptyFlow()
         coEvery { getDefaultQuoteSymbolUseCase() } returns "AAPL"
+        // Strategy count + circuit-breaker — failed by default (tile hidden) so the
+        // existing test fixtures don't need to know about them.
+        coEvery { getActiveStrategyCountUseCase(any()) } returns Result.failure(IOException("not stubbed"))
+        coEvery { getPortfolioCircuitBreakerStatusUseCase(any()) } returns Result.failure(IOException("not stubbed"))
     }
 
     private fun createViewModel(): DashboardViewModel = DashboardViewModel(
@@ -117,6 +125,8 @@ class DashboardViewModelTest {
         getPortfolioWsUpdatesUseCase = getPortfolioWsUpdatesUseCase,
         getWsConnectionStateUseCase = getWsConnectionStateUseCase,
         getActivityFeedUseCase = getActivityFeedUseCase,
+        getActiveStrategyCountUseCase = getActiveStrategyCountUseCase,
+        getPortfolioCircuitBreakerStatusUseCase = getPortfolioCircuitBreakerStatusUseCase,
     ).also { viewModel = it }
 
     // ── portfolioId ───────────────────────────────────────────────────────────

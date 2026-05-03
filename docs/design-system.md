@@ -121,22 +121,25 @@ Courier New, etc.) qui varie selon le fabricant. Utiliser `jetBrainsMonoFamily` 
 
 ### Scale typographique M3 → web
 
-| Token M3 | Taille | Poids | Usage |
-|----------|--------|-------|-------|
-| `displayLarge` | 57sp | Regular | — (non exposé en surface mais configuré Inter) |
-| `displayMedium` | 45sp | Regular | — (non exposé en surface mais configuré Inter) |
-| `headlineLarge` | 32sp | SemiBold | Titres de page (≈ 3xl web 30px) |
-| `headlineMedium` | 28sp | SemiBold | Sections |
-| `headlineSmall` | 24sp | SemiBold | Sous-sections (≈ 2xl 24px) |
-| `titleLarge` | 22sp | SemiBold | Cards header |
-| `titleMedium` | 16sp | SemiBold | Labels importants (≈ xl 20px) |
-| `titleSmall` | 14sp | Medium | Labels (≈ sm 14px) |
-| `bodyLarge` | 16sp | Normal | Corps de texte (≈ base 16px) |
-| `bodyMedium` | 14sp | Normal | Texte secondaire (≈ sm 14px) |
-| `bodySmall` | 12sp | Normal | Texte tertiaire (≈ xs 12px) |
-| `labelLarge` | 14sp | Medium | Boutons |
-| `labelMedium` | 12sp | Medium | Badges, chips |
-| `labelSmall` | 11sp | Medium | Captions |
+L2 refresh — line-heights resserrés et letter-spacing remis proche de 0sp pour Inter
+(la calibration M3 par défaut vise Roboto, qui demande plus de tracking).
+
+| Token M3 | Taille / Line-height | Tracking | Poids | Usage |
+|----------|---------------------|----------|-------|-------|
+| `displayLarge` | 57 / 64sp | -0.25sp | Regular | — (non exposé en surface mais configuré Inter) |
+| `displayMedium` | 45 / 52sp | 0sp | Regular | — (non exposé en surface mais configuré Inter) |
+| `headlineLarge` | 32 / 38sp | -0.25sp | SemiBold | Titres de page (≈ 3xl web 30px) |
+| `headlineMedium` | 28 / 34sp | -0.20sp | SemiBold | Sections |
+| `headlineSmall` | 24 / 30sp | -0.15sp | SemiBold | Sous-sections (≈ 2xl 24px) |
+| `titleLarge` | 22 / 28sp | -0.10sp | SemiBold | Cards header |
+| `titleMedium` | 16 / 22sp | 0sp | SemiBold | Labels importants (≈ xl 20px) |
+| `titleSmall` | 14 / 18sp | 0sp | Medium | Labels (≈ sm 14px) |
+| `bodyLarge` | 16 / 22sp | 0sp | Normal | Corps de texte (≈ base 16px) |
+| `bodyMedium` | 14 / 18sp | 0sp | Normal | Texte secondaire (≈ sm 14px) |
+| `bodySmall` | 12 / 16sp | 0sp | Normal | Texte tertiaire (≈ xs 12px) |
+| `labelLarge` | 14 / 18sp | 0sp | Medium | Boutons |
+| `labelMedium` | 12 / 14sp | 0.25sp | Medium | Badges, chips |
+| `labelSmall` | 11 / 14sp | 0.25sp | Medium | Captions |
 
 **Mono** : `jetBrainsMonoFamily` pour les prix/valeurs financières — **ne pas utiliser `FontFamily.Monospace`** (varie selon le device).
 
@@ -148,23 +151,28 @@ Courier New, etc.) qui varie selon le fabricant. Utiliser `jetBrainsMonoFamily` 
 
 ## Formes (Shape)
 
+L2 refresh — angles moins arrondis pour un rendu plus clinique (cards 16→12dp,
+moyens 12→10dp). Cohérent avec la densité data-first.
+
 | Token M3 | dp | Web équivalent |
 |----------|----|----------------|
 | `ExtraSmall` | 4dp | xs: 4px (badges) |
-| `Small` | 8dp | sm: 6px (inputs) |
-| `Medium` | 12dp | md: 8–12px (boutons) |
-| `Large` | 16dp | lg: 12px (cards) |
-| `ExtraLarge` | 28dp | xl: 16px (dialogs) |
+| `Small` | 6dp | sm: 6px (inputs) |
+| `Medium` | 10dp | md: 8–10px (boutons) |
+| `Large` | 12dp | lg: 12px (cards) |
+| `ExtraLarge` | 24dp | xl: 16–24px (dialogs) |
 | `Full` | 50dp | full: 9999px (pills, avatars) |
 
 ---
 
 ## Espacements
 
-Grille **4dp** identique au web (4px grid).
+Grille **4dp** identique au web (4px grid). L2 refresh ajoute `Spacing.xxs = 2dp`
+pour les tableaux et lignes denses (P&L par row, métriques compactes).
 
 | Token (doc + code) | dp | Utilisation |
 |--------------------|-----|-------------|
+| `Spacing.xxs` | 2dp | Hairline gap (lignes de table denses) |
 | `Spacing.xs` | 4dp | Padding minimal, gap icône/texte |
 | `Spacing.sm` | 8dp | Padding interne petit composant |
 | `Spacing.md` | 12dp | Padding standard |
@@ -176,6 +184,7 @@ Grille **4dp** identique au web (4px grid).
 ```kotlin
 // ui/theme/Spacing.kt
 object Spacing {
+    val xxs = 2.dp
     val xs = 4.dp
     val sm = 8.dp
     val md = 12.dp

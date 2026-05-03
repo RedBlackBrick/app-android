@@ -30,6 +30,9 @@ sealed class Screen(val route: String) {
     /** Global transaction history across all positions. */
     data object TransactionHistory : Screen("transactions")
 
+    /** Read-only orders list (active + history) for the user's portfolio. */
+    data object Orders : Screen("orders")
+
     data object PositionDetail : Screen("position/{positionId}") {
         fun createRoute(positionId: Int): String = "position/$positionId"
     }
@@ -39,10 +42,6 @@ sealed class Screen(val route: String) {
 
     data object DeviceDetail : Screen("device/{deviceId}") {
         fun createRoute(deviceId: String): String = "device/${Uri.encode(deviceId)}"
-    }
-
-    data object LocalMaintenance : Screen("local-maintenance/{deviceId}") {
-        fun createRoute(deviceId: String): String = "local-maintenance/${Uri.encode(deviceId)}"
     }
 
     data object ScanVpsQr : Screen("pairing/scan-vps")

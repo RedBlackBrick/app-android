@@ -40,6 +40,12 @@ val jetBrainsMonoFamily = FontFamily(
  * (displayLarge, displayMedium) — pour éviter que les composants M3 internes tombent
  * sur Roboto par défaut.
  *
+ * L2 refresh — densité data-first :
+ * - line-heights de body/label resserrés (-2sp) pour densifier les listes et les tableaux
+ * - letter-spacing des titres remis à 0sp ou légèrement négatif (Inter rend mieux ainsi
+ *   que la baseline M3 calibrée pour Roboto)
+ * - les niveaux display gardent le tracking M3 (titres marketing peu utilisés)
+ *
  * Référence : docs/design-system.md § Typographie
  */
 val TradingTypography = Typography(
@@ -68,85 +74,85 @@ val TradingTypography = Typography(
         fontFamily = interFontFamily,
         fontWeight = FontWeight.SemiBold,
         fontSize = 32.sp,
-        lineHeight = 40.sp,
-        letterSpacing = 0.sp,
+        lineHeight = 38.sp,
+        letterSpacing = (-0.25).sp,
     ),
     headlineMedium = TextStyle(
         fontFamily = interFontFamily,
         fontWeight = FontWeight.SemiBold,
         fontSize = 28.sp,
-        lineHeight = 36.sp,
-        letterSpacing = 0.sp,
+        lineHeight = 34.sp,
+        letterSpacing = (-0.2).sp,
     ),
     headlineSmall = TextStyle(
         fontFamily = interFontFamily,
         fontWeight = FontWeight.SemiBold,
         fontSize = 24.sp,
-        lineHeight = 32.sp,
-        letterSpacing = 0.sp,
+        lineHeight = 30.sp,
+        letterSpacing = (-0.15).sp,
     ),
     titleLarge = TextStyle(
         fontFamily = interFontFamily,
         fontWeight = FontWeight.SemiBold,
         fontSize = 22.sp,
         lineHeight = 28.sp,
-        letterSpacing = 0.sp,
+        letterSpacing = (-0.1).sp,
     ),
     titleMedium = TextStyle(
         fontFamily = interFontFamily,
-        fontWeight = FontWeight.SemiBold,  // SemiBold d'après design-system.md
+        fontWeight = FontWeight.SemiBold,
         fontSize = 16.sp,
-        lineHeight = 24.sp,
-        letterSpacing = 0.15.sp,
+        lineHeight = 22.sp,
+        letterSpacing = 0.sp,
     ),
     titleSmall = TextStyle(
         fontFamily = interFontFamily,
         fontWeight = FontWeight.Medium,
         fontSize = 14.sp,
-        lineHeight = 20.sp,
-        letterSpacing = 0.1.sp,
+        lineHeight = 18.sp,
+        letterSpacing = 0.sp,
     ),
     bodyLarge = TextStyle(
         fontFamily = interFontFamily,
         fontWeight = FontWeight.Normal,
         fontSize = 16.sp,
-        lineHeight = 24.sp,
-        letterSpacing = 0.5.sp,
+        lineHeight = 22.sp,
+        letterSpacing = 0.sp,
     ),
     bodyMedium = TextStyle(
         fontFamily = interFontFamily,
         fontWeight = FontWeight.Normal,
         fontSize = 14.sp,
-        lineHeight = 20.sp,
-        letterSpacing = 0.25.sp,
+        lineHeight = 18.sp,
+        letterSpacing = 0.sp,
     ),
     bodySmall = TextStyle(
         fontFamily = interFontFamily,
         fontWeight = FontWeight.Normal,
         fontSize = 12.sp,
         lineHeight = 16.sp,
-        letterSpacing = 0.4.sp,
+        letterSpacing = 0.sp,
     ),
     labelLarge = TextStyle(
         fontFamily = interFontFamily,
         fontWeight = FontWeight.Medium,
         fontSize = 14.sp,
-        lineHeight = 20.sp,
-        letterSpacing = 0.1.sp,
+        lineHeight = 18.sp,
+        letterSpacing = 0.sp,
     ),
     labelMedium = TextStyle(
         fontFamily = interFontFamily,
         fontWeight = FontWeight.Medium,
         fontSize = 12.sp,
-        lineHeight = 16.sp,
-        letterSpacing = 0.5.sp,
+        lineHeight = 14.sp,
+        letterSpacing = 0.25.sp,
     ),
     labelSmall = TextStyle(
         fontFamily = interFontFamily,
         fontWeight = FontWeight.Medium,
         fontSize = 11.sp,
-        lineHeight = 16.sp,
-        letterSpacing = 0.5.sp,
+        lineHeight = 14.sp,
+        letterSpacing = 0.25.sp,
     ),
 )
 

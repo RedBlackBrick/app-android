@@ -5,7 +5,6 @@ import android.content.Intent
 import androidx.core.content.ContextCompat
 import com.tradingplatform.app.data.local.datastore.DataStoreKeys
 import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
-import com.tradingplatform.app.domain.model.SetupQrData
 import com.wireguard.android.backend.Backend
 import com.wireguard.android.backend.GoBackend
 import com.wireguard.android.backend.Tunnel
@@ -16,7 +15,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -120,33 +118,6 @@ fun reconnect() {
                 Timber.tag(TAG).e(e, "WireGuard connect error")
                 _state.value = VpnState.Error(e.message ?: "Connection failed")
             }
-        }
-    }
-
-    /**
-     * Configure et connecte le tunnel à partir des données du QR d'onboarding.
-     * Stocke la config dans EncryptedDataStore avant de connecter.
-     *
-     * La clé privée WireGuard ne doit jamais être loggée — [REDACTED] (CLAUDE.md §1).
-     */
-    suspend fun configureFromSetupQr(data: SetupQrData) {
-        withContext(Dispatchers.IO) {
-            dataStore.writeString(DataStoreKeys.WG_PRIVATE_KEY, data.wgPrivateKey)
-            dataStore.writeString(DataStoreKeys.WG_ENDPOINT, data.endpoint)
-            dataStore.writeString(DataStoreKeys.WG_SERVER_PUBKEY, data.wgPublicKeyServer)
-            dataStore.writeString(DataStoreKeys.WG_TUNNEL_IP, data.tunnelIp)
-            dataStore.writeString(DataStoreKeys.WG_DNS, data.dns)
-
-            val config = WireGuardConfig(
-                privateKey = data.wgPrivateKey,
-                address = data.tunnelIp,
-                dns = data.dns,
-                peer = WireGuardPeer(
-                    publicKey = data.wgPublicKeyServer,
-                    endpoint = data.endpoint,
-                ),
-            )
-            connect(config)
         }
     }
 

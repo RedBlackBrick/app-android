@@ -7,9 +7,7 @@ import com.tradingplatform.app.domain.model.Device
 import com.tradingplatform.app.domain.usecase.device.GetBrokerConnectionsUseCase
 import com.tradingplatform.app.domain.usecase.device.GetDevicesUseCase
 import com.tradingplatform.app.domain.usecase.device.GetDeviceStatusUseCase
-import com.tradingplatform.app.domain.usecase.device.RemoveBrokerConnectionUseCase
 import com.tradingplatform.app.domain.usecase.device.SendDeviceCommandUseCase
-import com.tradingplatform.app.domain.usecase.device.TestBrokerConnectionUseCase
 import com.tradingplatform.app.domain.usecase.device.UnpairDeviceUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -74,15 +72,6 @@ sealed interface BrokerUiState {
     data class Error(val message: String) : BrokerUiState
 }
 
-// ── BrokerTestState — résultat du test connexion broker ──────────────────────
-
-sealed interface BrokerTestState {
-    data object Idle : BrokerTestState
-    data object Testing : BrokerTestState
-    data class Result(val healthy: Boolean, val message: String?) : BrokerTestState
-    data class Error(val message: String) : BrokerTestState
-}
-
 // ── DevicesViewModel — liste ──────────────────────────────────────────────────
 
 /**
@@ -141,8 +130,6 @@ class DeviceDetailViewModel @Inject constructor(
     private val unpairDeviceUseCase: UnpairDeviceUseCase,
     private val sendDeviceCommandUseCase: SendDeviceCommandUseCase,
     private val getBrokerConnectionsUseCase: GetBrokerConnectionsUseCase,
-    private val testBrokerConnectionUseCase: TestBrokerConnectionUseCase,
-    private val removeBrokerConnectionUseCase: RemoveBrokerConnectionUseCase,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<DeviceDetailUiState>(DeviceDetailUiState.Loading)
@@ -156,9 +143,6 @@ class DeviceDetailViewModel @Inject constructor(
 
     private val _brokerState = MutableStateFlow<BrokerUiState>(BrokerUiState.Idle)
     val brokerState: StateFlow<BrokerUiState> = _brokerState.asStateFlow()
-
-    private val _brokerTestState = MutableStateFlow<BrokerTestState>(BrokerTestState.Idle)
-    val brokerTestState: StateFlow<BrokerTestState> = _brokerTestState.asStateFlow()
 
     fun loadDevice(deviceId: String) {
         viewModelScope.launch {
@@ -278,40 +262,4 @@ class DeviceDetailViewModel @Inject constructor(
         }
     }
 
-    fun testBrokerConnection(deviceId: String) {
-        viewModelScope.launch {
-            _brokerTestState.value = BrokerTestState.Testing
-            testBrokerConnectionUseCase(deviceId)
-                .onSuccess { result ->
-                    _brokerTestState.value = BrokerTestState.Result(
-                        healthy = result.healthy,
-                        message = result.message,
-                    )
-                }
-                .onFailure { e ->
-                    _brokerTestState.value = BrokerTestState.Error(
-                        e.localizedMessage ?: "Erreur lors du test de connexion"
-                    )
-                }
-        }
-    }
-
-    fun removeBrokerConnection(deviceId: String, portfolioId: String) {
-        viewModelScope.launch {
-            removeBrokerConnectionUseCase(deviceId, portfolioId)
-                .onSuccess {
-                    // Recharger la liste après suppression
-                    loadBrokerConnections(deviceId)
-                }
-                .onFailure { e ->
-                    _brokerState.value = BrokerUiState.Error(
-                        e.localizedMessage ?: "Erreur lors de la suppression de la connexion"
-                    )
-                }
-        }
-    }
-
-    fun resetBrokerTestState() {
-        _brokerTestState.value = BrokerTestState.Idle
-    }
 }
