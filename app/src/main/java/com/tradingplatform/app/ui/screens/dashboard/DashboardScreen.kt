@@ -556,10 +556,12 @@ private fun QuoteContent(
                 decimals = 2,
                 style = MaterialTheme.typography.titleMedium,
             )
-            AnimatedPnlText(
-                value = quoteData.change,
-                style = MaterialTheme.typography.bodySmall,
-            )
+            if (quoteData.change != null) {
+                AnimatedPnlText(
+                    value = quoteData.change,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
         }
     }
 }

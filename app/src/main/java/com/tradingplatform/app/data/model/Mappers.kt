@@ -12,7 +12,6 @@ import com.tradingplatform.app.domain.model.BrokerGatewayStatus
 import com.tradingplatform.app.domain.model.BrokerSummary
 import com.tradingplatform.app.domain.model.Device
 import com.tradingplatform.app.domain.model.DeviceStatus
-import com.tradingplatform.app.domain.model.ScraperCircuitState
 import com.tradingplatform.app.domain.model.NavSummary
 import com.tradingplatform.app.domain.model.PerformanceMetrics
 import com.tradingplatform.app.domain.model.PnlPeriod
@@ -21,6 +20,7 @@ import com.tradingplatform.app.domain.model.Portfolio
 import com.tradingplatform.app.domain.model.Position
 import com.tradingplatform.app.domain.model.PositionStatus
 import com.tradingplatform.app.domain.model.Quote
+import com.tradingplatform.app.domain.model.ScraperCircuitState
 import com.tradingplatform.app.domain.model.Transaction
 import com.tradingplatform.app.domain.model.User
 import com.tradingplatform.app.domain.model.VpnPeer
@@ -321,7 +321,7 @@ fun Device.toEntity(syncedAt: Long = System.currentTimeMillis()): DeviceEntity =
     name = name,
     status = status.name.lowercase(),
     wgIp = wgIp,
-    lastHeartbeat = lastHeartbeat?.toEpochMilli(),
+    lastHeartbeat = lastHeartbeat?.toEpochMilli() ?: 0L,
     syncedAt = syncedAt,
     cpuPct = cpuPct,
     memoryPct = memoryPct,
@@ -341,9 +341,9 @@ fun Quote.toEntity(syncedAt: Long = System.currentTimeMillis()): QuoteEntity = Q
     price = price.toPlainString(),
     bid = bid?.toPlainString(),
     ask = ask?.toPlainString(),
-    volume = volume,
-    change = change.toPlainString(),
-    changePercent = changePercent,
+    volume = volume ?: 0L,
+    change = change?.toPlainString() ?: "0",
+    changePercent = changePercent ?: 0.0,
     quoteTimestamp = timestamp.toEpochMilli(),
     source = source,
     sourceName = sourceName,
