@@ -10,17 +10,19 @@ import androidx.compose.ui.unit.dp
  *
  * Référence : docs/design-system.md § Espacements
  *
- * | Token       | dp  | Utilisation                          |
- * |-------------|-----|--------------------------------------|
- * | Spacing.xs  | 4dp | Padding minimal, gap icône/texte     |
- * | Spacing.sm  | 8dp | Padding interne petit composant      |
- * | Spacing.md  | 12dp | Padding standard                    |
- * | Spacing.lg  | 16dp | Marges standard (défaut)            |
- * | Spacing.xl  | 24dp | Espacement entre sections            |
- * | Spacing.xxl | 32dp | Espacement majeur                    |
- * | Spacing.xxxl | 48dp | Séparations de blocs               |
+ * | Token        | dp  | Utilisation                            |
+ * |--------------|-----|----------------------------------------|
+ * | Spacing.xxs  | 2dp | Hairline gap (lignes de table denses)  |
+ * | Spacing.xs   | 4dp | Padding minimal, gap icône/texte       |
+ * | Spacing.sm   | 8dp | Padding interne petit composant        |
+ * | Spacing.md   | 12dp | Padding standard                      |
+ * | Spacing.lg   | 16dp | Marges standard (défaut)              |
+ * | Spacing.xl   | 24dp | Espacement entre sections              |
+ * | Spacing.xxl  | 32dp | Espacement majeur                      |
+ * | Spacing.xxxl | 48dp | Séparations de blocs                   |
  */
 object Spacing {
+    val xxs  = 2.dp
     val xs   = 4.dp
     val sm   = 8.dp
     val md   = 12.dp
