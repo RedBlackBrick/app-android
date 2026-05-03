@@ -10,6 +10,8 @@ import com.tradingplatform.app.data.repository.MobileProvisioningRepositoryImpl
 import com.tradingplatform.app.data.repository.NotificationRepositoryImpl
 import com.tradingplatform.app.data.repository.PairingRepositoryImpl
 import com.tradingplatform.app.data.repository.PortfolioRepositoryImpl
+import com.tradingplatform.app.data.repository.RiskRepositoryImpl
+import com.tradingplatform.app.data.repository.StrategiesRepositoryImpl
 import com.tradingplatform.app.data.repository.WatchlistRepositoryImpl
 import com.tradingplatform.app.domain.repository.AdminWidgetVisibilityManager
 import com.tradingplatform.app.domain.repository.AlertRepository
@@ -22,6 +24,8 @@ import com.tradingplatform.app.domain.repository.MobileProvisioningRepository
 import com.tradingplatform.app.domain.repository.NotificationRepository
 import com.tradingplatform.app.domain.repository.PairingRepository
 import com.tradingplatform.app.domain.repository.PortfolioRepository
+import com.tradingplatform.app.domain.repository.RiskRepository
+import com.tradingplatform.app.domain.repository.StrategiesRepository
 import com.tradingplatform.app.domain.repository.WatchlistRepository
 import com.tradingplatform.app.widget.AdminWidgetVisibilityManagerImpl
 import dagger.Binds
@@ -79,6 +83,14 @@ abstract class RepositoryModule {
     abstract fun bindMobileProvisioningRepository(
         impl: MobileProvisioningRepositoryImpl,
     ): MobileProvisioningRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindStrategiesRepository(impl: StrategiesRepositoryImpl): StrategiesRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindRiskRepository(impl: RiskRepositoryImpl): RiskRepository
 
     @Binds
     @Singleton

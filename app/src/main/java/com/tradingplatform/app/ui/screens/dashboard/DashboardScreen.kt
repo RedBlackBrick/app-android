@@ -34,7 +34,9 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.tradingplatform.app.domain.model.CircuitBreakerState
 import com.tradingplatform.app.domain.model.PnlPeriod
+import com.tradingplatform.app.domain.model.PortfolioCircuitBreakerStatus
 import com.tradingplatform.app.domain.model.Quote
 import com.tradingplatform.app.ui.components.AnimatedPnlText
 import com.tradingplatform.app.ui.components.CacheTimestamp
@@ -127,6 +129,12 @@ fun DashboardScreen(
                 } else {
                     // ── NAV (Net Asset Value) ───────────────────────────────────
                     NavSection(navState = uiState.navSummary)
+
+                    // ── Stratégies actives + Circuit-breaker (lecture seule) ───
+                    StrategyAndRiskStatusRow(
+                        activeStrategyCount = uiState.activeStrategyCount,
+                        circuitBreakerStatus = uiState.circuitBreakerStatus,
+                    )
 
                     // ── Sparkline chart ─────────────────────────────────────────
                     val pnlData = (uiState.pnlSummary as? PnlUiState.Success)?.data
@@ -278,6 +286,120 @@ private fun NavSection(
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * Row showing the active strategy count + circuit-breaker badge. Each tile
+ * is hidden when its data is null (failed fetch or "no rule active"); if both
+ * are hidden the entire row is collapsed to keep the Dashboard tight.
+ */
+@Composable
+private fun StrategyAndRiskStatusRow(
+    activeStrategyCount: Int?,
+    circuitBreakerStatus: PortfolioCircuitBreakerStatus?,
+    modifier: Modifier = Modifier,
+) {
+    val showStrategies = activeStrategyCount != null
+    val showBreaker = circuitBreakerStatus != null && circuitBreakerStatus.enabled
+    if (!showStrategies && !showBreaker) return
+
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+    ) {
+        if (showStrategies) {
+            StrategyCountTile(
+                count = activeStrategyCount,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        if (showBreaker) {
+            CircuitBreakerTile(
+                status = circuitBreakerStatus,
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun StrategyCountTile(
+    count: Int,
+    modifier: Modifier = Modifier,
+) {
+    val extendedColors = LocalExtendedColors.current
+    Card(
+        modifier = modifier
+            .semantics {
+                contentDescription = "$count stratégie${if (count > 1) "s" else ""} active${if (count > 1) "s" else ""}"
+            },
+        colors = CardDefaults.cardColors(
+            containerColor = extendedColors.cardSurface,
+        ),
+    ) {
+        Column(
+            modifier = Modifier.padding(Spacing.md),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
+        ) {
+            Text(
+                text = "Stratégies actives",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = count.toString(),
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
+    }
+}
+
+@Composable
+private fun CircuitBreakerTile(
+    status: PortfolioCircuitBreakerStatus,
+    modifier: Modifier = Modifier,
+) {
+    val extendedColors = LocalExtendedColors.current
+
+    val (label, valueText, valueColor) = when {
+        status.redisUnavailable ->
+            Triple("Risque", "Indisponible", extendedColors.warning)
+        status.state == CircuitBreakerState.OPEN ->
+            Triple("Risque", "Trading suspendu", extendedColors.pnlNegative)
+        else ->
+            Triple("Risque", "Trading actif", extendedColors.pnlPositive)
+    }
+
+    val a11y = when {
+        status.redisUnavailable -> "Statut risque indisponible — fail-closed côté serveur"
+        status.state == CircuitBreakerState.OPEN ->
+            "Trading suspendu — circuit-breaker ouvert (${status.count} sur ${status.threshold} violations)"
+        else -> "Trading actif — circuit-breaker fermé (${status.count} sur ${status.threshold} violations)"
+    }
+
+    Card(
+        modifier = modifier.semantics { contentDescription = a11y },
+        colors = CardDefaults.cardColors(
+            containerColor = extendedColors.cardSurface,
+        ),
+    ) {
+        Column(
+            modifier = Modifier.padding(Spacing.md),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = valueText,
+                style = MaterialTheme.typography.titleMedium,
+                color = valueColor,
+            )
         }
     }
 }

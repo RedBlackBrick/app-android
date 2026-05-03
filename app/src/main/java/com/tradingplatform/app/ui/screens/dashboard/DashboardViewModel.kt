@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.tradingplatform.app.domain.model.NavSummary
 import com.tradingplatform.app.domain.model.PnlPeriod
 import com.tradingplatform.app.domain.model.PnlSummary
+import com.tradingplatform.app.domain.model.PortfolioCircuitBreakerStatus
 import com.tradingplatform.app.domain.model.Quote
 import com.tradingplatform.app.domain.model.WsConnectionState
 import com.tradingplatform.app.domain.model.ActivityItem
@@ -13,10 +14,12 @@ import com.tradingplatform.app.domain.usecase.auth.GetPortfolioIdUseCase
 import com.tradingplatform.app.domain.usecase.market.GetDefaultQuoteSymbolUseCase
 import com.tradingplatform.app.domain.usecase.market.GetQuoteStreamUseCase
 import com.tradingplatform.app.domain.usecase.market.GetQuoteUseCase
+import com.tradingplatform.app.domain.usecase.portfolio.GetActiveStrategyCountUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPnlUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPortfolioNavUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPortfolioWsUpdatesUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetWsConnectionStateUseCase
+import com.tradingplatform.app.domain.usecase.risk.GetPortfolioCircuitBreakerStatusUseCase
 import com.tradingplatform.app.vpn.VpnNotConnectedException
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -79,6 +82,22 @@ data class DashboardUiState(
      * Les données affichées restent valides (polling REST actif en fallback).
      */
     val wsPrivateDegraded: Boolean = false,
+
+    /**
+     * Number of strategies currently flagged ``is_active=true`` for the user's
+     * portfolio. ``null`` while the value has not yet been fetched (or the
+     * fetch failed) — the Dashboard hides the tile in that case rather than
+     * showing a misleading "0 stratégies".
+     */
+    val activeStrategyCount: Int? = null,
+
+    /**
+     * Latest circuit-breaker status for the user's portfolio. ``null`` while
+     * the value has not yet been fetched. The Dashboard renders a badge from
+     * the result (hidden if disabled, green if closed, red if open, amber if
+     * Redis was unreachable).
+     */
+    val circuitBreakerStatus: PortfolioCircuitBreakerStatus? = null,
 )
 
 // ── Poll interval (fallback REST) ─────────────────────────────────────────────
@@ -111,6 +130,8 @@ class DashboardViewModel @Inject constructor(
     private val getPortfolioWsUpdatesUseCase: GetPortfolioWsUpdatesUseCase,
     getWsConnectionStateUseCase: GetWsConnectionStateUseCase,
     private val getActivityFeedUseCase: GetActivityFeedUseCase,
+    private val getActiveStrategyCountUseCase: GetActiveStrategyCountUseCase,
+    private val getPortfolioCircuitBreakerStatusUseCase: GetPortfolioCircuitBreakerStatusUseCase,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(DashboardUiState())
@@ -201,9 +222,12 @@ class DashboardViewModel @Inject constructor(
             val portfolioId = getPortfolioIdUseCase()
             _uiState.update { it.copy(portfolioId = portfolioId) }
 
-            // Load NAV and PnL in parallel (one-shot on init, period default DAY)
+            // Load NAV, PnL, strategy count and circuit-breaker status in parallel
+            // (one-shot on init, period default DAY).
             launch { fetchNav(portfolioId) }
             launch { fetchPnl(portfolioId, PnlPeriod.DAY) }
+            launch { fetchStrategyCount(portfolioId) }
+            launch { fetchCircuitBreakerStatus(portfolioId) }
         }
 
         // Collect real-time portfolio updates from the private WebSocket.
@@ -410,6 +434,8 @@ class DashboardViewModel @Inject constructor(
                 coroutineScope {
                     launch { fetchNav(portfolioId) }
                     launch { fetchPnl(portfolioId, period) }
+                    launch { fetchStrategyCount(portfolioId) }
+                    launch { fetchCircuitBreakerStatus(portfolioId) }
                 }
             } finally {
                 _isRefreshing.set(false)
@@ -447,6 +473,36 @@ class DashboardViewModel @Inject constructor(
                 _uiState.update {
                     it.copy(pnlSummary = PnlUiState.Error(e.localizedMessage ?: "Erreur"))
                 }
+            }
+    }
+
+    /**
+     * Fetch the active-strategy count. Failures are silent (the tile is hidden when
+     * [DashboardUiState.activeStrategyCount] is null) — a missing count must not
+     * block the rest of the Dashboard from rendering.
+     */
+    private suspend fun fetchStrategyCount(portfolioId: String) {
+        getActiveStrategyCountUseCase(portfolioId)
+            .onSuccess { count ->
+                _uiState.update { it.copy(activeStrategyCount = count) }
+            }
+            .onFailure { e ->
+                Timber.tag(TAG).w(e, "DashboardViewModel: strategy count fetch failed")
+            }
+    }
+
+    /**
+     * Fetch the portfolio circuit-breaker status. Failures are silent (the badge
+     * is hidden when [DashboardUiState.circuitBreakerStatus] is null) — the
+     * Dashboard's main job is showing the P&L, not nagging on a missing badge.
+     */
+    private suspend fun fetchCircuitBreakerStatus(portfolioId: String) {
+        getPortfolioCircuitBreakerStatusUseCase(portfolioId)
+            .onSuccess { status ->
+                _uiState.update { it.copy(circuitBreakerStatus = status) }
+            }
+            .onFailure { e ->
+                Timber.tag(TAG).w(e, "DashboardViewModel: circuit-breaker status fetch failed")
             }
     }
 

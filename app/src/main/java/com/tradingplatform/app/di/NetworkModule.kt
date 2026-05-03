@@ -4,6 +4,8 @@ import com.squareup.moshi.Moshi
 import com.tradingplatform.app.BuildConfig
 import com.tradingplatform.app.data.api.AuthApi
 import com.tradingplatform.app.data.api.BrokerConnectionApi
+import com.tradingplatform.app.data.api.RiskApi
+import com.tradingplatform.app.data.api.StrategiesApi
 import com.tradingplatform.app.data.api.DeviceApi
 import com.tradingplatform.app.data.api.MarketDataApi
 import com.tradingplatform.app.data.api.MyDevicesApi
@@ -278,4 +280,14 @@ object NetworkModule {
     @Singleton
     fun provideBrokerConnectionApi(retrofit: Retrofit): BrokerConnectionApi =
         retrofit.create(BrokerConnectionApi::class.java)
+
+    @Provides
+    @Singleton
+    fun provideStrategiesApi(retrofit: Retrofit): StrategiesApi =
+        retrofit.create(StrategiesApi::class.java)
+
+    @Provides
+    @Singleton
+    fun provideRiskApi(retrofit: Retrofit): RiskApi =
+        retrofit.create(RiskApi::class.java)
 }
