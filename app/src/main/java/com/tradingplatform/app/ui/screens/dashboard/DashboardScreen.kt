@@ -56,6 +56,7 @@ fun DashboardScreen(
     onNavigateToPositions: () -> Unit,
     onNavigateToPerformance: () -> Unit,
     onNavigateToTransactions: () -> Unit,
+    onNavigateToOrders: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: DashboardViewModel = hiltViewModel(),
 ) {
@@ -191,6 +192,12 @@ fun DashboardScreen(
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text("Voir historique")
+                    }
+                    Button(
+                        onClick = onNavigateToOrders,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Voir ordres")
                     }
                 }
             }

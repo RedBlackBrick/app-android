@@ -8,6 +8,7 @@ import com.tradingplatform.app.data.repository.MyDevicesRepositoryImpl
 import com.tradingplatform.app.data.repository.MarketDataRepositoryImpl
 import com.tradingplatform.app.data.repository.MobileProvisioningRepositoryImpl
 import com.tradingplatform.app.data.repository.NotificationRepositoryImpl
+import com.tradingplatform.app.data.repository.OrdersRepositoryImpl
 import com.tradingplatform.app.data.repository.PairingRepositoryImpl
 import com.tradingplatform.app.data.repository.PortfolioRepositoryImpl
 import com.tradingplatform.app.data.repository.RiskRepositoryImpl
@@ -22,6 +23,7 @@ import com.tradingplatform.app.domain.repository.MyDevicesRepository
 import com.tradingplatform.app.domain.repository.MarketDataRepository
 import com.tradingplatform.app.domain.repository.MobileProvisioningRepository
 import com.tradingplatform.app.domain.repository.NotificationRepository
+import com.tradingplatform.app.domain.repository.OrdersRepository
 import com.tradingplatform.app.domain.repository.PairingRepository
 import com.tradingplatform.app.domain.repository.PortfolioRepository
 import com.tradingplatform.app.domain.repository.RiskRepository
@@ -91,6 +93,10 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindRiskRepository(impl: RiskRepositoryImpl): RiskRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindOrdersRepository(impl: OrdersRepositoryImpl): OrdersRepository
 
     @Binds
     @Singleton

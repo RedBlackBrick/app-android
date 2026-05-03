@@ -30,6 +30,9 @@ sealed class Screen(val route: String) {
     /** Global transaction history across all positions. */
     data object TransactionHistory : Screen("transactions")
 
+    /** Read-only orders list (active + history) for the user's portfolio. */
+    data object Orders : Screen("orders")
+
     data object PositionDetail : Screen("position/{positionId}") {
         fun createRoute(positionId: Int): String = "position/$positionId"
     }

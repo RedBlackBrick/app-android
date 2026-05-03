@@ -41,6 +41,7 @@ import com.tradingplatform.app.ui.screens.dashboard.DashboardScreen
 import com.tradingplatform.app.ui.screens.devices.DeviceListScreen
 import com.tradingplatform.app.ui.screens.devices.EdgeDeviceDashboardScreen
 import com.tradingplatform.app.ui.screens.market.MarketDataScreen
+import com.tradingplatform.app.ui.screens.orders.OrdersScreen
 import com.tradingplatform.app.ui.screens.performance.PerformanceScreen
 import com.tradingplatform.app.ui.screens.pairing.PairingDoneScreen
 import com.tradingplatform.app.ui.screens.pairing.PairingProgressScreen
@@ -558,6 +559,9 @@ fun AppNavGraph(
                     onNavigateToTransactions = {
                         navController.navigate(Screen.TransactionHistory.route)
                     },
+                    onNavigateToOrders = {
+                        navController.navigate(Screen.Orders.route)
+                    },
                 )
             }
 
@@ -569,6 +573,12 @@ fun AppNavGraph(
 
             composable(Screen.TransactionHistory.route) {
                 TransactionHistoryScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                )
+            }
+
+            composable(Screen.Orders.route) {
+                OrdersScreen(
                     onNavigateBack = { navController.popBackStack() },
                 )
             }
