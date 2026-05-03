@@ -148,10 +148,10 @@ object NetworkModule {
     }
 
     // ── OkHttpClient @Named("lan") ─────────────────────────────────────────────
-    // Utilisé par PairingRepositoryImpl et LocalMaintenanceRepositoryImpl pour
-    // parler au pairing-server de la Radxa (LAN, port 8099, HTTPS avec cert
-    // auto-signé). Le pairing-server refuse désormais de démarrer sans TLS —
-    // d'où le switch http → https et le TrustManager permissif scopé LAN.
+    // Utilisé par PairingRepositoryImpl pour parler au pairing-server de la
+    // Radxa (LAN, port 8099, HTTPS avec cert auto-signé). Le pairing-server
+    // refuse de démarrer sans TLS — d'où le switch http → https et le
+    // TrustManager permissif scopé LAN.
     //
     // Garde-fou anti-fuite (LanOnlyHttpsGuard) : avant chaque requête, on
     // refuse immédiatement toute URL qui n'est ni HTTPS ni RFC-1918. Ça limite

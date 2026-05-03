@@ -522,8 +522,9 @@ Apres un pairing reussi, `StoreDevicePairingResultUseCase` persiste dans `Encryp
 | `device_wg_pubkey_{deviceId}`     | Cle publique Curve25519 du device    |
 | `device_local_ip_{deviceId}`      | IP LAN du device                     |
 
-Ces donnees sont reutilisees pour les communications LAN ulterieures
-(maintenance locale via `LocalMaintenanceRepository`).
+Ces donnees sont conservees pour d'eventuelles communications LAN ulterieures
+au-dela du pairing initial. La maintenance locale a ete retiree de l'app
+mobile (admin web uniquement) — voir l'historique git si besoin.
 
 ---
 
