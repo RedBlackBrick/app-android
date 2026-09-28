@@ -278,15 +278,17 @@ Toutes les phases du plan ont été exécutées par sous-agents (Opus/Sonnet) av
 | Escape hatch, dialog de corruption | 1.7 | corrigés |
 | CI unit + lint, CI instrumentée (GMD api30/api34), tests P0/P1/P2, garde de drift de contrats | 0, 5b, 5c, 5d | en place |
 | Documentation | 5a | alignée |
+| `isLoggedIn` réactif, consentement VPN, worker VPN système, lint | 6.1, 6.2, 6.3 | corrigés |
 
 Gates : 597 tests unitaires verts (6 ignorés : variante JVM du sealed box, couverte en instrumenté) ; `lintDebug` 0 erreur / 88 avertissements. Les tests instrumentés n'ont pas été exécutés localement (pas d'émulateur) : le job CI `instrumented` les lancera.
 
 ## 10. Suivis restants après la remédiation
 
-- `isLoggedIn` ne repasse jamais à `true` après un login dans l'app (bannière VPN et deep-link FCM le lisent) ; à traiter en gérant le changement de `startDestination` du `NavHost`.
-- Aucun appel à `VpnService.prepare()` (consentement VPN) dans l'app.
-- `WidgetUpdateWorker` ne synchronise pas quand seul un VPN système est actif.
-- Backend (optionnel, additif) : `position_id` dans `position_update`, suppression du temp token 2FA seulement sur succès, `executed_at` typé `datetime`, cible `make openapi-android`.
-- Lint : 88 avertissements à trier (versions de dépendances, icônes launcher, `ModifierParameter`) ; `TrustAllX509TrustManager` est documenté (LAN scellé).
+Traités dans la phase 6 (commit final de la branche) : `isLoggedIn` réactif aux événements de session, consentement VPN (`VpnService.prepare()` → `VpnState.ConsentRequired`, dialog depuis Setup et Réglages VPN), worker sous VPN système (déjà géré, tests ajoutés), triage lint (0 erreur ; les avertissements restants sont rétrogradés en informationnels dans `app/lint.xml` avec justification : versions de dépendances gelées, icônes launcher, trust manager LAN documenté).
+
+Restent, à ton appréciation :
+- Backend (optionnel, additif) : `position_id` dans `position_update`, suppression du temp token 2FA seulement sur succès TOTP, `executed_at` typé `datetime`, cible `make openapi-android`.
+- Assets : icônes launcher (forme adaptative, monochrome, tailles) signalées par lint.
 - `SealedBoxHelperRealTest` réactivable quand la CI passera en JDK 21 (lazysodium-android est du bytecode Java 21).
-- Vérification sur appareil recommandée : prompt biométrique API 28/29, attente `RESUMED` de l'escape hatch, dark mode des composants retouchés.
+- `reconnect()` retombe sur les routes full-tunnel par défaut : `allowedIps` du provisioning n'est jamais persisté (pré-existant).
+- Vérification sur appareil recommandée : prompt biométrique API 28/29, escape hatch (attente `RESUMED`), dialog de consentement VPN, dark mode des composants retouchés. Les tests instrumentés (Gradle Managed Devices) n'ont pas tourné localement : le job CI `instrumented` les exécutera.
