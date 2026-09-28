@@ -18,6 +18,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -48,7 +49,8 @@ private const val TOTP_CODE_LENGTH = 6
  * jamais transmis via les routes de navigation (sécurité backstack).
  *
  * @param onNavigateToDashboard Appelé quand la vérification réussit et le portfolio est chargé.
- * @param onNavigateBack Appelé quand l'utilisateur appuie sur "Retour" (optionnel).
+ * @param onNavigateBack Appelé quand l'utilisateur appuie sur "Retour" (optionnel). Également
+ *   utilisé par le bouton "Retour à la connexion" affiché en [TotpUiState.BackToLogin].
  */
 @Composable
 fun TotpScreen(
@@ -88,6 +90,9 @@ private fun TotpScreenContent(
 
     val isLoading = uiState is TotpUiState.Verifying
     val errorState = uiState as? TotpUiState.Error
+    // Session 2FA perdue : saisir un nouveau code ne peut pas aboutir
+    val backToLoginState = uiState as? TotpUiState.BackToLogin
+    val inputEnabled = !isLoading && backToLoginState == null
 
     Box(
         modifier = modifier
@@ -158,7 +163,7 @@ private fun TotpScreenContent(
                         }
                     },
                 ),
-                enabled = !isLoading,
+                enabled = inputEnabled,
                 modifier = Modifier
                     .fillMaxWidth()
                     .semantics { contentDescription = "Champ code TOTP à $TOTP_CODE_LENGTH chiffres" },
@@ -172,7 +177,7 @@ private fun TotpScreenContent(
                     focusManager.clearFocus()
                     onVerifyClick(code)
                 },
-                enabled = !isLoading && code.length == TOTP_CODE_LENGTH,
+                enabled = inputEnabled && code.length == TOTP_CODE_LENGTH,
                 modifier = Modifier
                     .fillMaxWidth()
                     .semantics { contentDescription = "Bouton Vérifier le code" },
@@ -181,6 +186,25 @@ private fun TotpScreenContent(
                     text = "Vérifier",
                     style = MaterialTheme.typography.labelLarge,
                 )
+            }
+
+            if (backToLoginState != null) {
+                Spacer(modifier = Modifier.height(Spacing.xl))
+                ErrorBanner(message = backToLoginState.message)
+                if (onNavigateBack != null) {
+                    Spacer(modifier = Modifier.height(Spacing.lg))
+                    OutlinedButton(
+                        onClick = onNavigateBack,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .semantics { contentDescription = "Bouton Retour à la connexion" },
+                    ) {
+                        Text(
+                            text = "Retour à la connexion",
+                            style = MaterialTheme.typography.labelLarge,
+                        )
+                    }
+                }
             }
         }
 

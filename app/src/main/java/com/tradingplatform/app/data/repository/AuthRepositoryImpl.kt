@@ -23,6 +23,7 @@ import com.tradingplatform.app.data.session.TokenHolder
 import com.tradingplatform.app.domain.repository.AuthRepository
 import java.time.Instant
 import okhttp3.OkHttpClient
+import retrofit2.Response
 import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -48,7 +49,7 @@ class AuthRepositoryImpl @Inject constructor(
             if (!response.isSuccessful) {
                 val errorBody = response.errorBody()?.string()
                 val code = response.code()
-                val retryAfter = response.headers()["Retry-After"]?.toIntOrNull()
+                val retryAfter = retryAfterSeconds(response)
 
                 // 429 : compte verrouillé sans body nécessaire — lire Retry-After
                 if (code == 429) throw AccountLockedException(retryAfterSeconds = retryAfter)
@@ -110,9 +111,13 @@ class AuthRepositoryImpl @Inject constructor(
         runCatching {
             val response = authApi.verify2fa(TotpVerifyRequestDto(sessionToken, totpCode))
             if (!response.isSuccessful) {
-                // Code TOTP invalide (401) → exception typée
-                if (response.code() == 401) {
-                    throw InvalidTotpCodeException()
+                when (response.code()) {
+                    // 401 = code TOTP faux OU temp token expiré/déjà consommé (le backend
+                    // supprime le temp token à la première lecture, avant de vérifier le code)
+                    // → réponse authentifiée par le serveur, la session 2FA est perdue.
+                    401 -> throw InvalidTotpCodeException()
+                    // 429 : rate limit 2FA (3/min côté backend) — même mapping que login
+                    429 -> throw AccountLockedException(retryAfterSeconds = retryAfterSeconds(response))
                 }
                 error("2FA verification failed: HTTP ${response.code()}")
             }
@@ -157,6 +162,10 @@ class AuthRepositoryImpl @Inject constructor(
 
         portfolios
     }
+
+    /** Délai en secondes de l'en-tête `Retry-After` (format entier uniquement), ou null. */
+    private fun retryAfterSeconds(response: Response<*>): Int? =
+        response.headers()["Retry-After"]?.toIntOrNull()
 
     /**
      * Parse le corps d'erreur d'un appel login et retourne l'exception typée correspondante,

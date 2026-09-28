@@ -25,6 +25,11 @@ Instructions pour Claude Code lors du travail sur ce projet.
 | Mutable `StateFlow` exposé depuis un `ViewModel` | Exposer `StateFlow` immuable uniquement |
 | `LaunchedEffect` avec des effets de bord non annulables | Toujours gérer l'annulation de coroutine |
 
+Pour un appel OkHttp brut (hand-built, hors Retrofit) — ex. `MobileProvisioningRepositoryImpl` —
+injecter `@IoDispatcher` (`di/DispatcherModule.kt`) et wrapper l'appel bloquant dans
+`withContext(io) { ... }`. Les fonctions `suspend` Retrofit dispatchent déjà off-caller
+elles-mêmes et n'en ont pas besoin.
+
 ### TOUJOURS FAIRE
 
 | Obligatoire | Comment |
@@ -252,9 +257,23 @@ des upserts (`OnConflictStrategy.REPLACE`) plutôt que DELETE + INSERT séquenti
 ### Migration Room
 
 Activer `schemaDirectory` (déjà configuré) et appliquer la stratégie suivante :
-- **Développement** : `fallbackToDestructiveMigration()` acceptable — schéma instable
-- **Production (v1 → v1.x)** : migrations explicites via `addMigrations(MIGRATION_X_Y)`
-- Ne jamais utiliser `fallbackToDestructiveMigration()` en release (perte de données alerts)
+- **Baseline v7** : l'app n'a jamais été livrée avant la version de schéma 7 (versionCode 1,
+  aucun utilisateur en v1-6) — décision D2 du plan de remédiation (finding #5). Les anciens
+  schémas `1.json`…`6.json` et les `MIGRATION_*` correspondants ont été supprimés ; `7.json`
+  est le seul schéma exporté et fait référence. **Aucune migration n'existe (ni n'a besoin
+  d'exister) avant v7.**
+- **Développement** : `fallbackToDestructiveMigration()` acceptable — schéma instable.
+  Configuré uniquement pour les builds debug dans `DatabaseModule.kt`.
+- **Release** : pas de fallback par design — la baseline v7 ne cible que les installations
+  fraîches. Le premier changement de schéma post-release (v8+) redevient soumis à la règle
+  générale : migration explicite obligatoire via `addMigrations(MIGRATION_X_Y)` dans
+  `DatabaseModule.kt` — ne jamais utiliser `fallbackToDestructiveMigration()` en release à
+  partir de là (perte de données `alerts`, pas de backup serveur). Voir la checklist « AJOUTER
+  UNE MIGRATION » dans `AppDatabase.kt`.
+- **Tests** : `MigrationTest` (androidTest, `MigrationTestHelper`) valide que le schéma exporté
+  `7.json` correspond aux entités déclarées dans `AppDatabase` — c'est le seul test de migration
+  tant qu'il n'y a pas de v8 (exécuté par le job CI instrumenté). Une variante JVM/Robolectric a
+  été tentée puis retirée : `MigrationTestHelper` ne voit pas les assets de schéma sous Robolectric.
 
 ### WorkManager — contraintes et comportement VPN
 
@@ -437,6 +456,10 @@ HttpLoggingInterceptor    → debug uniquement, tokens [REDACTED]
 
 Le middleware CSRF du VPS **ne fait pas d'exemption** sur les requêtes Bearer — le `CsrfInterceptor` est obligatoire pour tous les `POST/PUT/DELETE/PATCH`.
 
+**Source unique des chemins d'auth : `data/api/AuthPaths.kt`** (`PUBLIC` sans Bearer, `CSRF_EXEMPT`,
+`VPN_EXCLUDED`, `COOKIE_SAVE`, `isSensitive()`), miroir de `auth.py PUBLIC_PATHS` / `csrf.py CSRF_EXEMPT_PATHS`
+du backend. Ne jamais redéclarer un set de paths privé dans un intercepteur ou le cookie jar — modifier `AuthPaths` (+ `AuthPathsTest`).
+
 **Deux contraintes d'implémentation critiques pour `CsrfInterceptor` :**
 
 1. **Pas d'`AuthApi` en paramètre** — injecter un `OkHttpClient` "bare" (sans interceptors) pour
@@ -509,7 +532,17 @@ suspend fun readSecurely(key: String): String? {
 }
 ```
 
-Si le token retourné est `null` suite à cette exception : logout forcé vers `LoginScreen`.
+Attraper aussi `SecurityException` (security-crypto alpha enveloppe les échecs de déchiffrement
+Tink en `RuntimeException`). Les chemins critiques utilisent `readStringSafe` / `readBooleanSafe`
+(`SecureReadResult.Found | NotFound | Corrupted`) pour distinguer « absent » de « corrompu ».
+
+**Corruption détectée → reset complet.** `SessionManager.notifyKeystoreCorruption()` affiche le
+dialog de corruption ; son bouton lance `RecoverFromKeystoreCorruptionUseCase` (WS privé + tunnel
+WG coupés, caches token/cookie/CSRF vidés, Room vidé, puis `EncryptedDataStore.resetCorruptedStore()`
+qui supprime `trading_secure_prefs` **et** l'alias MasterKey avant de recréer un store vide).
+**Rien ne survit** (tokens, cookies, clés/config WireGuard, `setup_completed`, `local_token_*`) :
+l'app repart sur `SetupScreen` et l'utilisateur rescanne le QR de configuration. Si le store ne
+peut pas être recréé, le dialog réapparaît en variante « stockage indisponible » (réessayer).
 Ne jamais laisser l'app dans un état indéterminé avec des clés nulles.
 
 ### Verrou biométrique — comportement (Option B1 : deux mécanismes distincts)
@@ -1070,20 +1103,18 @@ Il est persisté via un `CookieJar` OkHttp qui écrit dans `EncryptedDataStore` 
 ```kotlin
 class EncryptedCookieJar(private val dataStore: EncryptedDataStore) : CookieJar {
 
-    // Paths exacts autorisés — ne pas utiliser .contains("auth") qui matcherait n'importe quel
-    // endpoint futur contenant "auth" dans son path.
-    private val AUTH_PATHS = setOf("/v1/auth/login", "/v1/auth/refresh")
-    private val REFRESH_PATH = "/v1/auth/refresh"
-
+    // Paths exacts (AuthPaths) — ne pas utiliser .contains("auth") qui matcherait n'importe quel
+    // endpoint futur contenant "auth" dans son path. COOKIE_SAVE inclut /2fa/verify (+ alias
+    // /verify-2fa) : pour un compte 2FA, c'est la vérification TOTP qui pose le refresh_token.
     override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
-        if (url.encodedPath in AUTH_PATHS) {
+        if (url.encodedPath in AuthPaths.COOKIE_SAVE) {
             // Filtrer sur le nom exact — ne pas persister les cookies analytics/tracking futurs
             cookies.filter { it.name == "refresh_token" }
                    .forEach { dataStore.save("cookie_${it.name}", it.toString()) }
         }
     }
     override fun loadForRequest(url: HttpUrl): List<Cookie> {
-        return if (url.encodedPath == REFRESH_PATH) dataStore.loadCookies() else emptyList()
+        return if (url.encodedPath == AuthPaths.REFRESH) dataStore.loadCookies() else emptyList()
     }
 }
 ```
@@ -1226,7 +1257,10 @@ LoginScreen → [auth OK + totp_enabled] → TotpScreen → [POST /v1/auth/2fa/v
 ```
 
 `TotpScreen` reçoit le `session_token` (issu de la réponse login TOTP) via navigation args.
-`TotpViewModel` expose un `UiState` : `AwaitingInput | Verifying | Success | Error`.
+`TotpViewModel` expose un `UiState` : `AwaitingInput | Verifying | Success | Error | BackToLogin`.
+Le temp token (en mémoire dans `SessionManager`) est lu sans être consommé ; il n'est consommé que
+sur succès ou sur 401 serveur (→ `BackToLogin`, le backend l'a brûlé). Timeout/IOException/429 →
+`Error` récupérable, token conservé.
 
 ### Widgets — accès sans verrou biométrique
 

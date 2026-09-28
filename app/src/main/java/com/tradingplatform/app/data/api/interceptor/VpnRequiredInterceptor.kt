@@ -1,6 +1,7 @@
 package com.tradingplatform.app.data.api.interceptor
 
 import com.tradingplatform.app.BuildConfig
+import com.tradingplatform.app.data.api.AuthPaths
 import com.tradingplatform.app.vpn.SystemVpnMonitor
 import com.tradingplatform.app.vpn.VpnNotConnectedException
 import com.tradingplatform.app.vpn.VpnState
@@ -32,19 +33,9 @@ class VpnRequiredInterceptor @Inject constructor(
     private val systemVpnMonitor: SystemVpnMonitor,
 ) : Interceptor {
 
-    companion object {
-        private val VPN_EXCLUDED_PATHS = setOf(
-            "/v1/auth/login",
-            "/v1/auth/refresh",
-            "/v1/auth/2fa/verify",
-            "/v1/auth/csrf-token",
-            "/csrf-token",
-        )
-    }
-
     override fun intercept(chain: Interceptor.Chain): Response {
         if (BuildConfig.DEV_MODE) return chain.proceed(chain.request())
-        if (chain.request().url.encodedPath in VPN_EXCLUDED_PATHS) {
+        if (chain.request().url.encodedPath in AuthPaths.VPN_EXCLUDED) {
             return chain.proceed(chain.request())
         }
         if (vpnManager.state.value is VpnState.Connected) {

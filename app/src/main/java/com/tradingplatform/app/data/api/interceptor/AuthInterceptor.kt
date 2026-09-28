@@ -1,6 +1,7 @@
 package com.tradingplatform.app.data.api.interceptor
 
 import com.tradingplatform.app.BuildConfig
+import com.tradingplatform.app.data.api.AuthPaths
 import com.tradingplatform.app.data.session.SessionManager
 import com.tradingplatform.app.data.session.TokenHolder
 import okhttp3.Interceptor
@@ -33,25 +34,15 @@ class AuthInterceptor @Inject constructor(
 
     companion object {
         private const val TAG = "AuthInterceptor"
-
-        // Endpoints that do NOT require an Authorization header. Fresh installs
-        // have no token yet; without this exclusion, the interceptor short-circuits
-        // with a synthetic 401 before /v1/auth/login can even reach the server.
-        // Must stay in sync with the backend CSRF_EXEMPT_PATHS in
-        // app/core/middleware/csrf.py.
-        private val PUBLIC_PATHS: Set<String> = setOf(
-            "/v1/auth/login",
-            "/v1/auth/register",
-            "/v1/auth/refresh",
-            "/v1/auth/csrf-token",
-        )
     }
 
     override fun intercept(chain: Interceptor.Chain): Response {
-        // Public endpoints: proceed without Authorization header (fresh installs
-        // have no token at all and must be able to reach /v1/auth/login).
+        // Public endpoints (AuthPaths.PUBLIC, miroir de auth.py PUBLIC_PATHS) : pas de
+        // Bearer. Une install fraîche n'a aucun token et doit joindre /v1/auth/login ;
+        // pendant un login 2FA le TokenHolder est vide et /v1/auth/2fa/verify
+        // s'authentifie par le temp token du body.
         val path = chain.request().url.encodedPath
-        if (path in PUBLIC_PATHS) {
+        if (path in AuthPaths.PUBLIC) {
             return chain.proceed(
                 chain.request().newBuilder()
                     .header("X-App-Version", BuildConfig.VERSION_CODE.toString())

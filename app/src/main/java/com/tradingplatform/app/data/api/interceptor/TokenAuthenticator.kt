@@ -2,6 +2,7 @@ package com.tradingplatform.app.data.api.interceptor
 
 import com.google.firebase.crashlytics.FirebaseCrashlytics
 import com.tradingplatform.app.data.api.AuthApi
+import com.tradingplatform.app.data.api.AuthPaths
 import com.tradingplatform.app.data.local.datastore.DataStoreKeys
 import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
 import com.tradingplatform.app.data.local.db.AppDatabase
@@ -63,7 +64,7 @@ class TokenAuthenticator @Inject constructor(
 
     override fun authenticate(route: Route?, response: Response): Request? {
         // Éviter la boucle infinie si le refresh lui-même retourne 401
-        if (response.request.url.encodedPath == "/v1/auth/refresh") {
+        if (response.request.url.encodedPath == AuthPaths.REFRESH) {
             Timber.tag(TAG).w("TokenAuthenticator: refresh endpoint returned 401 — forcing logout")
             handleLogout()
             return null

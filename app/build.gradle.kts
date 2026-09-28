@@ -251,6 +251,7 @@ dependencies {
     testImplementation(libs.work.testing)
     testImplementation(libs.robolectric)
     testImplementation(libs.test.core)
+    testImplementation(libs.room.testing)
     testImplementation(libs.okhttp.mockwebserver)
     // Compose UI tests on the JVM (Robolectric) — e.g. BiometricLockOverlayTest
     testImplementation(platform(libs.compose.bom))

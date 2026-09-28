@@ -28,6 +28,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.tradingplatform.app.data.session.SessionManager
 import com.tradingplatform.app.domain.usecase.auth.GetAuthContextUseCase
+import com.tradingplatform.app.domain.usecase.auth.RecoverFromKeystoreCorruptionUseCase
 import com.tradingplatform.app.security.BiometricLockManager
 import com.tradingplatform.app.security.BiometricManager
 import com.tradingplatform.app.ui.components.BiometricLockOverlay
@@ -59,6 +60,7 @@ import com.tradingplatform.app.ui.screens.settings.VpnSettingsScreen
 import com.tradingplatform.app.ui.screens.setup.SetupScreen
 import com.tradingplatform.app.ui.screens.totp.TotpScreen
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -120,29 +122,54 @@ private fun UpgradeRequiredDialog() {
  * Dialog affiché quand le Keystore Android est corrompu (clés invalides après
  * reboot sur certains devices Samsung/Xiaomi, suppression de la biométrie, etc.).
  *
- * Distinct du logout normal : explique la cause technique et propose de se
- * reconnecter. Non-dismissable pour éviter que l'app reste dans un état
+ * Distinct du logout normal : le stockage chiffré est irrécupérable, il est donc
+ * entièrement réinitialisé (config VPN comprise) et l'utilisateur est renvoyé vers
+ * l'écran Setup. Non-dismissable pour éviter que l'app reste dans un état
  * indéterminé avec des clés nulles (CLAUDE.md §4).
+ *
+ * @param recoveryFailed true si une tentative de reset a échoué (stockage indisponible).
+ * @param recoveryInProgress true pendant le reset — le bouton est désactivé.
  */
 @Composable
 private fun KeystoreCorruptionDialog(
+    recoveryFailed: Boolean,
+    recoveryInProgress: Boolean,
     onAcknowledge: () -> Unit,
 ) {
     androidx.compose.material3.AlertDialog(
         onDismissRequest = { /* non-dismissable */ },
         title = {
-            androidx.compose.material3.Text("Donnees de session corrompues")
+            androidx.compose.material3.Text(
+                if (recoveryFailed) "Stockage sécurisé indisponible"
+                else "Données sécurisées invalidées"
+            )
         },
         text = {
             androidx.compose.material3.Text(
-                "Les donnees de session ont ete invalidees par le systeme " +
-                    "(redemarrage, mise a jour de securite ou changement biometrique). " +
-                    "Veuillez vous reconnecter."
+                if (recoveryFailed) {
+                    "Le stockage sécurisé de l'appareil reste indisponible. " +
+                        "Réessayez ; si le problème persiste, effacez les données de " +
+                        "l'application dans les paramètres Android."
+                } else {
+                    "Les données sécurisées ont été invalidées par le système " +
+                        "(redémarrage, mise à jour de sécurité ou changement biométrique). " +
+                        "Vos données locales et la configuration VPN ont été réinitialisées — " +
+                        "scannez à nouveau le QR de configuration."
+                }
             )
         },
         confirmButton = {
-            androidx.compose.material3.TextButton(onClick = onAcknowledge) {
-                androidx.compose.material3.Text("Se reconnecter")
+            androidx.compose.material3.TextButton(
+                onClick = onAcknowledge,
+                enabled = !recoveryInProgress,
+            ) {
+                androidx.compose.material3.Text(
+                    when {
+                        recoveryInProgress -> "Réinitialisation…"
+                        recoveryFailed -> "Réessayer"
+                        else -> "Reconfigurer"
+                    }
+                )
             }
         },
     )
@@ -168,6 +195,7 @@ class AppNavViewModel @Inject constructor(
     private val wireGuardManager: WireGuardManager,
     private val systemVpnMonitor: SystemVpnMonitor,
     val biometricManager: BiometricManager,
+    private val recoverFromKeystoreCorruptionUseCase: RecoverFromKeystoreCorruptionUseCase,
 ) : ViewModel() {
 
     companion object {
@@ -218,13 +246,20 @@ class AppNavViewModel @Inject constructor(
 
     /**
      * True quand le Keystore est corrompu (R1 fix).
-     * L'UI affiche un dialog explicatif distinct du logout normal :
-     * "Donnees de session corrompues. Veuillez vous reconnecter."
-     * Le dialog propose un bouton "Se reconnecter" qui clear les donnees et
-     * redirige vers LoginScreen.
+     * L'UI affiche un dialog explicatif distinct du logout normal. Son bouton lance
+     * [RecoverFromKeystoreCorruptionUseCase] (reset complet du stockage chiffré) puis
+     * redirige vers l'écran Setup (rescan du QR de configuration).
      */
     private val _showKeystoreCorruption = MutableStateFlow(false)
     val showKeystoreCorruption: StateFlow<Boolean> = _showKeystoreCorruption.asStateFlow()
+
+    /** True si la dernière tentative de reset a échoué — variante "stockage indisponible". */
+    private val _keystoreRecoveryFailed = MutableStateFlow(false)
+    val keystoreRecoveryFailed: StateFlow<Boolean> = _keystoreRecoveryFailed.asStateFlow()
+
+    /** True pendant l'exécution du reset — évite les doubles clics. */
+    private val _keystoreRecoveryInProgress = MutableStateFlow(false)
+    val keystoreRecoveryInProgress: StateFlow<Boolean> = _keystoreRecoveryInProgress.asStateFlow()
 
     /**
      * Tri-state:
@@ -324,9 +359,45 @@ class AppNavViewModel @Inject constructor(
         }
     }
 
-    /** Called by the UI when the user acknowledges the Keystore corruption dialog. */
+    /**
+     * Called by the UI when the user acknowledges the Keystore corruption dialog.
+     *
+     * Lance le reset complet ([RecoverFromKeystoreCorruptionUseCase]). En cas de succès,
+     * le dialog est fermé et l'app repart de l'écran Setup (isSetupCompleted=false) :
+     * la config VPN a été perdue avec le reste du stockage. En cas d'échec, le dialog
+     * reste affiché dans sa variante "stockage indisponible" pour permettre un nouvel essai.
+     */
     fun onKeystoreCorruptionAcknowledged() {
-        _showKeystoreCorruption.value = false
+        if (_keystoreRecoveryInProgress.value) return
+        _keystoreRecoveryInProgress.value = true
+        viewModelScope.launch {
+            val recovered = try {
+                recoverFromKeystoreCorruptionUseCase()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.e(e, "AppNavViewModel: keystore recovery threw")
+                false
+            }
+            _keystoreRecoveryInProgress.value = false
+            if (recovered) {
+                _keystoreRecoveryFailed.value = false
+                _isAdmin.value = false
+                // isSetupCompleted avant isLoggedIn : l'effet de navigation "Setup" doit
+                // prévaloir sur l'effet "isLoggedIn == false → Login".
+                _isSetupCompleted.value = false
+                _isLoggedIn.value = false
+                _showKeystoreCorruption.value = false
+            } else {
+                _keystoreRecoveryFailed.value = true
+                _showKeystoreCorruption.value = true
+            }
+        }
+    }
+
+    /** Called by the UI when the Setup flow completes (VPN configured). */
+    fun onSetupCompleted() {
+        _isSetupCompleted.value = true
     }
 
     /**
@@ -381,6 +452,8 @@ fun AppNavGraph(
     val vpnState by appNavViewModel.effectiveVpnState.collectAsStateWithLifecycle()
     val showUpgradeRequired by appNavViewModel.showUpgradeRequired.collectAsStateWithLifecycle()
     val showKeystoreCorruption by appNavViewModel.showKeystoreCorruption.collectAsStateWithLifecycle()
+    val keystoreRecoveryFailed by appNavViewModel.keystoreRecoveryFailed.collectAsStateWithLifecycle()
+    val keystoreRecoveryInProgress by appNavViewModel.keystoreRecoveryInProgress.collectAsStateWithLifecycle()
     val biometricLocked by appNavViewModel.biometricLocked.collectAsStateWithLifecycle()
 
     // Wait until all datastore checks complete before rendering anything.
@@ -418,12 +491,31 @@ fun AppNavGraph(
     // navigate to Login and clear the entire backstack so the user can re-authenticate.
     // Les dialogs globaux (upgradeRequired / keystoreCorruption) sont fermés explicitement
     // sauf si c'est la corruption Keystore qui a déclenché le logout (dialog encore nécessaire).
+    //
+    // Si le setup n'est pas (ou plus) complété — premier lancement ou reset du stockage
+    // chiffré après corruption Keystore — c'est l'effet "Setup" ci-dessous qui gagne :
+    // sans config VPN, Login est inutilisable.
     LaunchedEffect(isLoggedIn) {
-        if (isLoggedIn == false) {
+        if (isLoggedIn == false && isSetupCompleted != false) {
             if (!showKeystoreCorruption) {
                 appNavViewModel.dismissAllDialogs()
             }
             navController.navigate(Screen.Login.route) {
+                popUpTo(0) { inclusive = true }
+                launchSingleTop = true
+            }
+        }
+    }
+
+    // Setup non complété (ou plus complété après reset du stockage chiffré suite à une
+    // corruption Keystore — audit #17) : toute la config VPN a été perdue, on renvoie
+    // l'utilisateur vers SetupScreen en vidant la back stack. No-op si déjà sur Setup
+    // (premier lancement : c'est la startDestination).
+    LaunchedEffect(isSetupCompleted) {
+        if (isSetupCompleted == false &&
+            navController.currentDestination?.route != Screen.Setup.route
+        ) {
+            navController.navigate(Screen.Setup.route) {
                 popUpTo(0) { inclusive = true }
                 launchSingleTop = true
             }
@@ -474,6 +566,8 @@ fun AppNavGraph(
         // (reboot Samsung/Xiaomi, suppression biométrie, reset device).
         if (showKeystoreCorruption) {
             KeystoreCorruptionDialog(
+                recoveryFailed = keystoreRecoveryFailed,
+                recoveryInProgress = keystoreRecoveryInProgress,
                 onAcknowledge = { appNavViewModel.onKeystoreCorruptionAcknowledged() },
             )
         }
@@ -503,6 +597,10 @@ fun AppNavGraph(
             composable(Screen.Setup.route) {
                 SetupScreen(
                     onSetupComplete = {
+                        // Resynchronise le flag : sans ça, un second reset (corruption
+                        // Keystore) dans la même session ne ferait pas transiter
+                        // isSetupCompleted false → false et l'effet "Setup" ne se relancerait pas.
+                        appNavViewModel.onSetupCompleted()
                         navController.navigate(Screen.Login.route) {
                             popUpTo(Screen.Setup.route) { inclusive = true }
                         }
