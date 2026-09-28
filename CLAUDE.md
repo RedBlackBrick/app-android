@@ -641,10 +641,9 @@ done
 
 # Tests instrumentation (émulateur/device requis)
 ./gradlew connectedAndroidTest
-
-# Coverage
-./gradlew jacocoTestReport
 ```
+
+Coverage : plugin jacoco non appliqué — à ajouter si besoin (voir docs/gradle-setup.md).
 
 Structure :
 - `test/` — UseCases, ViewModels (Mockk + Turbine pour StateFlow), intercepteurs OkHttp (MockWebServer), Repositories

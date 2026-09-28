@@ -108,6 +108,18 @@ android {
         }
     }
 
+    lint {
+        abortOnError = true
+        warningsAsErrors = false
+        checkReleaseBuilds = false
+        // Pas de baseline pour l'instant : lint n'a jamais tourné sur ce module, donc aucun
+        // fichier lint-baseline.xml existant a committer. AGP echoue le build si `baseline`
+        // pointe vers un fichier absent (message "missing baseline file... will be created").
+        // Quand l'audit aura fait tourner `./gradlew lintDebug` une premiere fois et trie les
+        // faux positifs restants, decommenter la ligne suivante et committer le fichier genere :
+        // baseline = file("lint-baseline.xml")
+    }
+
 }
 
 // Les tests Paparazzi dépendent du plugin qui est opt-in via -PenablePaparazzi=true.
@@ -240,6 +252,9 @@ dependencies {
     testImplementation(libs.robolectric)
     testImplementation(libs.test.core)
     testImplementation(libs.okhttp.mockwebserver)
+    // Compose UI tests on the JVM (Robolectric) — e.g. BiometricLockOverlayTest
+    testImplementation(platform(libs.compose.bom))
+    testImplementation(libs.compose.ui.test)
     testImplementation(libs.org.json)
     testImplementation(kotlin("test"))
     androidTestImplementation(platform(libs.compose.bom))

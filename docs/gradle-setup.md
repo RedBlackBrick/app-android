@@ -371,13 +371,24 @@ dependencies {
 
 ### CI/CD — secrets non commites
 
+Le workflow reel vit dans `.github/workflows/android.yml` (job `unit`, JDK 17 temurin —
+aligne sur `compileOptions`/`kotlin { jvmToolchain(17) }` dans `app/build.gradle.kts` et sur
+la compatibilite AGP 9.0.1 / Gradle 9.2.1). Il lance
+`./gradlew testDebugUnitTest lintDebug --no-daemon --stacktrace` et uploade
+`app/build/reports` en artifact (`if: always()`). Un job `instrumented` (Gradle Managed
+Devices api30/api34) est present mais commente — a activer en phase 5 (voir
+`audit/plan-ui-tests-ci.md`).
+
 Fichiers a injecter via variables d'environnement en CI :
 - `local.properties` -> encoder en base64, decoder en step CI avant le build
 - `google-services.json` -> stocker comme secret CI, ecrire dans `app/` au runtime
-- `keystore/*.jks` -> meme approche base64
+  (le plugin `com.google.gms.google-services` cherche `app/google-services.json`, a cote du
+  module ; requis meme pour les tests unitaires car le plugin echoue sinon a la configuration)
+- `keystore/*.jks` -> meme approche base64 (pas necessaire pour le job `unit`, seulement pour
+  `assembleRelease`)
 
 ```yaml
-# Exemple GitHub Actions
+# .github/workflows/android.yml — extrait
 - name: Decode local.properties
   run: echo "${{ secrets.LOCAL_PROPERTIES_B64 }}" | base64 -d > local.properties
 - name: Decode google-services.json
