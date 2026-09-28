@@ -127,11 +127,17 @@ android {
                     device = "Pixel 5"
                     apiLevel = 30
                     systemImageSource = "aosp-atd"
+                    // Image 64 bits obligatoire : l'image ATD API 30 par défaut est x86 32 bits,
+                    // ABI absente de l'APK (abiFilters) → "No matching Apks found" en CI.
+                    require64Bit = true
                 }
                 create("api34") {
                     device = "Pixel 6"
                     apiLevel = 34
                     systemImageSource = "aosp-atd"
+                    // Image 64 bits obligatoire : l'image ATD API 30 par défaut est x86 32 bits,
+                    // ABI absente de l'APK (abiFilters) → "No matching Apks found" en CI.
+                    require64Bit = true
                 }
             }
         }
