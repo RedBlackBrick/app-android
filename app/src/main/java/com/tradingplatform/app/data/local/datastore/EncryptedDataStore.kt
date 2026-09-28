@@ -38,6 +38,9 @@ object DataStoreKeys {
     // Biometric inactivity lock state — persisté pour restaurer le verrou après un
     // process kill (app tuée pendant qu'elle était verrouillée → redémarrage → encore verrouillée)
     val BIOMETRIC_LOCKED = booleanPreferencesKey("biometric_locked")
+    // Timestamp (epoch ms) de la dernière interaction utilisateur — permet de re-verrouiller au
+    // démarrage à froid si le process a été tué après > 5 min d'inactivité (BiometricLockManager).
+    val LAST_INTERACTION_AT = longPreferencesKey("biometric_last_interaction_at")
     // Symbole par défaut affiché par le Dashboard et utilisé pour le sync quote initial
     // des widgets (fallback). Configurable par l'utilisateur via ProfileScreen. Non sensible
     // stricto-sensu, mais stocké dans EncryptedDataStore pour homogénéité avec les autres
@@ -163,6 +166,9 @@ class EncryptedDataStore internal constructor(
         DataStoreKeys.WG_TUNNEL_IP.name,
         DataStoreKeys.WG_DNS.name,
         DataStoreKeys.SETUP_COMPLETED.name,
+        // Verrou biométrique : un apply() perdu au kill ferait redémarrer déverrouillé.
+        DataStoreKeys.BIOMETRIC_LOCKED.name,
+        DataStoreKeys.LAST_INTERACTION_AT.name,
     )
 
     // Clés préservées par clearSession() — identité device, pas session utilisateur.
@@ -369,7 +375,8 @@ class EncryptedDataStore internal constructor(
 
     suspend fun writeLong(key: Preferences.Key<Long>, value: Long) = withContext(Dispatchers.IO) {
         val prefs = prefs() ?: return@withContext
-        prefs.edit { putLong(key.name, value) }
+        val commit = key.name in criticalKeys
+        prefs.edit(commit = commit) { putLong(key.name, value) }
     }
 
     suspend fun writeInt(key: Preferences.Key<Int>, value: Int) = withContext(Dispatchers.IO) {

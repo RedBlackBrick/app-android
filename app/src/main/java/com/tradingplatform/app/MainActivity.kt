@@ -4,47 +4,33 @@ import android.content.Intent
 import android.os.Bundle
 import android.view.MotionEvent
 import android.view.WindowManager
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import androidx.lifecycle.lifecycleScope
+import androidx.fragment.app.FragmentActivity
 import com.tradingplatform.app.data.session.SessionManager
 import com.tradingplatform.app.security.BiometricLockManager
 import com.tradingplatform.app.security.RootDetector
 import com.tradingplatform.app.ui.navigation.AppNavGraph
 import com.tradingplatform.app.ui.theme.TradingPlatformTheme
 import dagger.hilt.android.AndroidEntryPoint
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 import timber.log.Timber
-import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 
+/**
+ * FragmentActivity (et non ComponentActivity) : `BiometricPrompt` exige une FragmentActivity
+ * pour afficher son dialog. Avec une ComponentActivity, le verrou biométrique ne pouvait pas
+ * afficher de prompt (audit #1).
+ */
 @AndroidEntryPoint
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
 
     @Inject lateinit var rootDetector: RootDetector
     @Inject lateinit var biometricLockManager: BiometricLockManager
     @Inject lateinit var sessionManager: SessionManager
 
-    private var inactivityJob: Job? = null
-    private var isBiometricLocked = false
-
-    /**
-     * Timestamp de la dernière interaction tactile. Mis à jour sans allocation par
-     * [dispatchTouchEvent], lu périodiquement par le polling timer. Évite de créer
-     * un nouveau Job Coroutine à chaque touch event (pattern cancel+launch coûteux
-     * sur écrans très sensibles — potentiellement des milliers d'allocations/s).
-     */
-    private val lastInteractionAt = AtomicLong(System.currentTimeMillis())
-
     companion object {
-        private const val INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000L  // 5 min
-        private const val INACTIVITY_POLL_MS = 5_000L             // 5s
         const val EXTRA_NAVIGATE_TO = "navigate_to"
     }
 
@@ -75,8 +61,6 @@ class MainActivity : ComponentActivity() {
                 AppNavGraph()
             }
         }
-
-        startInactivityTimer()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -85,45 +69,12 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Réinitialise le timer d'inactivité à chaque interaction tactile.
-     * Mécanisme 2 du verrou biométrique (CLAUDE.md §4).
-     *
-     * Implémentation : simple update d'un AtomicLong — pas d'allocation, pas de
-     * Job relancé à chaque touch. Le polling timer vérifie le delta toutes les 5s.
+     * Transmet chaque interaction tactile au [BiometricLockManager], seul propriétaire du
+     * timer d'inactivité (CLAUDE.md §4). Simple écriture d'un AtomicLong — pas d'allocation.
      */
     override fun dispatchTouchEvent(ev: MotionEvent?): Boolean {
-        if (!isBiometricLocked) {
-            lastInteractionAt.set(System.currentTimeMillis())
-        }
+        biometricLockManager.onUserInteraction()
         return super.dispatchTouchEvent(ev)
-    }
-
-    private fun startInactivityTimer() {
-        inactivityJob?.cancel()
-        lastInteractionAt.set(System.currentTimeMillis())
-        inactivityJob = lifecycleScope.launch {
-            while (isActive) {
-                delay(INACTIVITY_POLL_MS)
-                if (isBiometricLocked) continue
-                val elapsed = System.currentTimeMillis() - lastInteractionAt.get()
-                if (elapsed >= INACTIVITY_TIMEOUT_MS) {
-                    showBiometricLock()
-                }
-            }
-        }
-    }
-
-    private fun showBiometricLock() {
-        isBiometricLocked = true
-        Timber.d("MainActivity: showing biometric lock (inactivity timeout)")
-        biometricLockManager.lock()
-    }
-
-    fun onBiometricUnlocked() {
-        isBiometricLocked = false
-        biometricLockManager.unlock()
-        lastInteractionAt.set(System.currentTimeMillis())
-        Timber.d("MainActivity: biometric unlocked — timer reset")
     }
 
     private fun checkRootStatus() {

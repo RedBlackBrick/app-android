@@ -173,7 +173,7 @@ La connexion LAN utilise un `OkHttpClient` dédié sans les intercepteurs VPS (p
 | Sécurité | RootBeer | 0.1.0 |
 | Logging | Timber (strippé en release) | 5.0.1 |
 | Build | AGP 9.0.1 + Gradle 9.2.1 | — |
-| Min SDK | Android 8.0 | API 26 |
+| Min SDK | Android 9.0 | API 28 |
 | Target SDK | Android 15 | API 35 |
 
 > ⚠ Libs en alpha — ne pas upgrader sans tester (EncryptedDataStore, BiometricPrompt)

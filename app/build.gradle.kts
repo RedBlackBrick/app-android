@@ -32,7 +32,11 @@ android {
 
     defaultConfig {
         applicationId = "com.tradingplatform.app"
-        minSdk = 26
+        // minSdk 28 (décision D1, CLAUDE.md §4) : sur API 26-27 BiometricPrompt passe par
+        // FingerprintDialogFragment → AlertDialog AppCompat, qui plante avec le thème framework
+        // actuel (android:Theme.Material.Light.NoActionBar). On exclut ces versions plutôt que
+        // de basculer toute l'app sur un thème AppCompat.
+        minSdk = 28
         targetSdk = 36
         versionCode = 1
         versionName = "1.0.0"
@@ -200,6 +204,8 @@ dependencies {
 
     // Biométrie
     implementation(libs.biometric)
+    // FragmentActivity (MainActivity) — requis par BiometricPrompt
+    implementation(libs.fragment.ktx)
 
     // Glance widgets
     implementation(libs.glance.appwidget)

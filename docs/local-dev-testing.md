@@ -22,7 +22,7 @@ Deux gardes de sécurité sont désactivées automatiquement quand `BuildConfig.
 ## Prérequis
 
 - Backend `trading-platform` en cours d'exécution (`make dev` ou `make dev-local-all`)
-- Android Studio + émulateur API 26+, **ou** téléphone physique sur le même réseau Wi-Fi
+- Android Studio + émulateur API 28+, **ou** téléphone physique sur le même réseau Wi-Fi
 - `google-services.json` dans `app/` pour que le build compile (FCM/Crashlytics)
   → Récupérer depuis Firebase Console du projet, ou désactiver le plugin Crashlytics
   temporairement dans `app/build.gradle.kts`

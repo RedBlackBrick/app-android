@@ -549,41 +549,49 @@ Ne jamais laisser l'app dans un état indéterminé avec des clés nulles.
 
 ### Verrou biométrique — comportement (Option B1 : deux mécanismes distincts)
 
-`setUserAuthenticationValidityDurationSeconds(300)` et "inactivité de 5 min" sont deux choses
-différentes. L'implémentation combine les deux :
+La validité de 300 s de la clé Keystore et "inactivité de 5 min" sont deux choses différentes.
+L'implémentation combine les deux :
 
 | Mécanisme | Rôle |
 |-----------|------|
-| Clé Keystore avec `setUserAuthenticationValidityDurationSeconds(300)` | Invalide la clé crypto 5 min **après la dernière auth biométrique** — géré par Android |
-| Timer d'inactivité dans `MainActivity` | Déclenche l'overlay et redemande la biométrie après 5 min **sans interaction écran** |
+| Clé Keystore `setUserAuthenticationParameters(300, AUTH_BIOMETRIC_STRONG)` (API 30+ ; `setUserAuthenticationValidityDurationSeconds(300)` sur 28-29) | Invalide la clé crypto 5 min **après la dernière auth biométrique forte** — géré par Android |
+| Timer d'inactivité dans `BiometricLockManager` (singleton) | Déclenche l'overlay et redemande la biométrie après 5 min **sans interaction écran** |
 
-Le timer d'inactivité est géré dans `MainActivity` :
+**`BiometricLockManager` est le seul propriétaire** du timestamp d'interaction, du poll (5 s) et
+de `isLocked` ; il observe `ProcessLifecycleOwner` (`onStart` : verrouille si expiré puis relance
+le poll ; `onStop` : coupe le poll et persiste). `MainActivity` ne fait que transmettre les touches
+(la recréation d'Activity ne remet donc pas l'horloge à zéro) :
 ```kotlin
-// Réinitialiser à chaque dispatchTouchEvent
 override fun dispatchTouchEvent(ev: MotionEvent?): Boolean {
-    resetInactivityTimer()
+    biometricLockManager.onUserInteraction()   // AtomicLong, ignoré pendant le verrou
     return super.dispatchTouchEvent(ev)
 }
-private fun resetInactivityTimer() {
-    inactivityJob?.cancel()
-    inactivityJob = lifecycleScope.launch {
-        delay(INACTIVITY_TIMEOUT_MS) // 5 * 60 * 1000
-        showBiometricLock()
-    }
-}
 ```
+`unlock()` ré-arme l'horloge ; `BIOMETRIC_LOCKED` + `LAST_INTERACTION_AT` sont persistés en
+`commit()` (clés critiques d'`EncryptedDataStore`). Sans session (`TokenHolder` vide :
+Setup/Login), le timeout ne verrouille pas.
 
-**Révocation biométrie** : si l'utilisateur supprime ses empreintes, la clé Keystore est
-invalidée. Toujours intercepter `KeyPermanentlyInvalidatedException` lors de l'utilisation de
-la clé et régénérer la clé + demander une nouvelle authentification :
-```kotlin
-try {
-    cipher.init(Cipher.ENCRYPT_MODE, keystoreKey)
-} catch (e: KeyPermanentlyInvalidatedException) {
-    keystoreManager.regenerateKey()
-    promptBiometricReEnrollment()
-}
-```
+**Démarrage à froid — verrouillé par défaut (D7).** `isLocked` vaut `true` jusqu'à la décision de
+`TradingApplication`, prise dans la coroutine qui lit `ACCESS_TOKEN` : session présente →
+`restorePersistedState()` avant `tokenHolder.setToken` (verrouillé sauf état persisté
+« déverrouillé » avec interaction < 5 min) ; pas de session → `unlock()` silencieux (Setup/Login
+non protégés) ; Keystore corrompu → reste verrouillé (le reset de récupération déverrouille).
+
+**Overlay fail-closed.** `BiometricLockOverlay` n'appelle `onAuthSuccess` **que** depuis le
+callback de succès du `BiometricPrompt`. Pas de `FragmentActivity` dans la chaîne de `Context`
+ou pas de `BiometricManager` → message d'erreur, l'overlay reste. Seule autre sortie : le bouton
+« Se reconnecter » (après 60 s) → logout forcé. L'overlay bloque les touches et le retour
+arrière ; en `LocalInspectionMode` il est rendu statiquement sans lancer de prompt.
+`MainActivity` est donc une `FragmentActivity` (exigée par `BiometricPrompt`), et
+**`minSdk = 28`** (décision D1) : sur API 26-27 `BiometricPrompt` passe par un dialog AppCompat
+qui plante avec notre thème framework — on n'a pas basculé l'app sur un thème AppCompat.
+
+**Révocation biométrie** : avant chaque prompt, `BiometricManager` appelle
+`KeystoreManager.checkAuthValidity()` → `Valid` / `Expired` (`UserNotAuthenticatedException`,
+cas nominal après 300 s : on affiche le prompt) / `Invalidated`
+(`KeyPermanentlyInvalidatedException`, empreintes supprimées : `regenerateKey()` puis
+`onKeyInvalidated` → logout forcé, sans prompt). Aucune de ces exceptions ne doit s'échapper.
+Prompt : `BIOMETRIC_STRONG` seul (bouton négatif obligatoire), `setConfirmationRequired(false)`.
 
 - En cas de verrou : overlay opaque sur l'écran, données non visibles
 - L'authentification biométrique réussie déverrouille pour 5 min supplémentaires (reset les deux mécanismes)

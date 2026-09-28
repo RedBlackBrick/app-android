@@ -14,6 +14,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
@@ -459,6 +460,10 @@ fun AppNavGraph(
     // Wait until all datastore checks complete before rendering anything.
     // isLoggedIn and isSetupCompleted are set atomically in the same init coroutine,
     // so checking isSetupCompleted alone is sufficient — but both are null initially.
+    // Biometric lock: BiometricLockManager.isLocked starts at `true` (fail-closed until the
+    // cold-start restore/unlock in TradingApplication). Once this gate opens, the overlay below
+    // is composed in the same Box as the Scaffold, above it (zIndex), and AnimatedVisibility
+    // shows it without a fade-in on its first composition → no authenticated frame is exposed.
     val loggedIn = isLoggedIn ?: return
     val setupCompleted = isSetupCompleted ?: return
 
@@ -546,7 +551,11 @@ fun AppNavGraph(
 
     Box(modifier = modifier.fillMaxSize()) {
     Scaffold(
-        modifier = Modifier.fillMaxSize(),
+        // While locked, hide the content under the overlay from accessibility services
+        // (TalkBack would otherwise still read P&L / positions behind the opaque overlay).
+        modifier = Modifier
+            .fillMaxSize()
+            .then(if (biometricLocked) Modifier.clearAndSetSemantics {} else Modifier),
         bottomBar = {
             if (showBottomBar) {
                 BottomNavBar(
@@ -897,9 +906,11 @@ fun AppNavGraph(
         } // Column
     } // Scaffold
 
-    // Biometric lock overlay — shown on top of all content when inactivity timer fires.
-    // BiometricLockManager.lock() is called by MainActivity after INACTIVITY_TIMEOUT_MS.
-    // The overlay is opaque — trading data is not visible while locked (CLAUDE.md §4).
+    // Biometric lock overlay — shown on top of all content whenever BiometricLockManager.isLocked
+    // is true (cold start with a session, inactivity timeout, process restored while locked).
+    // BiometricLockManager owns the inactivity timer; MainActivity only forwards touches.
+    // The overlay is opaque, consumes touches and back presses, and only unlocks on a
+    // successful BiometricPrompt (fail-closed) — CLAUDE.md §4.
     BiometricLockOverlay(
         isLocked = biometricLocked,
         onAuthSuccess = { appNavViewModel.onBiometricUnlocked() },
