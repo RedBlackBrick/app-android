@@ -112,6 +112,16 @@ android {
             all {
                 it.maxHeapSize = "4g"
                 it.forkEvery = 1
+                // Les tests JVM tournent sur un JDK 21 (pas le toolchain de compilation 17) :
+                // lazysodium 5.2.0 (android + java) est du bytecode Java 21 (class v65) —
+                // requis par SealedBoxHelperRealTest (libsodium réel via JNA). Le bytecode
+                // Kotlin/Java cible 17 s'exécute sans changement sur 21. La CI et le daemon
+                // (gradle/gradle-daemon-jvm.properties) sont déjà en JDK 21.
+                it.javaLauncher.set(
+                    project.extensions.getByType<JavaToolchainService>().launcherFor {
+                        languageVersion.set(JavaLanguageVersion.of(21))
+                    },
+                )
             }
         }
 
@@ -314,7 +324,7 @@ dependencies {
     // constructors — the same introspection Moshi's own KotlinJsonAdapterFactory performs at
     // runtime for non-codegen adapters.
     testImplementation(kotlin("reflect"))
-    // JVM-only libsodium binding (JNA-backed) for SealedBoxHelperRealTest — 5.1.4 : 5.2.0 est compilé pour Java 21 (class v65) alors que les tests tournent sur JDK 17 — LazySodiumAndroid's
+    // JVM-only libsodium binding (JNA-backed) for SealedBoxHelperRealTest — LazySodiumAndroid's
     // JNI .so cannot load on the plain JVM unit test runner. Same version as lazysodium-android
     // (libs.versions.toml "lazysodium") and the JNA version the main app already pulls in via
     // libs.jna (see the "artifact { type = aar }" implementation above), to avoid resolving two

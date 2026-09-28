@@ -289,6 +289,6 @@ Traités dans la phase 6 (commit final de la branche) : `isLoggedIn` réactif au
 Restent, à ton appréciation :
 - Backend (optionnel, additif) : `position_id` dans `position_update`, suppression du temp token 2FA seulement sur succès TOTP, `executed_at` typé `datetime`, cible `make openapi-android`.
 - Assets : icônes launcher (forme adaptative, monochrome, tailles) signalées par lint.
-- `SealedBoxHelperRealTest` réactivable quand la CI passera en JDK 21 (lazysodium-android est du bytecode Java 21).
+- ~~`SealedBoxHelperRealTest` réactivable quand la CI passera en JDK 21~~ — fait : les tests JVM tournent sur un launcher JDK 21, lazysodium-java aligné en 5.2.0, le test (libsodium réel) est actif.
 - `reconnect()` retombe sur les routes full-tunnel par défaut : `allowedIps` du provisioning n'est jamais persisté (pré-existant).
 - Vérification sur appareil recommandée : prompt biométrique API 28/29, escape hatch (attente `RESUMED`), dialog de consentement VPN, dark mode des composants retouchés. Les tests instrumentés (Gradle Managed Devices) n'ont pas tourné localement : le job CI `instrumented` les exécutera.

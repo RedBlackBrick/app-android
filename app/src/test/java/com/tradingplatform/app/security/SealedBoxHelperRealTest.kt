@@ -9,7 +9,6 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Before
-import org.junit.Ignore
 import org.junit.Test
 import java.nio.charset.StandardCharsets
 
@@ -27,9 +26,6 @@ import java.nio.charset.StandardCharsets
  * Relevant in the pairing flow (CLAUDE.md §8): the app seals `session_pin` + `local_token` +
  * `nonce` with the Radxa's WireGuard public key (Curve25519) before sending it over the LAN.
  */
-@Ignore(
-    "lazysodium-android 5.2.0 (dépendance main) est compilé pour Java 21 (class v65) et ses classes interfaces/* prennent le pas sur lazysodium-java sur le classpath JVM des tests (JDK 17). Couverture réelle : androidTest SealedBoxHelperInstrumentedTest. Réactiver quand la CI passe en JDK 21.",
-)
 class SealedBoxHelperRealTest {
 
     private lateinit var sodium: LazySodiumJava
