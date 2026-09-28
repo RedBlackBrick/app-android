@@ -53,33 +53,42 @@ elles-mêmes et n'en ont pas besoin.
 
 ```
 com.tradingplatform.app/
-├── di/                    # Hilt modules (AppModule, NetworkModule, VpnModule, SecurityModule, WebSocketModule)
+├── di/                    # Hilt modules (AppModule, NetworkModule, VpnModule, SecurityModule, WebSocketModule, WidgetModule)
+│                          # DispatcherModule fournit @IoDispatcher — pour un appel OkHttp brut hors Retrofit
+│                          # (ex. MobileProvisioningRepositoryImpl), jamais pour des fonctions suspend Retrofit
 ├── data/
 │   ├── api/               # Interfaces Retrofit (AuthApi, PortfolioApi, MarketDataApi, DeviceApi, BrokerConnectionApi, PairingApi, NotificationApi, MobileProvisioningApi)
+│   │                      # AuthPaths.kt — source unique des chemins PUBLIC / CSRF_EXEMPT / VPN_EXCLUDED / COOKIE_SAVE
 │   ├── repository/        # Implémentations des Repository interfaces du domaine
 │   ├── local/
-│   │   ├── db/            # Room : AppDatabase, DAOs, Entities (dont WatchlistEntity)
+│   │   ├── db/            # Room : AppDatabase, DAOs, Entities (dont WatchlistEntity) ; CacheTtl.kt — TTL/rétention centralisés
 │   │   └── datastore/     # EncryptedDataStore (tokens, config WireGuard)
 │   ├── model/             # Data Transfer Objects (DTOs) JSON ↔ API
 │   └── websocket/         # PrivateWsClient, PublicWsClient, WsEvent, WsRepository
 ├── domain/
 │   ├── model/             # Domain models (purs Kotlin, sans annotations Android/Retrofit/Room)
-│   │                      # Inclut : PerformanceMetrics, ActivityItem, WsUpdate (OrderUpdate, StrategySignal, CatalystEvent), BrokerConnection
+│   │                      # Inclut : PerformanceMetrics, ActivityItem, WsUpdate (OrderUpdate, StrategySignal, CatalystEvent),
+│   │                      # BrokerConnection, Cached<T> (valeur + syncedAt), Page<T>, SymbolInfo/SymbolPage
 │   ├── repository/        # Interfaces Repository (définies dans domain, implémentées dans data)
-│   │                      # Inclut : WatchlistRepository, BrokerConnectionRepository (lecture seule), MobileProvisioningRepository
+│   │                      # Inclut : WatchlistRepository, BrokerConnectionRepository (lecture seule), MobileProvisioningRepository, SetupRepository
+│   ├── exception/         # HttpStatusException (isRetryable — pilote les retries FCM/worker), UnrecognizedQrException, etc.
+│   ├── util/              # RunCatchingCancellable.kt (domain/util/runCatchingCancellable — relance CancellationException)
 │   └── usecase/
 │       ├── auth/          # LoginUseCase, LogoutUseCase, GetUserProfileUseCase
 │       ├── portfolio/     # GetPortfolioUseCase, GetPositionsUseCase, GetPositionWsUpdatesUseCase, GetPerformanceUseCase
-│       ├── market/        # GetQuoteUseCase, GetQuoteStreamUseCase, GetAvailableSymbolsUseCase, GetSymbolHistoryUseCase, GetWatchlistUseCase, AddToWatchlistUseCase, RemoveFromWatchlistUseCase
+│       ├── market/        # GetQuoteUseCase, GetQuoteStreamUseCase, GetAvailableSymbolsUseCase, GetSymbolHistoryUseCase, GetWatchlistUseCase, AddToWatchlistUseCase, RemoveFromWatchlistUseCase, GetPublicWsConnectionStateUseCase
 │       ├── activity/      # GetActivityFeedUseCase
 │       ├── device/        # GetDevicesUseCase, GetDeviceStatusUseCase, SendDeviceCommandUseCase, GetBrokerConnectionsUseCase
 │       ├── alerts/        # GetAlertsUseCase, GetFilteredAlertsUseCase, MarkAlertReadUseCase
 │       ├── notification/  # RegisterFcmTokenUseCase
+│       ├── setup/         # MarkSetupCompletedUseCase (SetupViewModel ne touche plus le DataStore directement)
 │       └── pairing/       # ParseVpsQrUseCase, ScanDeviceQrUseCase, SendPinToDeviceUseCase, ConfirmPairingUseCase, ParseSetupQrUseCase, ProvisionMobileVpnUseCase
 ├── ui/
 │   ├── theme/             # Color.kt, Theme.kt, Type.kt (Material 3)
 │   ├── navigation/        # AppNavGraph.kt — navigation globale
-│   ├── components/        # Composables partagés (LoadingOverlay, ErrorBanner, MetricsComponents, etc.)
+│   ├── common/            # DataState.kt (valeur/isRefreshing/error/syncedAt pour le Dashboard), QuoteFallbackController.kt
+│   │                      # (WS + fallback REST piloté par connectionState — partagé Dashboard/MarketData)
+│   ├── components/        # Composables partagés (LoadingOverlay, ErrorBanner, MetricsComponents, CacheTimestamp, BiometricLockOverlay, etc.)
 │   └── screens/
 │       ├── auth/          # LoginScreen + LoginViewModel
 │       ├── dashboard/     # DashboardScreen + DashboardViewModel + ActivityFeedCard
@@ -95,22 +104,25 @@ com.tradingplatform.app/
 ├── vpn/
 │   ├── WireGuardVpnService.kt   # Service foreground — notification « VPN connecté » (tunnel tenu par GoBackend$VpnService)
 │   ├── TunnelBackend.kt         # Seam GoBackend (setState/getState) — fake en test JVM
-│   ├── WireGuardManager.kt      # API publique : connect(), disconnect(), state: StateFlow<VpnState>
+│   ├── VpnServiceController.kt  # Seam start/stop de WireGuardVpnService (notification foreground) — fake en test JVM
+│   ├── WireGuardManager.kt      # API publique : connect(), disconnect(), state: StateFlow<VpnState> — sérialisé par Mutex
 │   ├── WireGuardConfig.kt       # Modèle de config (interface, peer)
+│   ├── SystemVpnMonitor.kt      # Détecte un VPN tiers actif (ConnectivityManager) → VpnState.SystemVpnActive (D6)
 │   └── VpnState.kt              # sealed class : Disconnected | Connecting | Connected | SystemVpnActive | Error
 ├── security/
-│   ├── BiometricManager.kt      # Abstraction BiometricPrompt
+│   ├── BiometricManager.kt      # Abstraction BiometricPrompt — consulte KeystoreManager.checkAuthValidity() avant le prompt
 │   ├── RootDetector.kt          # Détection root (RootBeer)
 │   ├── CertificatePinner.kt     # SHA-256 pins du certificat VPS
-│   ├── KeystoreManager.kt       # Android Keystore : génération et récupération clés
+│   ├── KeystoreManager.kt       # Android Keystore : génération/récupération clés ; KeyState (Valid|Expired|Invalidated)
+│   ├── LanTrustManager.kt       # TrustManager permissif scopé LAN (cert auto-signé Radxa, port 8099 HTTPS)
 │   └── SealedBoxHelper.kt       # crypto_box_seal via lazysodium-android (chiffrement payloads LAN)
 └── widget/
-    ├── PnlWidget.kt             # Glance widget P&L
+    ├── PnlWidget.kt / PnlWidgetConfigureActivity.kt   # Glance widget P&L (période configurable jour/semaine/mois)
     ├── PositionsWidget.kt       # Glance widget positions
     ├── AlertsWidget.kt          # Glance widget alertes
     ├── SystemStatusWidget.kt    # Glance widget état VPS/devices (admin)
-    ├── QuoteWidget.kt           # Glance widget cours rapide 1x1 (ticker configurable)
-    └── WidgetUpdateWorker.kt    # WorkManager periodic task (5 min, toutes sources)
+    ├── QuoteWidget.kt / QuoteWidgetConfigureActivity.kt # Glance widget cours rapide 1x1 (ticker configurable)
+    └── WidgetUpdateWorker.kt    # WorkManager periodic task (15 min, plancher OS — toutes sources)
 ```
 
 ### Flux de données
@@ -148,29 +160,38 @@ Le flag `is_admin` (champ `user` dans la réponse login / `/auth/me`) conditionn
 | Positions (cours live via WS privé) | ✅ | ✅ |
 | Performance (Sharpe, Sortino, drawdown, etc.) | ✅ | ✅ |
 | Alertes (FCM → Room, filtrage par type) | ✅ | ✅ |
-| Device list + detail (métriques santé CPU/RAM/temp) | ❌ masqué | ✅ |
-| Pairing workflow | ❌ masqué | ✅ |
+| Device list + detail (métriques santé CPU/RAM/temp), écran Devices (flotte) | ❌ masqué | ✅ |
+| Pairing depuis « Mes appareils » (Settings → MyDevicesScreen) | ✅ | ✅ |
+| Pairing depuis l'écran Devices (flotte admin) | ❌ masqué | ✅ |
 | `SystemStatusWidget` | ❌ masqué | ✅ |
 | `DevicesWidget` (si créé) | ❌ masqué | ✅ |
 
-- L'onglet Devices dans la navigation est affiché **uniquement si `user.is_admin == true`**
-- Le bouton "Ajouter un device" (démarrage pairing) est réservé aux admins
+**Décision D5 (audit/PLAN.md) :** le pairing d'un device est ouvert à **tout utilisateur
+authentifié** via `Settings → Mes appareils` (`MyDevicesScreen`, non gardé par `isAdmin`) — le
+backend l'applique par propriétaire du device, pas par rôle. Seuls la flotte admin
+(`Screen.Devices`, liste tous les devices) et le pairing lancé depuis cet écran restent
+réservés aux admins (`AppNavGraph` redirige vers Dashboard si `!isAdmin`). Les deux points
+d'entrée partagent le même graphe de navigation `PairingViewModel`/4 écrans ; seul l'écran de
+retour (`pairingReturnRoute`) diffère selon la source.
+
+- L'onglet Devices (flotte) dans la navigation est affiché **uniquement si `user.is_admin == true`**
 - Les widgets admin (`SystemStatusWidget`) sont **désactivés** dans le launcher si `is_admin == false` — ils n'apparaissent pas dans le picker de widgets
 - Stocker `is_admin` dans `EncryptedDataStore` après login — relire à chaque démarrage
-- Désactiver/activer via `PackageManager` après login :
+- Désactiver/activer via `ApplyAdminWidgetVisibilityUseCase` (jamais un appel `PackageManager` direct
+  depuis un ViewModel — violerait la règle UseCase → Repository) :
 
 ```kotlin
-// Dans LoginViewModel après récupération de is_admin
-fun applyAdminWidgetVisibility(isAdmin: Boolean) {
-    val state = if (isAdmin)
-        PackageManager.COMPONENT_ENABLED_STATE_ENABLED
-    else
-        PackageManager.COMPONENT_ENABLED_STATE_DISABLED
-    packageManager.setComponentEnabledSetting(
-        ComponentName(context, SystemStatusWidgetReceiver::class.java),
-        state,
-        PackageManager.DONT_KILL_APP
-    )
+// domain/repository/AdminWidgetVisibilityManager — interface domaine, implémentée dans
+// widget/AdminWidgetVisibilityManagerImpl.kt (PackageManager.setComponentEnabledSetting)
+interface AdminWidgetVisibilityManager {
+    suspend fun applyVisibility(isAdmin: Boolean)
+}
+
+// domain/usecase/auth/ApplyAdminWidgetVisibilityUseCase — appelé par LoginViewModel/TotpViewModel
+class ApplyAdminWidgetVisibilityUseCase @Inject constructor(
+    private val visibilityManager: AdminWidgetVisibilityManager,
+) {
+    suspend operator fun invoke(isAdmin: Boolean) = visibilityManager.applyVisibility(isAdmin)
 }
 ```
 
@@ -182,14 +203,22 @@ fun applyAdminWidgetVisibility(isAdmin: Boolean) {
 | `WidgetUpdateWorker` | `@HiltWorker` + `@AssistedInject` | WorkManager supporte Hilt nativement |
 
 ```kotlin
-// WidgetUpdateWorker — injection standard via @HiltWorker
+// WidgetUpdateWorker — injection standard via @HiltWorker (constructeur réel, di/WidgetModule.kt
+// fournit les mêmes UseCases/DAOs aux widgets Glance via EntryPointAccessors ci-dessous)
 @HiltWorker
 class WidgetUpdateWorker @AssistedInject constructor(
     @Assisted context: Context,
     @Assisted workerParams: WorkerParameters,
-    private val getPortfolioUseCase: GetPortfolioUseCase,
-    private val getAlertsUseCase: GetAlertsUseCase,
+    private val vpnManager: WireGuardManager,
+    private val systemVpnMonitor: SystemVpnMonitor,
+    private val dataStore: EncryptedDataStore,
+    private val getPositionsUseCase: GetPositionsUseCase,
+    private val getPnlUseCase: GetPnlUseCase,
     private val getQuoteUseCase: GetQuoteUseCase,
+    private val getDefaultQuoteSymbolUseCase: GetDefaultQuoteSymbolUseCase,
+    private val alertDao: AlertDao,
+    private val quoteDao: QuoteDao,
+    private val watchlistDao: WatchlistDao,
 ) : CoroutineWorker(context, workerParams) { ... }
 ```
 
@@ -198,31 +227,46 @@ class WidgetUpdateWorker @AssistedInject constructor(
 Les widgets Glance ne supportent pas l'injection Hilt standard. Utiliser `EntryPointAccessors` :
 
 ```kotlin
+// di/WidgetModule.kt — nom réel des méthodes (pas de getPortfolioUseCase générique)
 @EntryPoint
 @InstallIn(SingletonComponent::class)
 interface WidgetEntryPoint {
-    fun getPortfolioUseCase(): GetPortfolioUseCase
-    fun getDevicesUseCase(): GetDevicesUseCase       // vérifier is_admin dans provideGlance() avant d'appeler
+    // UseCases — utilisés par WidgetUpdateWorker pour les appels réseau dans doWork()
+    fun getPositionsUseCase(): GetPositionsUseCase
+    fun getPnlUseCase(): GetPnlUseCase
+    fun getPortfolioNavUseCase(): GetPortfolioNavUseCase
     fun getAlertsUseCase(): GetAlertsUseCase
-    fun getMarketDataUseCase(): GetMarketDataUseCase // pour QuoteWidget
+    fun getDevicesUseCase(): GetDevicesUseCase  // vérifier is_admin avant d'appeler
+    fun getQuoteUseCase(): GetQuoteUseCase
+
+    // DAOs — pour les GlanceAppWidgets (lecture cache Room uniquement, pas d'appel réseau)
+    fun positionDao(): PositionDao
+    fun pnlDao(): PnlDao
+    fun alertDao(): AlertDao
+    fun deviceDao(): DeviceDao
+    fun quoteDao(): QuoteDao
+
+    // DataStore — pour lire portfolioId, is_admin depuis les widgets
+    fun encryptedDataStore(): EncryptedDataStore
 }
 
-// Dans chaque GlanceAppWidget :
+// Dans chaque GlanceAppWidget : les widgets lisent Room directement via les DAOs
+// (pas d'appel réseau depuis provideGlance()) — le Worker met à jour Room en amont.
 override suspend fun provideGlance(context: Context, id: GlanceId) {
     val ep = EntryPointAccessors
         .fromApplication(context.applicationContext, WidgetEntryPoint::class.java)
-    val positions = ep.getPortfolioUseCase().invoke(portfolioId)
+    val portfolioId = ep.encryptedDataStore().readString(DataStoreKeys.PORTFOLIO_ID) ?: ""
+    val pnl = ep.pnlDao().getByPeriod("day")
     // ...
 }
 ```
 
-Déclarer `WidgetEntryPoint` dans `di/WidgetModule.kt` ou `di/AppModule.kt`.
-
 ### Stratégie de cache Room
 
 Toutes les données affichées offline ou dans les widgets passent par Room. Le `WidgetUpdateWorker`
-(WorkManager 5 min, 15 min en Doze) met à jour le cache. Si le VPN est inactif, les écrans
-affichent le cache daté sans déclencher d'erreur bloquante.
+(WorkManager, périodicité **15 min** — plancher imposé par l'OS pour un `PeriodicWorkRequest`,
+il n'y a pas de cadence « 5 min » distincte) met à jour le cache. Si le VPN est inactif, les
+écrans affichent le cache daté sans déclencher d'erreur bloquante.
 
 **Source unique des TTL : `data/local/db/CacheTtl.kt`** — ne jamais redéclarer une constante
 de TTL privée dans un repository, un widget ou un composant UI.
@@ -315,42 +359,43 @@ val constraints = Constraints.Builder()
 Si le VPN est inactif au moment du Worker (VpnRequiredInterceptor bloque) : retourner
 `Result.success()` **sans mettre à jour Room** — le cache daté reste affiché.
 Ne jamais retourner `Result.failure()` pour absence de VPN (déclencherait les retries WorkManager
-en boucle). Utiliser `Result.retry()` uniquement pour les erreurs réseau transitoires (timeout,
-IOE) avec `BackoffPolicy.EXPONENTIAL`.
+en boucle). `Result.retry()` (`BackoffPolicy.EXPONENTIAL`) n'est renvoyé que si **toutes** les
+sections IO (positions, PnL, quotes) ont échoué sur une `IOException` — règle délibérée : si au
+moins une section a réussi, un échec isolé et transitoire des autres ne vaut pas la peine de
+retenter tout le Worker avant le prochain cycle périodique (15 min).
 
 ```kotlin
-// Pattern obligatoire dans WidgetUpdateWorker.doWork()
+// Pattern dans WidgetUpdateWorker.doWork()
 // Chaque bloc sync est indépendant — un échec portfolio ne bloque pas les alertes
 override suspend fun doWork(): Result {
     if (vpnManager.state.value !is VpnState.Connected) {
         return Result.success()  // VPN absent — garder le cache, ne pas retry
     }
 
-    var anyRetryNeeded = false
+    var ioFailCount = 0
+    val ioSectionsTotal = 3
 
-    // Sync indépendante par section — try/catch par bloc
+    // Sync indépendante par section — try/catch par bloc ; SQLException = non-retryable (log only)
     try {
-        syncPortfolio()
-        purgeExpiredPositions()
-    } catch (e: IOException) { anyRetryNeeded = true }
+        syncPositions(portfolioId)
+    } catch (e: IOException) { ioFailCount++ } catch (e: SQLException) { /* log, non-retryable */ }
 
     try {
-        syncAlerts()
-        purgeExpiredAlerts()
-    } catch (e: IOException) { anyRetryNeeded = true }
+        syncPnl(portfolioId)
+    } catch (e: IOException) { ioFailCount++ } catch (e: SQLException) { /* log, non-retryable */ }
 
     try {
         syncQuotes()
-        purgeExpiredQuotes()
-    } catch (e: IOException) { anyRetryNeeded = true }
+    } catch (e: IOException) { ioFailCount++ } catch (e: SQLException) { /* log, non-retryable */ }
 
-    return if (anyRetryNeeded) Result.retry() else Result.success()
+    purgeExpired()  // alertes + entités périmées, après les tentatives de sync
+
+    return if (ioFailCount == ioSectionsTotal) Result.retry() else Result.success()
 }
 ```
 
 La vérification VPN en entrée de Worker (via `vpnManager.state`) évite de passer par les
-intercepteurs OkHttp pour un cas prévisible. `Result.retry()` uniquement si au moins une
-section a eu une erreur réseau transitoire.
+intercepteurs OkHttp pour un cas prévisible.
 
 ### Données de marché — stratégie
 
@@ -360,7 +405,7 @@ section a eu une erreur réseau transitoire.
 - **Portfolio (P&L, positions)** : mises à jour temps réel via `WsRepository` (WebSocket `wss://vps/v1/ws/private`) en complément du polling REST
 - **Dashboard NAV / PnL — `DataState<T>`** (`ui/common/DataState.kt` : `value`, `isRefreshing`, `error`, `syncedAt`) : la valeur n'est **jamais** remise à `null` après un premier succès — `loading()` et `failure()` la conservent (valeur périmée), seul `success(v, now)` la remplace. Chaque `portfolio_update` du WS privé applique `total_value` / `cash_balance` / `positions_value` **directement** à la NAV affichée (patch optimiste, `syncedAt = now` ; le backend n'envoie pas de P&L sur ce canal), passe NAV + PnL en `isRefreshing`, puis déclenche un refetch REST NAV + PnL **debouncé 750 ms** (une rafale = une paire de requêtes). Côté écran : skeletons uniquement si NAV **et** PnL sont `isInitialLoading` ; `isRefreshing` n'alimente que le `PullToRefreshBox` ; valeur + erreur → valeur périmée + `CacheTimestamp(syncedAt, CacheTtl.PNL_MS)` + snackbar ; pas de valeur + erreur → carte d'erreur inline. Un changement de période PnL réinitialise la seule section PnL (jamais la PnL d'une autre période sous la nouvelle puce)
 - **Positions live** : les `position_update` du WS privé sont mergés dans `PositionsViewModel` pour mettre à jour `currentPrice` et `unrealizedPnl` en temps réel (affichage via `AnimatedPnlText`)
-- **Widgets** : rafraîchissement inclus dans le cycle WorkManager **5 min**
+- **Widgets** : rafraîchissement inclus dans le cycle WorkManager **15 min** (plancher OS)
 - **Symboles disponibles** : `GET /v1/market-data/symbols` retourne la liste des symboles trackés par le backend
 - **Historique OHLCV (sparklines)** : `GET /v1/market-data/{symbol}/history` — 30 derniers points close, affiché en mini-chart dans chaque card de la watchlist
 
@@ -404,7 +449,7 @@ val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
 ### WebSocket privé — PrivateWsClient
 
-`PrivateWsClient` se connecte à `wss://vps/v1/ws/private` avec un JWT dont le claim `"websocket"` est obtenu via `POST /v1/auth/ws-token`. Il implémente `DefaultLifecycleObserver` : la connexion est établie en foreground et fermée en arrière-plan.
+`PrivateWsClient` se connecte à `wss://vps/v1/ws/private` avec un JWT dont le claim `"websocket"` est obtenu via `POST /v1/auth/ws-token`. Il implémente `DefaultLifecycleObserver`, mais `onStop` (arrière-plan) n'annule que les timers de reconnexion/refresh de token pour économiser la batterie — **le socket lui-même n'est pas fermé** ; `onStart` (retour au premier plan) reconnecte seulement si besoin (token expiré pendant le background, socket absent). La connexion est réellement ouverte/fermée par les événements de session (voir ci-dessous), pas par le cycle de vie foreground/background.
 
 `WsRepository` expose des `Flow` pour les événements WS : `portfolioUpdates`, `positionUpdates`, `orderUpdates`, `strategySignals`, `notifications`, `catalystEvents`. `DashboardViewModel` collecte `portfolioUpdates` en complément du polling REST et `GetActivityFeedUseCase` merge les 5 flux (`orderUpdates`, `strategySignals`, `notifications`, `portfolioUpdates`, `catalystEvents`) dans un feed d'activité temps réel affiché sur le Dashboard via `ActivityFeedCard`. `PositionsViewModel` collecte `positionUpdates` pour mettre à jour les prix en temps réel.
 
@@ -724,15 +769,22 @@ for t in $(find app/src/test -name "*Test.kt" -exec grep -l "^class\|^@.*class" 
   fi
 done
 
-# Tests instrumentation (émulateur/device requis)
-./gradlew connectedAndroidTest
+# Tests instrumentation — Gradle Managed Devices (api30, api34 ; images ATD, pas de GMS)
+# déclarés dans testOptions.managedDevices (app/build.gradle.kts) — voir aussi le job CI
+# `instrumented` (.github/workflows/android.yml)
+./gradlew api30DebugAndroidTest api34DebugAndroidTest
+
+# Garde de drift de contrats (JVM, dans testDebugUnitTest) — DtoContractTest compare les DTOs/
+# chemins Retrofit/clés WS à un OpenAPI backend réduit + ws_events.json (docs/api-contracts.md
+# §« Garde de drift de contrats »)
+./gradlew testDebugUnitTest --tests "com.tradingplatform.app.contracts.DtoContractTest"
 ```
 
 Coverage : plugin jacoco non appliqué — à ajouter si besoin (voir docs/gradle-setup.md).
 
 Structure :
-- `test/` — UseCases, ViewModels (Mockk + Turbine pour StateFlow), intercepteurs OkHttp (MockWebServer), Repositories
-- `androidTest/` — UI tests Compose (ComposeTestRule), Room DAOs, WidgetUpdateWorker (TestListenableWorkerBuilder)
+- `test/` — UseCases, ViewModels (Mockk + Turbine pour StateFlow), intercepteurs OkHttp (MockWebServer), Repositories, `DtoContractTest` (garde de drift de contrats), `NoBareRunCatchingTest` (interdit `runCatching {` nu hors liste blanche — voir « Pattern Result<T> » ci-dessous)
+- `androidTest/` — UI tests Compose (ComposeTestRule), Room DAOs (`MigrationTest`, baseline v7), `WidgetUpdateWorker` (TestListenableWorkerBuilder), overlay biométrique fail-closed réel (`BiometricLockOverlayTest`), DataStore avec un vrai Keystore, `SealedBoxHelper` avec libsodium réel — exécutés par le job CI `instrumented` (Gradle Managed Devices api30/api34)
 
 Objectif couverture : ≥ 80% sur `domain/usecase/`, `ui/screens/` ViewModels **et** `data/repository/`.
 
@@ -823,15 +875,16 @@ l'applique). Elle ne stocke jamais le `session_pin` — elle le transmet en un s
 ```
 VPS QR → scan → {session_id, session_pin, device_wg_ip, local_token, nonce}
 Radxa QR → scan → {device_id, wg_pubkey, local_ip:8099}
-App → POST http://radxa_ip:8099/pin {session_id, session_pin, local_token, nonce}  (LAN direct, chiffré)
-App → poll GET http://radxa_ip:8099/status jusqu'à "paired"
+App → POST https://radxa_ip:8099/pin {session_id, session_pin, local_token, nonce}  (LAN direct, chiffré)
+App → poll GET https://radxa_ip:8099/status jusqu'à "paired"
 ```
 
 **Règles critiques :**
 - Valider que `radxa_ip` est RFC-1918 avant d'envoyer le PIN (`isLocalNetwork()`)
 - Le `session_pin`, `local_token` et `nonce` ne doivent jamais être loggés (`[REDACTED]` si debug nécessaire)
 - La connexion vers `radxa_ip:8099` doit être faite uniquement si `VpnState.Connected`
-  (le VPN garantit qu'on est sur le bon réseau avant de contacter le LAN)
+  (le VPN garantit qu'on est sur le bon réseau avant de contacter le LAN) — appliqué au niveau
+  du client `@Named("lan")` par le `VpnRequiredInterceptor`, pas seulement documenté
 - Timeout 120s sur l'opération complète (durée de vie de la session VPS)
 
 **Validation des QR scannés :**
@@ -867,7 +920,12 @@ L'app scanne les deux QR dans n'importe quel ordre, puis connecte les infos.
 > **Notes d'implémentation :**
 > - `device_wg_ip` (du QR VPS) est affiché à l'utilisateur pour confirmation uniquement — il n'est envoyé ni à la Radxa ni au VPS par l'app.
 > - `wg_pubkey` dans le QR Radxa est la clé publique **complète** (44 chars base64). La mention "tronquée" ne s'applique qu'à l'affichage sur l'e-ink, pas aux données QR.
-> - La connexion vers `radxa_ip:8099` est HTTP. Le payload (session_pin, local_token) est chiffré avec `crypto_box_seal(radxa_wg_pubkey)` avant envoi — illisible sans la clé privée du Radxa.
+> - La connexion vers `radxa_ip:8099` est **HTTPS** (le pairing-server Radxa refuse de démarrer
+>   sans TLS) avec un certificat auto-signé accepté par `security/LanTrustManager.kt` — l'app
+>   ne fait pas de certificate pinning sur ce chemin (défense en profondeur : garde RFC-1918 +
+>   VPN actif + `crypto_box_seal`, pas la chaîne TLS). Le payload (session_pin, local_token) est
+>   en plus chiffré avec `crypto_box_seal(radxa_wg_pubkey)` avant envoi — illisible sans la clé
+>   privée du Radxa, même si le TLS venait à être compromis.
 
 ### Repository LAN (obligatoire — violation d'archi sinon)
 
@@ -879,7 +937,10 @@ domain/repository/
 └── PairingRepository    — interface : sendPin(...): Result<Unit>, pollStatus(...): Flow<PairingStatus>
 
 data/repository/
-└── PairingRepositoryImpl — OkHttpClient bare (pas de CSRF/Auth interceptors — c'est du LAN)
+└── PairingRepositoryImpl — client @Named("lan") (di/NetworkModule.kt) : HTTPS + LanTrustManager,
+                            garde anti-fuite qui rejette toute URL non-HTTPS/non-RFC-1918
+                            (lanOnlyHttpsGuard), VpnRequiredInterceptor inclus ; pas de
+                            CsrfInterceptor ni d'AuthInterceptor (LAN, pas VPS)
                             Valide isLocalNetwork() avant chaque appel
 ```
 
@@ -1066,18 +1127,36 @@ Si le VPS déploie un breaking change, les anciennes apps cassent silencieusemen
 
 ### network_security_config.xml (`app/src/main/res/xml/`)
 
-Le certificate pinning est géré **uniquement via OkHttp** (`CertificatePinner` + `BuildConfig`),
-pas via ce fichier (les valeurs `local.properties` ne peuvent pas être injectées dans des XML
-Android au build time). Ce fichier se limite au blocage cleartext.
+Le certificate pinning du trafic VPS est géré **uniquement via OkHttp** (`CertificatePinner` +
+`BuildConfig`), pas via ce fichier (les valeurs `local.properties` ne peuvent pas être injectées
+dans des XML Android au build time). Le fichier bloque le cleartext par défaut et référence la
+Root CA interne de Caddy comme ancre de confiance additionnelle pour le trafic VPS :
 
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- Cleartext permis globalement : nécessaire pour POST http://radxa_ip:8099/pin
-         (pairing LAN). Les IPs Radxa sont RFC-1918 dynamiques, non listables statiquement.
-         Risque atténué : VpnRequiredInterceptor exige le tunnel actif, isLocalNetwork()
-         valide l'IP avant envoi. Décision architecture §C = Option 1. -->
-    <base-config cleartextTrafficPermitted="true" />
+    <!-- Défaut : cleartext bloqué (HTTPS uniquement pour le trafic VPS). -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+            <!-- Root CA interne Caddy (VPS trading-platform2, `tls internal`).
+                 Le hash SPKI SHA-256 est en plus pinné par OkHttp CertificatePinner. -->
+            <certificates src="@raw/caddy_root_ca" />
+        </trust-anchors>
+    </base-config>
+
+    <!-- Domain-config LAN (préfixes IP RFC-1918) : hérité de la décision architecture C
+         (cleartext explicitement permis pour joindre le pairing-server Radxa). Le pairing
+         LAN réel passe désormais en HTTPS + LanTrustManager (§8) — ce bloc reste au cas où
+         un appel cleartext LAN existerait, mais n'est plus le mécanisme de protection
+         principal du port 8099. `<domain>` ne supporte pas les plages CIDR ; seuls quelques
+         préfixes courants sont listés à titre indicatif, l'enforcement réel est côté code
+         (`isLocalNetwork()` + `VpnRequiredInterceptor`). -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">10.0.0.0</domain>
+        <domain includeSubdomains="true">172.16.0.0</domain>
+        <domain includeSubdomains="true">192.168.0.0</domain>
+    </domain-config>
 </network-security-config>
 ```
 
@@ -1298,7 +1377,8 @@ POST /v1/auth/login
     ├─ Succès → stocker access_token, user.id, user.is_admin dans EncryptedDataStore
     │
     ├─ Si user.totp_enabled == true
-    │       → naviguer vers TotpScreen (avec session_token)
+    │       → LoginViewModel appelle SessionManager.storePendingTotpToken(session_token)
+    │         puis navigue vers TotpScreen (pas d'argument de nav)
     │       → POST /v1/auth/2fa/verify
     │       └─ Succès → continuer ci-dessous
     │
@@ -1319,9 +1399,11 @@ LoginScreen → [auth OK + totp_enabled] → TotpScreen → [POST /v1/auth/2fa/v
     → GET /v1/portfolios → Dashboard
 ```
 
-`TotpScreen` reçoit le `session_token` (issu de la réponse login TOTP) via navigation args.
+`TotpScreen` ne reçoit **pas** le `session_token` via navigation args : `TotpViewModel` le lit
+depuis `SessionManager.pendingTotpToken` (posé par `LoginViewModel.storePendingTotpToken()` juste
+après le login), en mémoire process uniquement — jamais dans le `NavController` ni persisté.
 `TotpViewModel` expose un `UiState` : `AwaitingInput | Verifying | Success | Error | BackToLogin`.
-Le temp token (en mémoire dans `SessionManager`) est lu sans être consommé ; il n'est consommé que
+Le temp token est lu sans être consommé ; il n'est consommé que
 sur succès ou sur 401 serveur (→ `BackToLogin`, le backend l'a brûlé). Timeout/IOException/429 →
 `Error` récupérable, token conservé.
 

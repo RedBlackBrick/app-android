@@ -370,8 +370,11 @@ Endpoint consommé uniquement par `getPerformance()` → `PerformanceMetrics` (j
 
 ## Devices Edge
 
-> **Réservé aux comptes admin** (`user.is_admin == true`). L'onglet Devices et le workflow
-> de pairing sont masqués pour les comptes standard.
+> **Réservé aux comptes admin** (`user.is_admin == true`). L'onglet Devices (flotte, liste tous
+> les devices) est masqué pour les comptes standard. **Le workflow de pairing n'est pas
+> concerné** : il est accessible à tout utilisateur authentifié depuis `Settings > Mes
+> appareils` (décision D5, `docs/architecture-decisions.md`) — seul le pairing lancé depuis
+> l'écran Devices admin réutilise ce même flux sous garde `isAdmin`.
 
 ### GET /v1/edge/devices (admin uniquement)
 
@@ -580,7 +583,7 @@ Le `nonce` est un token anti-replay one-time-use (64 caractères hex) avec TTL 5
 ## Pairing — POST LAN /pin (format chiffré)
 
 ```
-POST http://{radxa_ip}:8099/pin
+POST https://{radxa_ip}:8099/pin
 Content-Type: application/octet-stream
 
 Body: crypto_box_seal(
@@ -588,6 +591,10 @@ Body: crypto_box_seal(
   radxa_wg_pubkey
 )
 ```
+
+HTTPS avec certificat auto-signé (le pairing-server refuse de démarrer sans TLS) — accepté côté
+app par `security/LanTrustManager.kt`, pas par le certificate pinning Root CA du VPS. Voir
+`CLAUDE.md §8`.
 
 Réponse : `200 OK` (body vide ou `{"status": "ok"}`).
 En cas de nonce invalide ou rejoué, le VPS retourne `409 Conflict` à la Radxa.

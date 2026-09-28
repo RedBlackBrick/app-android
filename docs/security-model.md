@@ -302,29 +302,39 @@ L'implementation combine deux mecanismes independants et complementaires :
 
 | Mecanisme | Composant | Role |
 |-----------|-----------|------|
-| Keystore auth validity | `KeystoreManager` | Invalide la cle AES-256-GCM 5 min apres la derniere auth biometrique. Gere par Android. |
-| Timer d'inactivite | `MainActivity` (`dispatchTouchEvent`) | Reinitialise a chaque interaction ecran. Declenche l'overlay biometrique apres 5 min sans interaction. |
+| Keystore auth validity | `KeystoreManager` | Invalide la cle AES-256-GCM 5 min apres la derniere auth biometrique forte. Gere par Android (`setUserAuthenticationParameters(300, AUTH_BIOMETRIC_STRONG)` API 30+, `setUserAuthenticationValidityDurationSeconds(300)` sur API 28-29). |
+| Timer d'inactivite | `BiometricLockManager` (singleton) | Proprietaire unique du timestamp de derniere interaction, du poll (5 s) et de `isLocked` ; observe `ProcessLifecycleOwner`. `MainActivity.dispatchTouchEvent` ne fait que relayer l'interaction (`onUserInteraction()`) — il ne possede plus le timer. Declenche l'overlay biometrique apres 5 min sans interaction. |
+
+minSdk 28 (decision D1) : sur API 26-27, `BiometricPrompt` passe par un dialog AppCompat qui
+plante avec le theme framework de l'app (pas de bascule vers un theme AppCompat).
 
 ### KeystoreManager (`security/KeystoreManager.kt`)
 
 - Cle AES-256-GCM dans Android Keystore, alias `trading_platform_main_key`.
-- `setUserAuthenticationRequired(true)` + `setUserAuthenticationValidityDurationSeconds(300)`.
-- `initCipher()` leve `KeyPermanentlyInvalidatedException` si la cle est invalidee.
+- `setUserAuthenticationRequired(true)` + validite 300 s (voir tableau ci-dessus selon l'API).
+- `checkAuthValidity(): KeyState` (`Valid | Expired | Invalidated`) est appele **avant** le
+  prompt pour distinguer `UserNotAuthenticatedException` (cas nominal, `Expired`) de
+  `KeyPermanentlyInvalidatedException` (`Invalidated`, empreintes supprimees/reenrolees).
 - `regenerateKey()` supprime l'ancienne cle et en genere une nouvelle.
 
 ### BiometricManager (`security/BiometricManager.kt`)
 
 - Verifie la disponibilite via `AndroidBiometricManager.canAuthenticate(BIOMETRIC_STRONG)`.
-- Avant d'afficher le prompt, appelle `keystoreManager.initCipher()` pour detecter une cle
-  invalidee. Si `KeyPermanentlyInvalidatedException` est levee : regenere la cle et appelle le
-  callback `onKeyInvalidated()` (l'utilisateur doit se re-authentifier).
-- Prompt configure avec `BIOMETRIC_STRONG` uniquement (pas de fallback PIN/pattern).
+- Avant d'afficher le prompt, appelle `keystoreManager.checkAuthValidity()`. `Invalidated` :
+  regenere la cle et appelle le callback `onKeyInvalidated()` (l'utilisateur doit se
+  re-authentifier) sans afficher le prompt. `Expired` (cas nominal apres 300 s) ou `Valid` :
+  affiche le prompt.
+- Prompt configure avec `BIOMETRIC_STRONG` uniquement (bouton negatif obligatoire, pas de
+  fallback PIN/pattern), `setConfirmationRequired(false)`.
 
 ### BiometricLockManager (`security/BiometricLockManager.kt`)
 
-- `@Singleton` partage entre `MainActivity` (qui lock) et l'UI (qui observe).
-- Expose `isLocked: StateFlow<Boolean>` immutable.
-- `lock()` / `unlock()` modifient l'etat.
+- `@Singleton`, proprietaire unique du verrou (voir tableau ci-dessus). `MainActivity` ne fait
+  que transmettre les evenements tactiles ; l'UI observe `isLocked`.
+- Expose `isLocked: StateFlow<Boolean>` immutable, demarre a `true` (fail-closed) jusqu'a
+  restauration de l'etat persiste ou `unlock()` (pas de session : Setup/Login non proteges).
+- `BIOMETRIC_LOCKED` + le timestamp de derniere interaction sont persistes en `commit()` dans
+  `EncryptedDataStore` pour survivre a un process kill.
 
 ### Widgets
 
@@ -376,22 +386,32 @@ Retourne `false` en cas d'exception (fail-safe).
 - Taille output : `plaintext.size + Box.SEALBYTES`.
 - Validation : `require(recipientPublicKey.size == Box.PUBLICKEYBYTES)`.
 
-### HTTP cleartext — decision architecture C
+### LAN Radxa — HTTPS + LanTrustManager (decision architecture C, revisee)
 
-Le `network_security_config.xml` bloque le cleartext par defaut et l'autorise uniquement pour
-les prefixes LAN (`10.0.0.0`, `172.16.0.0`, `192.168.0.0`) via `<domain-config>`.
+Le pairing-server Radxa refuse desormais de demarrer sans TLS : les appels `sendPin`/
+`pollStatus` sont en **HTTPS** (`https://{deviceIp}:8099/...`), pas en cleartext HTTP. Le
+certificat servi est auto-signe (regenerable sur le device), donc l'app n'y applique pas le
+certificate pinning Root CA utilise pour le VPS ; elle utilise un `X509TrustManager` permissif
+scope a ce seul client (`security/LanTrustManager.kt`).
+`network_security_config.xml` conserve neanmoins un `<domain-config>` cleartext pour les
+prefixes LAN (`10.0.0.0`, `172.16.0.0`, `192.168.0.0`) herite de la decision cleartext
+d'origine — il n'est plus le mecanisme de protection principal du port 8099 depuis le passage
+en HTTPS, mais n'a pas ete retire (drift documente, non resolu).
 
 Defense en profondeur pour les appels LAN :
-1. `network_security_config.xml` : cleartext restreint aux prefixes LAN.
-2. `VpnRequiredInterceptor` : le VPN doit etre actif (meme pour le LAN).
-3. `isLocalNetwork()` : validation RFC-1918 dans le Repository avant chaque appel.
-4. `SealedBoxHelper.seal()` : les secrets (`session_pin`, `local_token`) sont chiffres dans le
-   payload HTTP.
+1. `LanTrustManager` : TLS avec cert auto-signe accepte, scope au seul client `@Named("lan")`.
+2. `lanOnlyHttpsGuard` (`di/NetworkModule.kt`) : rejette toute URL qui n'est ni HTTPS ni
+   RFC-1918 avant meme l'ouverture de la socket, pour limiter la surface du TrustManager permissif.
+3. `VpnRequiredInterceptor` : le VPN doit etre actif (meme pour le LAN).
+4. `isLocalNetwork()` : validation RFC-1918 dans le Repository avant chaque appel.
+5. `SealedBoxHelper.seal()` : les secrets (`session_pin`, `local_token`) sont en plus chiffres
+   dans le payload applicatif (`crypto_box_seal`) — illisibles meme si le TLS etait compromis.
 
 ### Client OkHttp LAN
 
-Le `@Named("lan")` OkHttpClient dans `NetworkModule` n'a que le `VpnRequiredInterceptor` :
-pas de CSRF, pas d'Auth, pas de certificate pinning (HTTP non chiffre, LAN local uniquement).
+Le `@Named("lan")` OkHttpClient dans `NetworkModule` a `VpnRequiredInterceptor` et
+`lanOnlyHttpsGuard` : pas de CSRF, pas d'Auth (LAN, pas VPS), pas de certificate pinning Root CA
+(TrustManager permissif dedie a la place — cert auto-signe non pinnable statiquement).
 
 ---
 

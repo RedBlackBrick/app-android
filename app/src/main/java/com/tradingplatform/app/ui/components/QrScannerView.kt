@@ -1,5 +1,3 @@
-@file:OptIn(androidx.camera.core.ExperimentalGetImage::class)
-
 package com.tradingplatform.app.ui.components
 
 import android.Manifest
@@ -112,6 +110,7 @@ fun QrScannerView(
 
 // ── Contenu privé ─────────────────────────────────────────────────────────────
 
+@androidx.annotation.OptIn(ExperimentalGetImage::class) // imageProxy.image — marqueur androidx : lint exige androidx.annotation.OptIn, pas kotlin.OptIn
 @Composable
 private fun CameraPreviewWithQrScanner(
     onQrDetected: (String) -> Unit,

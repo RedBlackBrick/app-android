@@ -362,19 +362,21 @@ Fichier : `data/repository/PairingRepositoryImpl.kt`
 
 - Annote `@Singleton`, injecte via Hilt
 - Dependances : `@Named("lan") PairingLanApi`, `SealedBoxHelper`
-- Utilise un `OkHttpClient` dedie sans intercepteurs VPS (pas de CSRF, pas d'Auth, pas de VPN check)
+- Utilise un `OkHttpClient` dedie (`@Named("lan")`, HTTPS + `LanTrustManager` cert auto-signe,
+  garde anti-fuite HTTPS/RFC-1918) sans intercepteurs VPS (pas de CSRF, pas d'Auth) mais **avec**
+  `VpnRequiredInterceptor` — la connexion exige un VPN actif, comme le reste de l'app
 
 **sendPin** :
 1. Valide que `deviceIp` est RFC-1918 via `isLocalNetwork()`
 2. Construit le JSON payload : `{session_id, session_pin, local_token, nonce}`
 3. Decode la cle publique WireGuard base64 en 32 bytes Curve25519
 4. Chiffre le payload avec `sealedBoxHelper.seal(jsonBytes, pubkeyBytes)`
-5. Envoie en `application/octet-stream` via `POST http://{deviceIp}:{devicePort}/pin`
+5. Envoie en `application/octet-stream` via `POST https://{deviceIp}:{devicePort}/pin`
 6. Verifie la reponse HTTP ; leve `PairingDeviceException` si non-2xx
 
 **pollStatus** :
 1. Valide que `deviceIp` est RFC-1918 ; emet `FAILED` et termine si non-local
-2. Boucle infinie avec `GET http://{deviceIp}:{devicePort}/status?session_id={sessionId}`
+2. Boucle infinie avec `GET https://{deviceIp}:{devicePort}/status?session_id={sessionId}`
 3. Mappe la reponse via `PairingStatus.fromString()` (supporte "unpaired", "pairing", "waiting", "paired", "error", "failed")
 4. Emet chaque statut dans le `Flow`
 5. Termine le flow des que `PAIRED` ou `FAILED`
@@ -415,6 +417,18 @@ La fonction :
 2. Verifie que chaque octet est <= 255
 3. Utilise `InetAddress.getByName()` puis teste `isSiteLocalAddress`, `isLinkLocalAddress`
    ou `isLoopbackAddress`
+
+### Transport HTTPS + LanTrustManager
+
+Le pairing-server Radxa refuse de demarrer sans TLS : les appels `sendPin`/`pollStatus` sont en
+HTTPS (`https://{deviceIp}:8099/...`), pas en cleartext HTTP. Le certificat servi est
+auto-signe (regenerable), donc l'app utilise un `X509TrustManager` permissif scope au client
+`@Named("lan")` (`security/LanTrustManager.kt`) plutot que le certificate pinning Root CA
+utilise pour le VPS. L'authenticite du device n'est pas portee par la chaine TLS mais par la
+couche applicative : `crypto_box_seal` avec la cle publique WireGuard scannee sur le QR e-ink,
+plus la garde `isLocalNetwork()` et `VpnRequiredInterceptor` en amont. Un garde-fou anti-fuite
+(`lanOnlyHttpsGuard`, `di/NetworkModule.kt`) rejette toute URL qui ne serait ni HTTPS ni
+RFC-1918 avant que le TrustManager permissif ne soit sollicite.
 
 ### Chiffrement crypto_box_seal
 
@@ -492,11 +506,16 @@ Le VPN WireGuard doit etre connecte (`VpnState.Connected`) pour acceder au resea
 des devices. La connexion vers `radxa_ip:8099` est faite uniquement si le VPN est actif
 (le VPN garantit l'acces au bon reseau avant de contacter le LAN).
 
-### Acces reserve aux admins
+### Acces au pairing (decision D5)
 
-Le flux de pairing est accessible uniquement aux comptes admin (`user.is_admin == true`).
-L'onglet Devices dans la navigation est masque pour les comptes standard. Le bouton
-"Ajouter un device" (qui demarre le pairing) est reserve aux admins.
+Le pairing est accessible a **tout utilisateur authentifie** depuis `Settings > Mes appareils`
+(`MyDevicesScreen`, route `settings/my-devices`) — cet ecran n'est pas garde par `isAdmin`, et
+le backend applique la regle par proprietaire du device, pas par role. Seuls la flotte admin
+(`Screen.Devices`, liste tous les devices, redirection vers le Dashboard si `!isAdmin`) et le
+pairing demarre depuis cet ecran restent reserves aux comptes admin (`user.is_admin == true`).
+Les deux points d'entree partagent le meme graphe de navigation a 4 ecrans (`PairingViewModel`) ;
+seul l'ecran de retour differe selon la source (`PAIRING_SOURCE_MY_DEVICES` vs
+`PAIRING_SOURCE_DEVICES`).
 
 ### Pas de reprise de session
 
