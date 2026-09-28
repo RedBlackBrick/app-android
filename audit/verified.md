@@ -1,0 +1,61 @@
+# Verified findings ledger (verifier = Opus audit-verifier unless "self")
+
+| id | verdict | final severity | note |
+|---|---|---|---|
+| B-room-1 | CONFIRMED | info | schema v1 never existed in code (first AppDatabase commit = version 2); only stale comment "voir MIGRATION_1_2" + leftover 1.json |
+| B-room-2 | CONFIRMED | high (pre-release latent) | MIGRATION_3_4 = 6 CREATE INDEX only; pnl_snapshots 3→4 dropped 8 cols/added 10. androidTest MigrationTest.kt:69 must fail → never run |
+| B-room-3 | CONFIRMED | high (pre-release latent) | MIGRATION_4_5 only creates watchlist; NOT NULL relaxed on positions(4 cols)/devices(2)/quotes(2). Extra: 5.json edited in place (c5decdc) without version bump → identityHash changed |
+| B-room-5/6,6/7 | checked | — | complete, no finding |
+| B-auth-conc-1 + B-misc-1 (systemic runCatching) | CONFIRMED (self, grep) | medium | ~45 runCatching in data/repository, 6 in usecases; only guard is PrivateWsClient.kt:235 |
+| B-dto-1 | CONFIRMED (narrowed) | medium | Only max_drawdown wrong: backend returns percent (calculators/performance.py:137 `*100`), PerformanceScreen.kt:150 multiplies by 100 again → "830.00%". total_return_pct/volatility/cagr/win_rate are fractions → UI correct. docs/api-contracts.md:304-310 documents wrong units; test fixtures use negative fractional drawdown |
+| B-pairing-1 | CONFIRMED | high | No dispatcher switch in SetupViewModel→ProvisionMobileVpnUseCase→MobileProvisioningRepositoryImpl.register (:68 execute()); NetworkOnMainThreadException caught by runCatching → "Échec du provisioning" every time on device; onboarding blocked. PairingRepositoryImpl OK (Retrofit suspend) |
+| B-ws-a-2 | REJECTED | low (doc/latency) | PrivateWsClient observes ProcessLifecycleOwner; onStart→connect(); backoff loop (5s→300s) connects after login. Latency up to 300s; comment at :47-48 wrong |
+| B-ws-a-1 | CONFIRMED | medium | disconnect() zero callers; logout leaves socket open; new login cannot replace (isConnected guard :183); reconnect loop continues without token |
+| B-ws-b-1 | CONFIRMED | medium | Dashboard also subscribes via WS to default symbol (= first watchlist symbol); removing it from watchlist in MarketData unsubscribes for Dashboard → frozen quote shown as Success |
+| B-ws-b-2 | CONFIRMED | medium | Flow<Quote> never throws; MarketData + Dashboard REST fallback catch blocks dead; extra: catch(Exception) catches CancellationException → polling job started for removed symbol |
+| B-pm-3 | CONFIRMED | low | Closed positions navigable to detail; cache purged by worker after 5 min → "not found" error screen |
+| D-fcmworker-err-1 | CONFIRMED | medium | Response<T> → error() → IllegalStateException → Result.failure() for 5xx/429; recovered only at next cold start |
+| D-fcmworker-err-2 | REJECTED | info | write-ahead recovery by design; failure() schedules nothing → one POST per cold start, not a loop |
+| D-fcmworker-corr-1 | CONFIRMED | low | unconditional remove of PENDING_* after in-flight registration can drop a rotated token B |
+| D-fcm-corr-1 | CONFIRMED | low | real risk is onDestroy → serviceScope.cancel() dropping pending Room insert (not process death) |
+| D-wuw-corr-2 | CONFIRMED (doc drift) | low | all-3-fail retry gate deliberate (commit 44a5927, tests lock it); KDoc :40 + CLAUDE.md §2 contradict code |
+| D-wuw-err-1 | REJECTED | info | all use cases return Result; only leftover path is RuntimeException from EncryptedSharedPreferences decrypt |
+| D-widgets-di-1 | CONFIRMED | medium | HH:mm only past 60 min in 4 widgets; DAO reads have no TTL filter; purge only on successful sync |
+| NEW-pnlwidget-1 (side finding from verifier, self-confirmed) | CONFIRMED (self, grep) | high | GetPnlUseCase.kt:15 → getPnlSummary() which never writes Room; PortfolioRepositoryImpl.getPnl() (:75-91, the only pnlDao.upsertAndPurge writer) has ZERO callers; PnlWidget.kt:60 reads pnlDao.getLatestByPeriod → PnlWidget can never show data from the worker. WidgetUpdateWorker.kt:228 KDoc wrong |
+| A-corr-3 | REJECTED (contract reviewer) | info | backend main.py:1523 exposes root /csrf-token alias for Android; exempt sets carry redundant entries only |
+| A-corr-1 | CONFIRMED | high | AuthInterceptor.kt:42-47 PUBLIC_PATHS lacks /v1/auth/2fa/verify; exact-match :54; TOTP login throws TotpRequiredException before setToken → verify2fa gets synthetic 401 + notifyForcedLogout; user sees "Code incorrect" and is sent to Login; temp token consumed (TotpViewModel.kt:59) → cannot retry. Backend side OK (public path, alias). No AuthInterceptorTest covers it |
+| A-sec-4 | REJECTED (backend enforces) | info | docker-compose.yml:14 publishes Caddy on 10.42.0.1:443 only; public 8443 listener exposes only pairing/provisioning register routes |
+| A-err-1 | CONFIRMED | medium | by-lazy null cache for @Singleton lifetime; no code deletes trading_secure_prefs or _androidx_security_master_key_; dialog only flips StateFlow; login "succeeds" but nothing persists → repeats each cold start. Recovery = clear app data. Side: security-crypto alpha throws SecurityException (RuntimeException) on decrypt failure, not caught by readString |
+| A-sec-2 | CONFIRMED (deliberate) | low | commit 7da1974 intentionally accepts ANY TRANSPORT_VPN; VPS path protected by RFC1918 base URL + pinning; LAN path sealed payload; docs/security-model.md:44-45,128 out of date |
+| A-sec-3 | CONFIRMED | low | debug only, logcat only: BODY logs password/access_token/ws token; Cookie + Set-Cookie not redacted; release NONE, not via Timber/Crashlytics |
+| A-conc-1 | CONFIRMED | medium | Mutex held across await(); dedup branch unreachable; no stale-token comparison; N concurrent 401 → N sequential refreshes; later waiters hit 8s timeout → 401 (no logout). Extra: no priorResponse guard → up to 20 refreshes per persistently-401 request (MAX_FOLLOW_UPS). Refresh-of-refresh guard OK |
+| A-conc-2 | CONFIRMED | low-medium | refresh AuthApi on main client with Authenticator + default Dispatcher (maxRequestsPerHost 5); Dashboard fires ≥4 parallel calls on resume → ~8s stall + one round of 401s, self-heals (orphan refresh fills TokenHolder) |
+| A-corr-2 | PLAUSIBLE (narrow) | low | UI gated on GetAuthContextUseCase (4 DataStore reads) so preload almost always wins; but GetAuthContextUseCase never sets TokenHolder; notifyForcedLogout only emits event (session not destroyed). TokenHolder KDoc :10-12 stale |
+| A-sec-1 | CONFIRMED | low | apply() loss window = ms after timer fires; default unlocked when absent. Bigger adjacent gap: if process dies before the 5-min timer fires nothing is persisted → cold start unlocked (see C-auth-sec-3) |
+| B-misc-2 | CONFIRMED (robustness) | low | backend PortfolioCircuitBreakerStatus only emits "closed"/"open" (risk/router.py:1616); half_open belongs to a route the app doesn't call; schema field is free str → latent |
+| B-dto-3 | CONFIRMED (narrowed) | medium, with a PLAUSIBLE-high sub-case | backend emits "...Z" for TIMESTAMPTZ datetime fields → fine. EXCEPTION: TransactionItem.executed_at is str built via .isoformat() → "+00:00" offset; Instant.parse accepts non-Z offsets only from JDK 12 (JDK-8166138); Android ≤13 libcore predates that → every transactions response would fail at Mappers.kt:131. Not reproduced on device. OrdersRepositoryImpl.kt:57-63 already has a safe parseInstantOrNull helper |
+| B-dto-2 | CONFIRMED (robustness) | low | pydantic v2 serializes Decimal as JSON string → adapter correct; Moshi nextString accepts NUMBER tokens anyway; fail-fast defensible |
+| NEW-biometric-noop (from verifier, SELF-CONFIRMED) | CONFIRMED | CRITICAL | MainActivity.kt:28 `class MainActivity : ComponentActivity()`; BiometricLockOverlay.kt:187-191 `context as? FragmentActivity ?: run { onSuccess(); return }` — no class in the app extends FragmentActivity/AppCompatActivity → the overlay auto-unlocks via LaunchedEffect the moment it appears. Biometric lock is a no-op on device; BiometricManager.authenticate (needs FragmentActivity for BiometricPrompt) is never reached |
+| C-auth-sec-1 | CONFIRMED | high (moot while lock is a no-op; becomes real after fixing above) | MainActivity.isBiometricLocked never reset (onBiometricUnlocked has no callers; AppNavViewModel.onBiometricUnlocked only calls manager.unlock()); after first lock the poll loop `continue`s forever until Activity recreation |
+| C-auth-sec-2 | CONFIRMED | low | onCreate → startInactivityTimer resets lastInteractionAt; no configChanges in manifest; postpones only |
+| C-auth-sec-3 | CONFIRMED | low | restore fire-and-forget; overlay appears as soon as restore completes; FLAG_SECURE set; brief flash only |
+| C-low-backhandler | CONFIRMED | low | no BackHandler in overlay; no content exposure |
+| C-admin-1 | REJECTED as code defect → doc drift | low (docs) | MyDevicesScreen KDoc + commit 0e55eed make per-user pairing deliberate; backend edge/router_control.py:816-847 initiate_pairing per-user (admin only for owner override). CLAUDE.md §2 table + docs/pairing-flow.md:495-499 stale |
+| C-pair-sec-1 | REJECTED | info | @Named("lan") client installs VpnRequiredInterceptor (NetworkModule.kt:171-191) + isLocalNetwork check; only UX (fails late) |
+| C-dev-corr-1 | CONFIRMED | medium | getDeviceStatus uses cache without TTL (DEVICE_TTL_MS declared :20 unused there); detail refresh never hits network once a row exists; syncedAt stamped now() |
+| C-pos-corr-1 | CONFIRMED (narrowed) | low | backend consumer.py:2172-2198 payload has no position_id → matching always by symbol; DB unique index = one active position per symbol; residual: closed rows of same symbol overwritten under CLOSED/ALL filter |
+| NEW-ws-position-price (self-confirmed via Read) | CONFIRMED | medium | WsRepository.kt:47 reads "current_price"; backend consumer.py:2184 sends "last_price" → currentPrice never updated live over WS (unrealizedPnl does) |
+| C-tx-conc-1 | CONFIRMED | medium | no loading state for page>1, button enabled; duplicate page + LazyColumn key={it.id} → IllegalArgumentException duplicate key (crash) |
+| C-alerts-corr-1 | CONFIRMED | low | rare trigger (Room Flow throws only on SQLite errors); no retry/restart |
+| C-pos-conc-2 | CONFIRMED | low | needs reversed response order; self-heals |
+| C-dash-corr-1 | CONFIRMED (worse) | medium | both Loading same frame → isInitialLoading → whole dashboard replaced by skeletons on every debounced portfolio_update; transient REST failure replaces good data with Error |
+| C-dash-perf-1 | REJECTED | — | sample(250) in PublicWsRepositoryImpl.kt:45 |
+| C-vpn-conc-1 | CONFIRMED (scenario corrected) | low | disconnect during setState(UP) is silently lost (tunnel stays UP, state Connected, notification gone); Disconnect button enabled while Connecting; backend==null check not atomic |
+| C-vpn-err-1 | REJECTED (residual low) | low | tunnel held by GoBackend$VpnService (AAR manifest), whose onDestroy → onStateChange(DOWN) → Disconnected; residual: nothing stops WireGuardVpnService notification on DOWN |
+| E-contract-1 | CONFIRMED | high (feature never works; verifier: medium) | no compat alias; Moshi BEGIN_ARRAY error → Result.failure → symbol picker always fails |
+| E-contract-2 | CONFIRMED | high (feature never works; verifier: medium) | start/end required → 422 always; also timeframe name + object body → sparklines never render |
+| E-contract-3 | CONFIRMED | low | volume "123456.0" → toLongOrNull null → 0; "Vol:" label hidden |
+| E-contract-4 | REJECTED (latent) | info | DDL NOT NULL DEFAULT 0 on quantity/average_price; builder fills 0 |
+| NEW-cookie-2fa (from planner, SELF-CONFIRMED via Read) | CONFIRMED | high (after #2 is fixed) | EncryptedCookieJar.kt:37 AUTH_SAVE_PATHS = {login, refresh} only; backend auth/router.py:457-463 verify_2fa sets refresh_token cookie (login for TOTP accounts returns no tokens) → refresh cookie never persisted for 2FA users → first refresh 401 → forced logout after access TTL |
+| NEW-portfolio-update-keys (from planners, not self-verified) | PLAUSIBLE | medium | WsRepository.kt:32-39 reads nav/daily_pnl/total_pnl; backend portfolio_update sends total_value/cash_balance/positions_value (two planners independently) → fields always null; ActivityFeed shows nav=null |
+| GATE unit tests | PASS | — | ./gradlew testDebugUnitTest EXIT=0 (memory-capped: no-daemon, Xmx1400m, in-process Kotlin) |
