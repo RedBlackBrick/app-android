@@ -125,7 +125,7 @@ Certificate Pinning OkHttp (Root CA SPKI SHA-256)
 WireGuard VPN Tunnel (GoBackend, wireguard-android)
     |-- Cle privee : lue depuis EncryptedDataStore, jamais loggee
     |-- Tunnel : GoBackend$VpnService (AAR wireguard) ; notification : WireGuardVpnService (foreground)
-    |-- Etat : StateFlow<VpnState> immutable (Disconnected | Connecting | Connected | Error)
+    |-- Etat : StateFlow<VpnState> immutable (Disconnected | Connecting | Connected | ConsentRequired | Error)
     |          + SystemVpnActive (derive par l'UI : VPN tiers actif, tunnel integre coupe — D6)
     |
     v
@@ -144,6 +144,16 @@ VPS (HTTPS via tunnel, 10.42.0.1:443)
   intention gagne : un disconnect pendant `setState(UP)` redescend le tunnel). Une transition
   DOWN non initiee par l'app (revocation OS) efface le tunnel courant et arrete
   `WireGuardVpnService` — pas de notification « VPN connecte » residuelle.
+- **Consentement VPN Android.** `connect()` appelle d'abord `VpnService.prepare()` (seam
+  `VpnConsentChecker`) : s'il renvoie un Intent (premier lancement, ou consentement revoque
+  parce qu'une autre app VPN a pris la main), l'etat passe a `VpnState.ConsentRequired` sans
+  appeler GoBackend ni demarrer le service. Politique reseau identique a `Disconnected`
+  (requetes bloquees). L'UI (Setup, reglages VPN) lance le dialogue systeme ; seul
+  l'utilisateur peut l'accepter — l'app ne contourne jamais ce consentement. La config en
+  attente (cle privee comprise) reste en memoire uniquement pendant cette fenetre, jamais
+  loggee, effacee au `disconnect()` ou des que le consentement est obtenu. Un refus affiche
+  un message explicite avec « Reessayer ». Les reglages VPN ne lancent pas le dialogue quand
+  un VPN tiers est affiche (`SystemVpnActive`) : l'accepter couperait ce VPN.
 - Le `MutableStateFlow<VpnState>` est interne a `WireGuardManager` — l'API publique expose
   un `StateFlow<VpnState>` immutable (`asStateFlow()`).
 - `VpnNotConnectedException` etend `Exception` (pas `IOException`) pour permettre un catch

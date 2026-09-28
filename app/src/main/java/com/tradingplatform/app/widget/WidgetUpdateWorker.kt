@@ -108,9 +108,9 @@ class WidgetUpdateWorker @AssistedInject constructor(
             .edit { putLong(KEY_LAST_SYNC_ATTEMPT, System.currentTimeMillis()) }
 
         // 1. Vérification VPN — si absent, garder le cache daté affiché sans retry.
-        //    Accepter aussi le VPN système (app WireGuard externe) : cohérent avec
-        //    VpnStatusBanner / VpnSettingsViewModel qui considèrent le tunnel up
-        //    dès qu'un VPN actif est détecté par ConnectivityManager.
+        //    Accepter aussi le VPN système (app WireGuard externe — décision D6) : même
+        //    politique que VpnRequiredInterceptor (in-app Connected OU SystemVpnMonitor.active),
+        //    quel que soit l'état du tunnel intégré (Disconnected, Error, ConsentRequired…).
         val inAppConnected = vpnManager.state.value is VpnState.Connected
         val systemConnected = systemVpnMonitor.active.value
         if (!inAppConnected && !systemConnected) {

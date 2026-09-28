@@ -12,6 +12,7 @@ import com.tradingplatform.app.util.MainDispatcherRule
 import com.tradingplatform.app.vpn.SystemVpnMonitor
 import com.tradingplatform.app.vpn.VpnState
 import com.tradingplatform.app.vpn.WireGuardManager
+import io.mockk.clearMocks
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.coVerifyOrder
@@ -34,8 +35,9 @@ import org.junit.Rule
 import org.junit.Test
 
 /**
- * Tests du chemin de récupération après corruption Keystore (audit #17) et de l'escape hatch
- * biométrique (PR 1.7) dans [AppNavViewModel].
+ * Tests du chemin de récupération après corruption Keystore (audit #17), de l'escape hatch
+ * biométrique (PR 1.7) et de l'état de session réactif / startDestination figé (PR 6.1)
+ * dans [AppNavViewModel].
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class AppNavViewModelTest {
@@ -46,8 +48,10 @@ class AppNavViewModelTest {
     private val getAuthContextUseCase = mockk<GetAuthContextUseCase>()
     private val corruptionFlow = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     private val forcedLogoutFlow = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    private val sessionStartedFlow = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     private val sessionManager = mockk<SessionManager>(relaxed = true) {
         every { forcedLogoutEvents } returns forcedLogoutFlow
+        every { sessionStartedEvents } returns sessionStartedFlow
         // Comme le vrai SessionManager : notifyForcedLogout émet sur forcedLogoutEvents.
         every { notifyForcedLogout() } answers { forcedLogoutFlow.tryEmit(Unit); Unit }
         every { upgradeRequiredEvents } returns MutableSharedFlow<Unit>()
@@ -72,9 +76,16 @@ class AppNavViewModelTest {
 
     @Before
     fun setUp() {
-        coEvery { getAuthContextUseCase() } returns
+        coEvery { logoutUseCase() } returns Result.success(Unit)
+        viewModel = createViewModel(
             AuthContext(isLoggedIn = true, isAdmin = true, setupCompleted = true)
-        viewModel = AppNavViewModel(
+        )
+    }
+
+    /** Construit le ViewModel avec le contexte d'auth lu « au démarrage ». */
+    private fun createViewModel(startup: AuthContext): AppNavViewModel {
+        coEvery { getAuthContextUseCase() } returns startup
+        return AppNavViewModel(
             getAuthContextUseCase = getAuthContextUseCase,
             sessionManager = sessionManager,
             biometricLockManager = biometricLockManager,
@@ -85,8 +96,10 @@ class AppNavViewModelTest {
             logoutUseCase = logoutUseCase,
             tokenHolder = tokenHolder,
         )
-        coEvery { logoutUseCase() } returns Result.success(Unit)
     }
+
+    private fun loggedOutStart() =
+        createViewModel(AuthContext(isLoggedIn = false, isAdmin = false, setupCompleted = true))
 
     private fun emitCorruption() {
         corruptionFlow.tryEmit(Unit)
@@ -288,13 +301,119 @@ class AppNavViewModelTest {
 
     @Test
     fun `every forced logout bumps the navigation key even when already logged out`() = runTest {
-        // isLoggedIn reste false après un login fait pendant la session : sans compteur,
-        // le second logout ne produirait aucune transition et la navigation ne serait pas relancée.
+        // Deux logouts forcés consécutifs : isLoggedIn reste false → false (aucune transition
+        // de StateFlow) ; seul le compteur relance l'effet de navigation "→ Login".
         forcedLogoutFlow.tryEmit(Unit)
         assertEquals(false, viewModel.isLoggedIn.value)
         assertEquals(1, viewModel.forcedLogoutCount.value)
 
         forcedLogoutFlow.tryEmit(Unit)
+        assertEquals(false, viewModel.isLoggedIn.value)
         assertEquals(2, viewModel.forcedLogoutCount.value)
+    }
+
+    // ── isLoggedIn réactif aux événements de session (PR 6.1) ───────────────
+
+    @Test
+    fun `session started after a logged-out start sets isLoggedIn and admin refresh reads stored flag`() = runTest {
+        val vm = loggedOutStart()
+        assertEquals(false, vm.isLoggedIn.value)
+        assertFalse(vm.isAdmin.value)
+
+        sessionStartedFlow.tryEmit(Unit)
+
+        assertEquals(true, vm.isLoggedIn.value)
+
+        // Le callback de succès Login/Totp rafraîchit isAdmin une fois IS_ADMIN écrit.
+        coEvery { getAuthContextUseCase() } returns
+            AuthContext(isLoggedIn = true, isAdmin = true, setupCompleted = true)
+        vm.refreshIsAdmin()
+
+        assertTrue(vm.isAdmin.value)
+        assertEquals(true, vm.isLoggedIn.value)
+    }
+
+    @Test
+    fun `session started does not re-read the auth context`() = runTest {
+        // AuthRepositoryImpl émet sessionStarted AVANT d'écrire IS_ADMIN : une relecture ici
+        // renverrait la valeur précédente. isAdmin n'est rafraîchi que par refreshIsAdmin().
+        val vm = loggedOutStart()
+        // Oublier les lectures de démarrage (setUp + loggedOutStart), garder les réponses.
+        clearMocks(getAuthContextUseCase, answers = false)
+
+        sessionStartedFlow.tryEmit(Unit)
+
+        coVerify(exactly = 0) { getAuthContextUseCase() }
+        assertEquals(true, vm.isLoggedIn.value)
+        assertFalse(vm.isAdmin.value)
+    }
+
+    @Test
+    fun `logout then login again toggles isLoggedIn within the same process`() = runTest {
+        val vm = loggedOutStart()
+
+        sessionStartedFlow.tryEmit(Unit)
+        assertEquals(true, vm.isLoggedIn.value)
+
+        forcedLogoutFlow.tryEmit(Unit)
+        assertEquals(false, vm.isLoggedIn.value)
+        assertEquals(1, vm.forcedLogoutCount.value)
+
+        sessionStartedFlow.tryEmit(Unit)
+        assertEquals(true, vm.isLoggedIn.value)
+
+        forcedLogoutFlow.tryEmit(Unit)
+        assertEquals(false, vm.isLoggedIn.value)
+        assertEquals(2, vm.forcedLogoutCount.value)
+    }
+
+    @Test
+    fun `admin refresh after a second login reflects the new account`() = runTest {
+        // Admin au démarrage, logout, puis login d'un compte standard.
+        forcedLogoutFlow.tryEmit(Unit)
+        sessionStartedFlow.tryEmit(Unit)
+        coEvery { getAuthContextUseCase() } returns
+            AuthContext(isLoggedIn = true, isAdmin = false, setupCompleted = true)
+
+        viewModel.refreshIsAdmin()
+
+        assertFalse(viewModel.isAdmin.value)
+        assertEquals(true, viewModel.isLoggedIn.value)
+    }
+
+    @Test
+    fun `start destination is computed once from the startup context`() = runTest {
+        assertEquals(Screen.Dashboard.route, viewModel.startDestination.value)
+
+        forcedLogoutFlow.tryEmit(Unit)
+        sessionStartedFlow.tryEmit(Unit)
+        forcedLogoutFlow.tryEmit(Unit)
+        assertEquals(Screen.Dashboard.route, viewModel.startDestination.value)
+
+        // Reset complet après corruption Keystore : navigation vers Setup par effet, pas par
+        // un changement de startDestination (qui remplacerait le graphe du NavHost).
+        coEvery { recoverUseCase() } returns true
+        emitCorruption()
+        viewModel.onKeystoreCorruptionAcknowledged()
+        assertEquals(false, viewModel.isSetupCompleted.value)
+        assertEquals(Screen.Dashboard.route, viewModel.startDestination.value)
+    }
+
+    @Test
+    fun `start destination is Login for a logged-out start and stays Login after login`() = runTest {
+        val vm = loggedOutStart()
+        assertEquals(Screen.Login.route, vm.startDestination.value)
+
+        sessionStartedFlow.tryEmit(Unit)
+
+        assertEquals(Screen.Login.route, vm.startDestination.value)
+    }
+
+    @Test
+    fun `start destination is Setup on first launch`() = runTest {
+        val vm = createViewModel(AuthContext(isLoggedIn = false, isAdmin = false, setupCompleted = false))
+
+        assertEquals(Screen.Setup.route, vm.startDestination.value)
+        assertEquals(false, vm.isSetupCompleted.value)
     }
 }

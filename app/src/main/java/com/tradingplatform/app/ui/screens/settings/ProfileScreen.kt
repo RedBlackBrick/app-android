@@ -264,8 +264,8 @@ private fun DefaultQuoteSymbolCard(
 private fun ProfileInfoRow(
     label: String,
     value: String,
-    valueColor: Color = MaterialTheme.colorScheme.onSurface,
     modifier: Modifier = Modifier,
+    valueColor: Color = MaterialTheme.colorScheme.onSurface,
 ) {
     Row(
         modifier = modifier

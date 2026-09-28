@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Project lint configuration — triage from the audit/remediation lint pass (see
+    audit/PLAN.md / audit report). Every entry below lowers a Warning to "informational"
+    (never "ignore") so the finding stays visible in the report without adding recurring
+    build noise for something already triaged as a documented, intentional design decision.
+    Do not add entries here for anything that is actually fixable — fix it in code instead.
+-->
+<lint>
+
+    <!--
+        TrustAllX509TrustManager / CustomX509TrustManager — security/LanTrustManager.kt.
+        This is the only place in the codebase either check fires. It is a deliberate, narrowly
+        scoped trust manager for the LAN pairing HTTPS hop only (radxa_ip:8099, self-signed
+        device cert) — see CLAUDE.md §8 "QR codes" notes and §8 "Repository LAN":
+          - the connection is gated by isLocalNetwork() (RFC-1918 only) and VpnRequiredInterceptor
+            (VPN must be Connected) before any request is made — lanOnlyHttpsGuard rejects
+            anything else;
+          - the actual secret payload (session_pin, local_token) is additionally encrypted with
+            crypto_box_seal(radxa_wg_pubkey) via SealedBoxHelper before it is ever put on the
+            wire, so it stays opaque even if this TLS layer were fully compromised;
+          - this trust manager is never used for the VPS client (which keeps full certificate
+            pinning via CertificatePinner — see CLAUDE.md §4).
+        lint.xml cannot scope a non-"ignore" severity to a single path (only <ignore path="..."/>
+        is supported, which would drop the finding from the report entirely), and both checks
+        currently only fire in this one file, so a project-wide "informational" downgrade has the
+        same practical effect as a path-scoped one today. Revisit if either check ever fires
+        elsewhere.
+    -->
+    <issue id="TrustAllX509TrustManager" severity="informational" />
+    <issue id="CustomX509TrustManager" severity="informational" />
+
+    <!--
+        Dependency/tooling version-lag checks. CLAUDE.md §11 pins several libraries deliberately
+        (alpha security-crypto / biometric — do not bump without a full manual test pass on
+        Samsung/Xiaomi + emulator API 30/33/36) and the project otherwise tracks dependency
+        bumps as a separate, deliberate task rather than reactively on every lint run. Kept
+        "informational" (not ignored) so `./gradlew lint` output still lists what is behind.
+    -->
+    <issue id="GradleDependency" severity="informational" />
+    <issue id="NewerVersionAvailable" severity="informational" />
+    <issue id="AndroidGradlePluginVersion" severity="informational" />
+
+    <!--
+        OldTargetApi (app/build.gradle.kts targetSdk = 36) — compileSdk is already 36, matching
+        targetSdk; lint's "newer version available" is about a target level newer than the
+        compileSdk currently configured in this environment. Bumping targetSdk/compileSdk ahead
+        of a full compatibility pass (behavior changes, Play/manual test matrix) is out of scope
+        for this lint triage — tracked separately, not bumped reactively here.
+    -->
+    <issue id="OldTargetApi" severity="informational" />
+
+    <!--
+        Launcher icon asset warnings — TODO(design): rework the launcher icon asset (silhouette
+        shape, adaptive-icon monochrome layer, consistent per-density dip size, remove the
+        duplicate round/square icon files). This is launcher icon *asset* work for design, not a
+        code change, and out of scope for this lint-warning triage pass.
+    -->
+    <issue id="IconLauncherShape" severity="informational" />
+    <issue id="MonochromeLauncherIcon" severity="informational" />
+    <issue id="IconDipSize" severity="informational" />
+    <issue id="IconDuplicates" severity="informational" />
+
+</lint>

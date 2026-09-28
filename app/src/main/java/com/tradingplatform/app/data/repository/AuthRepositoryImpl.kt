@@ -79,12 +79,13 @@ class AuthRepositoryImpl @Inject constructor(
             // Peupler le cache mémoire AVANT le DataStore (disque) — si le process est tué
             // entre les deux, le fallback DataStore relira l'ancien token → nouveau 401 → refresh.
             tokenHolder.setToken(tokens.accessToken)
-            // Nouvelle session : PrivateWsClient se (re)connecte immédiatement, backoff remis à
-            // zéro (sans cet événement, il attendait le prochain palier de backoff, ≤ 300 s).
-            sessionManager.notifySessionStarted()
             dataStore.writeString(DataStoreKeys.ACCESS_TOKEN, tokens.accessToken)
             dataStore.writeLong(DataStoreKeys.USER_ID, user.id)
             dataStore.writeBoolean(DataStoreKeys.IS_ADMIN, user.isAdmin)
+            // Nouvelle session — émis APRÈS les écritures DataStore pour que les collecteurs
+            // (AppNavViewModel.isLoggedIn/isAdmin, PrivateWsClient reconnexion immédiate avec
+            // backoff remis à zéro) lisent un état cohérent.
+            sessionManager.notifySessionStarted()
 
             // Pre-fetch CSRF pour éviter runBlocking contention sur la première requête POST
             csrfInterceptor.preFetch()
@@ -146,12 +147,13 @@ class AuthRepositoryImpl @Inject constructor(
 
             // Persist user data and tokens after successful 2FA (same as login)
             tokenHolder.setToken(tokens.accessToken)
-            // Nouvelle session : PrivateWsClient se (re)connecte immédiatement, backoff remis à
-            // zéro (sans cet événement, il attendait le prochain palier de backoff, ≤ 300 s).
-            sessionManager.notifySessionStarted()
             dataStore.writeString(DataStoreKeys.ACCESS_TOKEN, tokens.accessToken)
             dataStore.writeLong(DataStoreKeys.USER_ID, user.id)
             dataStore.writeBoolean(DataStoreKeys.IS_ADMIN, user.isAdmin)
+            // Nouvelle session — émis APRÈS les écritures DataStore pour que les collecteurs
+            // (AppNavViewModel.isLoggedIn/isAdmin, PrivateWsClient reconnexion immédiate avec
+            // backoff remis à zéro) lisent un état cohérent.
+            sessionManager.notifySessionStarted()
 
             // Pre-fetch CSRF pour éviter runBlocking contention sur la première requête POST
             csrfInterceptor.preFetch()

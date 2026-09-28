@@ -40,9 +40,9 @@ import com.tradingplatform.app.ui.theme.Spacing
 @Composable
 fun VpnStatusBanner(
     isDisconnected: Boolean,
+    modifier: Modifier = Modifier,
     isConnecting: Boolean = false,
     onReconnect: (() -> Unit)? = null,
-    modifier: Modifier = Modifier,
 ) {
     val extendedColors = LocalExtendedColors.current
     val isVisible = isDisconnected || isConnecting

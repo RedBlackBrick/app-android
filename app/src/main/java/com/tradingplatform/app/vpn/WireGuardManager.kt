@@ -1,6 +1,8 @@
 package com.tradingplatform.app.vpn
 
 import android.content.Context
+import android.content.Intent
+import android.net.VpnService
 import com.tradingplatform.app.data.local.datastore.DataStoreKeys
 import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
 import com.wireguard.android.backend.Tunnel
@@ -44,6 +46,13 @@ import javax.inject.Singleton
  *   `GoBackend$VpnService.onDestroy`) clears [currentTunnel] AND stops [WireGuardVpnService]
  *   so no stale "VPN connecté" notification survives.
  * - [VpnState.SystemVpnActive] is never emitted here: this class only knows the in-app tunnel.
+ *
+ * VPN consent (audit follow-up PR 6.2): Android only lets an app bring a VPN up after the user
+ * accepted the system "connection request" dialog once (and again after another VPN app took
+ * over). [doConnect] checks [VpnConsentChecker.prepareIntent] (= `VpnService.prepare`) first:
+ * when consent is missing it publishes [VpnState.ConsentRequired], remembers the requested
+ * config in [pendingConsentConfig] and touches neither the backend nor the notification service.
+ * The UI launches [prepareIntent] and calls [retryAfterConsent] once the user accepted.
  */
 @Singleton
 class WireGuardManager internal constructor(
@@ -51,6 +60,7 @@ class WireGuardManager internal constructor(
     private val dataStore: EncryptedDataStore,
     private val backendFactory: () -> TunnelBackend,
     private val serviceController: VpnServiceController,
+    private val consentChecker: VpnConsentChecker,
     private val ioDispatcher: CoroutineDispatcher,
 ) {
 
@@ -64,6 +74,7 @@ class WireGuardManager internal constructor(
         dataStore = dataStore,
         backendFactory = { GoTunnelBackend(context) },
         serviceController = IntentVpnServiceController(context),
+        consentChecker = SystemVpnConsentChecker(context),
         ioDispatcher = Dispatchers.IO,
     )
 
@@ -90,6 +101,15 @@ class WireGuardManager internal constructor(
      */
     @Volatile
     private var ownTransition = false
+
+    /**
+     * Config of the last [connect] that stopped on [VpnState.ConsentRequired], replayed by
+     * [retryAfterConsent]. Invariant: non-null whenever [state] is ConsentRequired. Cleared as
+     * soon as a connect goes past the consent check, and by [disconnect] — the private key it
+     * carries is never logged and stays in memory only for the consent window.
+     */
+    @Volatile
+    private var pendingConsentConfig: WireGuardConfig? = null
 
     /** Single tunnel identity for the whole process — GoBackend keys its state on it. */
     private val tunnel: Tunnel = object : Tunnel {
@@ -157,6 +177,30 @@ class WireGuardManager internal constructor(
     }
 
     /**
+     * Intent of the system VPN consent dialog, or null when the app is already allowed to
+     * establish a VPN (`VpnService.prepare`). To be launched with
+     * `ActivityResultContracts.StartActivityForResult()`; RESULT_OK means consent was granted.
+     */
+    fun prepareIntent(): Intent? = consentChecker.prepareIntent()
+
+    /**
+     * Replays the [connect] that stopped on [VpnState.ConsentRequired], once the user accepted
+     * the consent dialog. Publishes [VpnState.Connecting] synchronously so observers never read
+     * the stale ConsentRequired again before the retry runs. Without a pending config (e.g. a
+     * [disconnect] happened meanwhile) falls back to [reconnect] from EncryptedDataStore.
+     */
+    fun retryAfterConsent() {
+        val config = pendingConsentConfig
+        if (config == null) {
+            Timber.tag(TAG).i("WireGuard: consent granted, no pending config — reconnect from store")
+            reconnect()
+            return
+        }
+        _state.compareAndSet(VpnState.ConsentRequired, VpnState.Connecting)
+        connect(config)
+    }
+
+    /**
      * Disconnects the WireGuard tunnel and stops the foreground service.
      * Safe to call when already disconnected, and while a [connect] is in flight: the
      * tunnel is brought DOWN once the pending `setState(UP)` returns.
@@ -175,6 +219,7 @@ class WireGuardManager internal constructor(
             Timber.tag(TAG).d("WireGuard connect #$ticket superseded — skipped")
             return
         }
+        if (consentMissing(config)) return
         _state.value = VpnState.Connecting
         ownTransition = true
         try {
@@ -216,6 +261,7 @@ class WireGuardManager internal constructor(
             Timber.tag(TAG).d("WireGuard disconnect #$ticket superseded — skipped")
             return
         }
+        pendingConsentConfig = null
         ownTransition = true
         try {
             val up = currentTunnel
@@ -238,6 +284,29 @@ class WireGuardManager internal constructor(
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private fun isSuperseded(ticket: Long): Boolean = requestSeq.get() != ticket
+
+    /**
+     * True when Android has not granted VPN consent: publishes [VpnState.ConsentRequired] and
+     * keeps [config] for [retryAfterConsent]. The backend and the notification service are not
+     * touched (GoBackend would fail setState(UP) anyway). A throwing `prepare()` is logged and
+     * treated as "no consent needed" so that the backend surfaces the real error.
+     */
+    private fun consentMissing(config: WireGuardConfig): Boolean {
+        val intent = try {
+            consentChecker.prepareIntent()
+        } catch (e: Exception) {
+            Timber.tag(TAG).w(e, "VpnService.prepare failed — letting the backend report it")
+            null
+        }
+        if (intent == null) {
+            pendingConsentConfig = null
+            return false
+        }
+        Timber.tag(TAG).i("WireGuard connect needs user VPN consent — backend not called")
+        pendingConsentConfig = config
+        _state.value = VpnState.ConsentRequired
+        return true
+    }
 
     /** Tunnel is DOWN: forget it, publish [newState] and remove the "VPN connecté" notification. */
     private fun markDown(newState: VpnState) {
@@ -262,4 +331,18 @@ class WireGuardManager internal constructor(
             Timber.tag(TAG).w(e, "Failed to stop WireGuardVpnService")
         }
     }
+}
+
+/**
+ * Seam over `VpnService.prepare(context)` so [WireGuardManager] can be tested on the JVM.
+ * The wireguard-android tunnel library exposes nothing for consent: GoBackend simply fails
+ * `setState(UP)` when the app has not been prepared.
+ */
+fun interface VpnConsentChecker {
+    /** Consent dialog Intent to launch, or null when the app may already establish a VPN. */
+    fun prepareIntent(): Intent?
+}
+
+internal class SystemVpnConsentChecker(private val context: Context) : VpnConsentChecker {
+    override fun prepareIntent(): Intent? = VpnService.prepare(context)
 }

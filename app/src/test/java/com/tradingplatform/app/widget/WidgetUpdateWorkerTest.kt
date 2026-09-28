@@ -182,6 +182,41 @@ class WidgetUpdateWorkerTest {
         coVerify(exactly = 0) { getPositionsUseCase(any()) }
     }
 
+    @Test
+    fun `doWork syncs when in-app tunnel is Disconnected but a system VPN is active (D6)`() = runTest {
+        every { vpnManager.state } returns MutableStateFlow(VpnState.Disconnected)
+        every { systemVpnMonitor.active } returns MutableStateFlow(true)
+
+        val result = buildWorker().doWork()
+
+        assertEquals(ListenableWorker.Result.success(), result)
+        coVerify(exactly = 1) { getPositionsUseCase("1") }
+        coVerify(exactly = 1) { getPnlUseCase("1", PnlPeriod.DAY) }
+        coVerify(exactly = 1) { getQuoteUseCase("AAPL") }
+    }
+
+    @Test
+    fun `doWork syncs when in-app tunnel awaits VPN consent but a system VPN is active`() = runTest {
+        every { vpnManager.state } returns MutableStateFlow(VpnState.ConsentRequired)
+        every { systemVpnMonitor.active } returns MutableStateFlow(true)
+
+        val result = buildWorker().doWork()
+
+        assertEquals(ListenableWorker.Result.success(), result)
+        coVerify(exactly = 1) { getPositionsUseCase("1") }
+    }
+
+    @Test
+    fun `doWork skips sync when in-app tunnel awaits VPN consent and no system VPN`() = runTest {
+        every { vpnManager.state } returns MutableStateFlow(VpnState.ConsentRequired)
+
+        val result = buildWorker().doWork()
+
+        assertEquals(ListenableWorker.Result.success(), result)
+        coVerify(exactly = 0) { getPositionsUseCase(any()) }
+        coVerify(exactly = 0) { getQuoteUseCase(any()) }
+    }
+
     // ── Tests portfolioId manquant ─────────────────────────────────────────────
 
     @Test

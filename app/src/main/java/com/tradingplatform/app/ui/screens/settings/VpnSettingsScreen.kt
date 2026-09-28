@@ -1,5 +1,8 @@
 package com.tradingplatform.app.ui.screens.settings
 
+import android.app.Activity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -27,6 +30,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -37,6 +41,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tradingplatform.app.ui.components.OfflineBadge
 import com.tradingplatform.app.ui.components.OnlineBadge
 import com.tradingplatform.app.ui.components.StatusBadge
+import com.tradingplatform.app.ui.screens.setup.VPN_CONSENT_DENIED_MESSAGE
+import com.tradingplatform.app.ui.screens.setup.launchVpnConsent
 import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.Spacing
 import com.tradingplatform.app.vpn.VpnState
@@ -62,6 +68,25 @@ fun VpnSettingsScreen(
     viewModel: VpnSettingsViewModel = hiltViewModel(),
 ) {
     val vpnState by viewModel.vpnState.collectAsStateWithLifecycle()
+    val consentState by viewModel.consentState.collectAsStateWithLifecycle()
+
+    // System VPN consent dialog (VpnService.prepare). RESULT_OK = granted.
+    val vpnConsentLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        viewModel.onVpnConsentResult(granted = result.resultCode == Activity.RESULT_OK)
+    }
+    LaunchedEffect(consentState) {
+        if (consentState == VpnConsentUiState.Required) {
+            launchVpnConsent(
+                intent = viewModel.vpnConsentIntent(),
+                launch = { vpnConsentLauncher.launch(it) },
+                onLaunched = viewModel::onVpnConsentLaunched,
+                onResult = viewModel::onVpnConsentResult,
+            )
+        }
+    }
+    val consentDenied = consentState == VpnConsentUiState.Denied
 
     Scaffold(
         topBar = {
@@ -88,13 +113,15 @@ fun VpnSettingsScreen(
             verticalArrangement = Arrangement.spacedBy(Spacing.lg),
         ) {
             // ── Status card ───────────────────────────────────────────────────
-            VpnStatusCard(vpnState = vpnState)
+            VpnStatusCard(vpnState = vpnState, consentDenied = consentDenied)
 
             // ── Action button ─────────────────────────────────────────────────
             VpnActionButton(
                 vpnState = vpnState,
+                consentDenied = consentDenied,
                 onConnect = viewModel::connect,
                 onDisconnect = viewModel::disconnect,
+                onRequestConsent = viewModel::requestVpnConsent,
             )
 
             Spacer(modifier = Modifier.height(Spacing.sm))
@@ -110,6 +137,7 @@ fun VpnSettingsScreen(
 @Composable
 private fun VpnStatusCard(
     vpnState: VpnState,
+    consentDenied: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val extendedColors = LocalExtendedColors.current
@@ -152,6 +180,11 @@ private fun VpnStatusCard(
                         text = "Erreur",
                         color = MaterialTheme.colorScheme.error,
                     )
+                    // Tunnel down like Disconnected, but Android's consent is needed first.
+                    is VpnState.ConsentRequired -> StatusBadge(
+                        text = "Autorisation requise",
+                        color = if (consentDenied) MaterialTheme.colorScheme.error else extendedColors.statusWarning,
+                    )
                 }
             }
 
@@ -162,13 +195,16 @@ private fun VpnStatusCard(
                 is VpnState.Connecting -> "Établissement du tunnel en cours..."
                 is VpnState.SystemVpnActive -> SYSTEM_VPN_ACTIVE_DESCRIPTION
                 is VpnState.Error -> "Erreur : ${vpnState.message}"
+                is VpnState.ConsentRequired ->
+                    if (consentDenied) VPN_CONSENT_DENIED_MESSAGE else VPN_CONSENT_REQUIRED_DESCRIPTION
             }
 
             Text(
                 text = description,
                 style = MaterialTheme.typography.bodyMedium,
-                color = when (vpnState) {
-                    is VpnState.Error -> MaterialTheme.colorScheme.error
+                color = when {
+                    vpnState is VpnState.Error -> MaterialTheme.colorScheme.error
+                    vpnState is VpnState.ConsentRequired && consentDenied -> MaterialTheme.colorScheme.error
                     else -> MaterialTheme.colorScheme.onSurfaceVariant
                 },
                 modifier = Modifier.semantics {
@@ -182,11 +218,22 @@ private fun VpnStatusCard(
 @Composable
 private fun VpnActionButton(
     vpnState: VpnState,
+    consentDenied: Boolean,
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
+    onRequestConsent: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     when (vpnState) {
+        is VpnState.ConsentRequired -> Button(
+            onClick = onRequestConsent,
+            modifier = modifier
+                .fillMaxWidth()
+                .semantics { contentDescription = "Demander l'autorisation VPN à Android" },
+        ) {
+            Text(if (consentDenied) "Réessayer" else "Autoriser le VPN")
+        }
+
         // Un VPN tiers porte le trafic (D6) : le tunnel intégré n'est pas pilotable ici —
         // Android n'autorise qu'un VPN à la fois, « Connecter » révoquerait l'autre app.
         is VpnState.SystemVpnActive -> OutlinedButton(
@@ -248,6 +295,9 @@ private fun VpnInfoNote(
         )
     }
 }
+
+internal const val VPN_CONSENT_REQUIRED_DESCRIPTION =
+    "Android doit autoriser l'application à créer le tunnel VPN avant la connexion."
 
 internal const val SYSTEM_VPN_ACTIVE_DESCRIPTION =
     "VPN système actif (tunnel externe) — le tunnel WireGuard intégré n'est pas utilisé"

@@ -55,7 +55,11 @@ android {
             "\"${localProperties.getProperty("WG_VPS_PUBKEY", "")}\"")
 
         ndk {
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+            // x86_64 added for ChromeOS support (ChromeOsAbiSupport) — verified present in all
+            // three native AARs pulled in by this module: com.wireguard.android:tunnel
+            // (jni/x86_64/libwg*.so), com.goterl:lazysodium-android (jni/x86_64/libsodium.so)
+            // and net.java.dev.jna:jna@aar (jni/x86_64/libjnidispatch.so).
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
         }
     }
 
@@ -137,6 +141,10 @@ android {
         abortOnError = true
         warningsAsErrors = false
         checkReleaseBuilds = false
+        // Triage from the audit/remediation lint pass — see app/lint.xml for the justification
+        // behind each entry (downgrades documented design decisions to "informational", never
+        // "ignore", so they stay visible in the report without recurring noise).
+        lintConfig = file("lint.xml")
         // Pas de baseline pour l'instant : lint n'a jamais tourné sur ce module, donc aucun
         // fichier lint-baseline.xml existant a committer. AGP echoue le build si `baseline`
         // pointe vers un fichier absent (message "missing baseline file... will be created").
@@ -261,7 +269,16 @@ dependencies {
     implementation(libs.lazysodium.android) {
         exclude(group = "net.java.dev.jna", module = "jna")
     }
-    implementation("net.java.dev.jna:jna:5.17.0@aar")
+    // Version catalog TOML has no classifier/extension field (gradle/gradle#13270) — the "@aar"
+    // is applied here via artifact { type = "aar" }, equivalent to the former literal
+    // "net.java.dev.jna:jna:5.17.0@aar" string, with the coordinates/version now in libs.jna.
+    implementation(libs.jna) {
+        artifact {
+            name = "jna"
+            type = "aar"
+            extension = "aar"
+        }
+    }
 
     // Utilitaires
     implementation(libs.timber)
@@ -294,10 +311,10 @@ dependencies {
     // JVM-only libsodium binding (JNA-backed) for SealedBoxHelperRealTest — 5.1.4 : 5.2.0 est compilé pour Java 21 (class v65) alors que les tests tournent sur JDK 17 — LazySodiumAndroid's
     // JNI .so cannot load on the plain JVM unit test runner. Same version as lazysodium-android
     // (libs.versions.toml "lazysodium") and the JNA version the main app already pulls in via
-    // `implementation("net.java.dev.jna:jna:5.17.0@aar")` (NetworkModule / build.gradle.kts
-    // above), to avoid resolving two different JNA versions on the test classpath.
-    testImplementation("com.goterl:lazysodium-java:5.1.4")
-    testImplementation("net.java.dev.jna:jna:5.17.0")
+    // libs.jna (see the "artifact { type = aar }" implementation above), to avoid resolving two
+    // different JNA versions on the test classpath.
+    testImplementation(libs.lazysodium.java)
+    testImplementation(libs.jna)
     androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.compose.ui.test)
     androidTestImplementation(libs.room.testing)

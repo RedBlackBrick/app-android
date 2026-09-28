@@ -108,7 +108,7 @@ com.tradingplatform.app/
 │   ├── WireGuardManager.kt      # API publique : connect(), disconnect(), state: StateFlow<VpnState> — sérialisé par Mutex
 │   ├── WireGuardConfig.kt       # Modèle de config (interface, peer)
 │   ├── SystemVpnMonitor.kt      # Détecte un VPN tiers actif (ConnectivityManager) → VpnState.SystemVpnActive (D6)
-│   └── VpnState.kt              # sealed class : Disconnected | Connecting | Connected | SystemVpnActive | Error
+│   └── VpnState.kt              # sealed class : Disconnected | Connecting | Connected | ConsentRequired | SystemVpnActive | Error
 ├── security/
 │   ├── BiometricManager.kt      # Abstraction BiometricPrompt — consulte KeystoreManager.checkAuthValidity() avant le prompt
 │   ├── RootDetector.kt          # Détection root (RootBeer)
@@ -523,6 +523,21 @@ viewModelScope.launch {
 - **Avant chaque appel Retrofit** : vérifier `vpnManager.state.value is VpnState.Connected`
   → via un `OkHttp Interceptor` dédié (`VpnRequiredInterceptor`)
 - `VpnState.SystemVpnActive` = VPN tiers actif, tunnel intégré coupé (D6 : autorisé par `VpnRequiredInterceptor`, affiché distinctement, jamais émis par `WireGuardManager`) ; `WireGuardManager` sérialise `connect()`/`disconnect()` par un `Mutex` (dernière intention gagne) et, sur un DOWN non initié (révocation OS), arrête `WireGuardVpnService` (qui ne porte que la notification — le tunnel est tenu par `GoBackend$VpnService`).
+- **Consentement VPN (`VpnService.prepare`)** : Android exige que l'utilisateur accepte une
+  fois le dialogue système de connexion VPN (et de nouveau si une autre app VPN a pris la main),
+  sinon `GoBackend.setState(UP)` échoue. `WireGuardManager.connect()` vérifie d'abord
+  `prepareIntent()` (= `VpnService.prepare(context)`, seam `VpnConsentChecker` ; null = déjà
+  autorisé) : si un Intent est requis, il publie `VpnState.ConsentRequired` **sans appeler le
+  backend** et garde la config en mémoire. `SetupScreen` et `VpnSettingsScreen` lancent l'Intent
+  via `rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult())`
+  (garde « déjà lancé » dans le ViewModel contre un double lancement), puis
+  `viewModel.onVpnConsentResult(granted = resultCode == RESULT_OK)` → accordé :
+  `WireGuardManager.retryAfterConsent()` rejoue la connexion (publie `Connecting` de façon
+  synchrone) ; refusé : message explicite « Autorisation VPN refusée — le tunnel est requis pour
+  utiliser l'application » + bouton « Réessayer ». Politique réseau de `ConsentRequired` =
+  `Disconnected` (bloqué par `VpnRequiredInterceptor` ; `WidgetUpdateWorker` ne synchronise
+  que si un VPN système est actif). Tout `when` exhaustif sur `VpnState` doit traiter
+  `ConsentRequired` comme `Disconnected`.
 - La clé privée WireGuard est générée une seule fois, stockée dans `EncryptedDataStore`,
   protégée par Android Keystore. Elle ne sort jamais de l'app.
 - La clé publique est partagée avec le VPS lors du pairing uniquement.
@@ -1230,6 +1245,8 @@ Root CA interne de Caddy comme ancre de confiance additionnelle pour le trafic V
 L'utilisateur **ne doit jamais avoir à se reconnecter** tant que son refresh token est valide.
 Le token refresh est renouvelé silencieusement en arrière-plan par OkHttp — l'app et les widgets
 restent fonctionnels sans interaction utilisateur.
+
+`AppNavViewModel.isLoggedIn` suit les événements de session (sessionStarted / forcedLogout) ; `startDestination` n'est calculé qu'au démarrage.
 
 ### EncryptedCookieJar — refresh token httpOnly
 

@@ -1,5 +1,6 @@
 package com.tradingplatform.app.ui.screens.setup
 
+import android.content.Intent
 import app.cash.turbine.test
 import com.tradingplatform.app.domain.model.SetupQrData
 import com.tradingplatform.app.domain.usecase.pairing.ParseSetupQrUseCase
@@ -13,9 +14,12 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -140,5 +144,99 @@ class SetupViewModelTest {
         }
 
         coVerify(exactly = 0) { markSetupCompletedUseCase() }
+    }
+
+    // ── VPN consent (VpnService.prepare) ─────────────────────────────────────────
+
+    /** Drives the flow up to the point where WireGuardManager reports ConsentRequired. */
+    private fun reachConsentRequired() {
+        coEvery { parseSetupQrUseCase(any()) } returns Result.success(fakeSetupData)
+        coEvery { provisionMobileVpnUseCase(fakeSetupData) } returns Result.success(Unit)
+        vpnStateFlow.value = VpnState.ConsentRequired
+        viewModel.onQrScanned("{valid-setup-qr}")
+    }
+
+    @Test
+    fun `ConsentRequired from the manager moves the screen to VpnConsentRequired`() = runTest {
+        val consentIntent = mockk<Intent>(relaxed = true)
+        every { wireGuardManager.prepareIntent() } returns consentIntent
+
+        reachConsentRequired()
+
+        assertEquals(SetupUiState.VpnConsentRequired(launched = false), viewModel.uiState.value)
+        assertSame(consentIntent, viewModel.vpnConsentIntent())
+        coVerify(exactly = 0) { markSetupCompletedUseCase() }
+    }
+
+    @Test
+    fun `onVpnConsentLaunched marks the dialog as launched (no second launch)`() = runTest {
+        reachConsentRequired()
+
+        viewModel.onVpnConsentLaunched()
+
+        assertEquals(SetupUiState.VpnConsentRequired(launched = true), viewModel.uiState.value)
+    }
+
+    @Test
+    fun `consent granted — connect retried and setup completes once the tunnel is up`() = runTest {
+        every { wireGuardManager.retryAfterConsent() } answers {
+            // Real manager publishes Connecting synchronously, then UP once GoBackend is done.
+            vpnStateFlow.value = VpnState.Connecting
+        }
+        reachConsentRequired()
+        viewModel.onVpnConsentLaunched()
+
+        viewModel.onVpnConsentResult(granted = true)
+
+        verify(exactly = 1) { wireGuardManager.retryAfterConsent() }
+        assertIs<SetupUiState.Connecting>(viewModel.uiState.value)
+
+        vpnStateFlow.value = VpnState.Connected("10.42.0.5")
+
+        assertIs<SetupUiState.Connected>(viewModel.uiState.value)
+        coVerify(exactly = 1) { markSetupCompletedUseCase() }
+    }
+
+    @Test
+    fun `consent granted but still required — back to VpnConsentRequired`() = runTest {
+        every { wireGuardManager.retryAfterConsent() } answers {
+            vpnStateFlow.value = VpnState.Connecting
+            vpnStateFlow.value = VpnState.ConsentRequired
+        }
+        reachConsentRequired()
+        viewModel.onVpnConsentLaunched()
+
+        viewModel.onVpnConsentResult(granted = true)
+
+        assertEquals(SetupUiState.VpnConsentRequired(launched = false), viewModel.uiState.value)
+    }
+
+    @Test
+    fun `consent denied — explicit error, no connect retry, retry re-asks consent`() = runTest {
+        reachConsentRequired()
+        viewModel.onVpnConsentLaunched()
+
+        viewModel.onVpnConsentResult(granted = false)
+
+        val denied = viewModel.uiState.value
+        assertIs<SetupUiState.VpnConsentDenied>(denied)
+        assertEquals(
+            "Autorisation VPN refusée — le tunnel est requis pour utiliser l'application",
+            (denied as SetupUiState.VpnConsentDenied).message,
+        )
+        verify(exactly = 0) { wireGuardManager.retryAfterConsent() }
+        coVerify(exactly = 0) { markSetupCompletedUseCase() }
+
+        viewModel.retryVpnConsent()
+
+        assertEquals(SetupUiState.VpnConsentRequired(launched = false), viewModel.uiState.value)
+    }
+
+    @Test
+    fun `onVpnConsentResult is ignored outside VpnConsentRequired`() = runTest {
+        viewModel.onVpnConsentResult(granted = true)
+
+        assertIs<SetupUiState.Scanning>(viewModel.uiState.value)
+        verify(exactly = 0) { wireGuardManager.retryAfterConsent() }
     }
 }

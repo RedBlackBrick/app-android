@@ -1,5 +1,6 @@
 package com.tradingplatform.app.ui.screens.setup
 
+import android.content.Intent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tradingplatform.app.domain.usecase.pairing.ParseSetupQrUseCase
@@ -25,13 +26,23 @@ import javax.inject.Inject
  * - [Connecting] — QR parsed, WireGuard tunnel being established
  * - [Connected]  — tunnel up, navigating to Login
  * - [Error]      — QR parse failure or VPN error, retryable via [SetupViewModel.retry]
+ * - [VpnConsentRequired] — Android must authorise the app to create a VPN: the screen launches
+ *   the system dialog once (`launched == false`), then reports via [SetupViewModel.onVpnConsentResult]
+ * - [VpnConsentDenied]   — the user refused the dialog; [SetupViewModel.retryVpnConsent] re-asks
+ *   (provisioning is already done — rescanning the QR is not needed)
  */
 sealed interface SetupUiState {
     data object Scanning : SetupUiState
     data object Connecting : SetupUiState
     data object Connected : SetupUiState
     data class Error(val message: String) : SetupUiState
+    data class VpnConsentRequired(val launched: Boolean = false) : SetupUiState
+    data class VpnConsentDenied(val message: String = VPN_CONSENT_DENIED_MESSAGE) : SetupUiState
 }
+
+/** Shown by SetupScreen and VpnSettingsScreen when the user refuses the VPN consent dialog. */
+const val VPN_CONSENT_DENIED_MESSAGE =
+    "Autorisation VPN refusée — le tunnel est requis pour utiliser l'application"
 
 /**
  * ViewModel for the initial onboarding setup screen.
@@ -101,26 +112,76 @@ class SetupViewModel @Inject constructor(
                 return@launch
             }
 
-            // Observe the VPN state until it reaches a terminal state.
-            // first { } suspends until the predicate is true, then returns —
-            // avoids an infinite collect loop that return@collect cannot break.
-            val terminalState = wireGuardManager.state.first { vpnState ->
-                vpnState is VpnState.Connected || vpnState is VpnState.Error
-            }
-            when (terminalState) {
-                is VpnState.Connected -> {
-                    markSetupCompletedUseCase()
-                    _uiState.value = SetupUiState.Connected
-                    Timber.i("SetupViewModel: WireGuard connected, setup_completed=true")
-                }
-                is VpnState.Error -> {
-                    _uiState.value = SetupUiState.Error(
-                        terminalState.message.ifBlank { "Erreur de connexion VPN" }
-                    )
-                }
-                else -> Unit // Cannot happen — first { } only returns Connected or Error
-            }
+            awaitTunnel()
         }
+    }
+
+    /**
+     * Observes the VPN state until it reaches a terminal state.
+     * first { } suspends until the predicate is true, then returns —
+     * avoids an infinite collect loop that return@collect cannot break.
+     */
+    private suspend fun awaitTunnel() {
+        val terminalState = wireGuardManager.state.first { vpnState ->
+            vpnState is VpnState.Connected ||
+                vpnState is VpnState.Error ||
+                vpnState is VpnState.ConsentRequired
+        }
+        when (terminalState) {
+            is VpnState.Connected -> {
+                markSetupCompletedUseCase()
+                _uiState.value = SetupUiState.Connected
+                Timber.i("SetupViewModel: WireGuard connected, setup_completed=true")
+            }
+            is VpnState.Error -> {
+                _uiState.value = SetupUiState.Error(
+                    terminalState.message.ifBlank { "Erreur de connexion VPN" }
+                )
+            }
+            is VpnState.ConsentRequired -> {
+                // Fresh device (or another VPN app took over): Android's consent dialog is
+                // needed before GoBackend may bring the tunnel UP. The config is kept by
+                // WireGuardManager — no need to re-provision.
+                Timber.i("SetupViewModel: VPN consent required")
+                _uiState.value = SetupUiState.VpnConsentRequired()
+            }
+            else -> Unit // Cannot happen — first { } only returns the states above
+        }
+    }
+
+    /** Intent of the system VPN consent dialog, or null when consent is already granted. */
+    fun vpnConsentIntent(): Intent? = wireGuardManager.prepareIntent()
+
+    /** The screen launched the consent dialog — prevents a second launch on recomposition. */
+    fun onVpnConsentLaunched() {
+        if (_uiState.value is SetupUiState.VpnConsentRequired) {
+            _uiState.value = SetupUiState.VpnConsentRequired(launched = true)
+        }
+    }
+
+    /**
+     * Result of the system VPN consent dialog (RESULT_OK → [granted]).
+     * Granted → back to [SetupUiState.Connecting] and the pending connect is replayed.
+     * Denied → [SetupUiState.VpnConsentDenied] with an explicit message and a retry button.
+     */
+    fun onVpnConsentResult(granted: Boolean) {
+        if (_uiState.value !is SetupUiState.VpnConsentRequired) return
+        if (!granted) {
+            Timber.w("SetupViewModel: VPN consent denied by the user")
+            _uiState.value = SetupUiState.VpnConsentDenied()
+            return
+        }
+        _uiState.value = SetupUiState.Connecting
+        // retryAfterConsent() publishes Connecting synchronously: awaitTunnel() cannot read the
+        // stale ConsentRequired and loop.
+        wireGuardManager.retryAfterConsent()
+        setupJob = viewModelScope.launch { awaitTunnel() }
+    }
+
+    /** "Réessayer" after a denial: asks the screen to launch the consent dialog again. */
+    fun retryVpnConsent() {
+        if (_uiState.value !is SetupUiState.VpnConsentDenied) return
+        _uiState.value = SetupUiState.VpnConsentRequired()
     }
 
     /**

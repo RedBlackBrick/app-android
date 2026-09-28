@@ -1,5 +1,6 @@
 package com.tradingplatform.app.ui.screens.settings
 
+import android.content.Intent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tradingplatform.app.data.local.datastore.DataStoreKeys
@@ -10,13 +11,32 @@ import com.tradingplatform.app.vpn.WireGuardConfig
 import com.tradingplatform.app.vpn.WireGuardManager
 import com.tradingplatform.app.vpn.WireGuardPeer
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import javax.inject.Inject
+
+/**
+ * VPN consent dialog state for [VpnSettingsScreen] (`VpnService.prepare`), meaningful only while
+ * [VpnSettingsViewModel.vpnState] is [VpnState.ConsentRequired].
+ * - [None]     — nothing to launch
+ * - [Required] — the screen must launch the system dialog now
+ * - [Launched] — dialog on screen, waiting for [VpnSettingsViewModel.onVpnConsentResult]
+ *                (survives a config change: no second launch)
+ * - [Denied]   — the user refused: explicit message + retry button
+ */
+sealed interface VpnConsentUiState {
+    data object None : VpnConsentUiState
+    data object Required : VpnConsentUiState
+    data object Launched : VpnConsentUiState
+    data object Denied : VpnConsentUiState
+}
 
 /**
  * ViewModel for VpnSettingsScreen.
@@ -60,19 +80,79 @@ class VpnSettingsViewModel @Inject constructor(
             initialValue = wireGuardManager.state.value,
         )
 
+    private val _consentState = MutableStateFlow<VpnConsentUiState>(VpnConsentUiState.None)
+
+    /** See [VpnConsentUiState]. Derived from the DISPLAYED [vpnState]: when a system VPN is
+     *  active the screen shows SystemVpnActive and never pops the consent dialog (accepting it
+     *  would revoke the other VPN app). */
+    val consentState: StateFlow<VpnConsentUiState> = _consentState.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            vpnState.collect { state ->
+                _consentState.update { current ->
+                    when {
+                        // Entering ConsentRequired (connect()/reconnect() from anywhere): ask the
+                        // screen to launch the dialog, unless it is already up or was refused.
+                        state is VpnState.ConsentRequired ->
+                            if (current == VpnConsentUiState.None) VpnConsentUiState.Required else current
+                        current == VpnConsentUiState.Launched -> current // result still pending
+                        else -> VpnConsentUiState.None
+                    }
+                }
+            }
+        }
+    }
+
     /**
      * Initiates the WireGuard tunnel.
-     * Reads the WireGuard config from EncryptedDataStore.
-     * No-op if config is missing (logs a warning).
+     * Reads the WireGuard config from EncryptedDataStore ([DataStoreKeys.WG_CONFIG] JSON).
+     * When that JSON is absent — the mobile-provisioning flow only persists the individual
+     * `wg_*` keys — falls back to [WireGuardManager.reconnect], which rebuilds the config from
+     * them (and itself no-ops with a warning when they are missing too).
      */
     fun connect() {
         viewModelScope.launch {
             val config = loadWireGuardConfig()
             if (config == null) {
-                Timber.w("VpnSettingsViewModel.connect: WireGuard config not found in datastore — aborting")
+                Timber.w("VpnSettingsViewModel.connect: no WG_CONFIG JSON — reconnect from wg_* keys")
+                wireGuardManager.reconnect()
                 return@launch
             }
             wireGuardManager.connect(config)
+        }
+    }
+
+    /** Intent of the system VPN consent dialog, or null when consent is already granted. */
+    fun vpnConsentIntent(): Intent? = wireGuardManager.prepareIntent()
+
+    /** The screen launched the consent dialog. */
+    fun onVpnConsentLaunched() {
+        _consentState.update { if (it == VpnConsentUiState.Required) VpnConsentUiState.Launched else it }
+    }
+
+    /**
+     * Result of the system VPN consent dialog (RESULT_OK → [granted]).
+     * Granted → the connect that stopped on [VpnState.ConsentRequired] is replayed.
+     * Denied → [VpnConsentUiState.Denied]: explicit message + retry button.
+     */
+    fun onVpnConsentResult(granted: Boolean) {
+        val current = _consentState.value
+        if (current != VpnConsentUiState.Required && current != VpnConsentUiState.Launched) return
+        if (granted) {
+            _consentState.value = VpnConsentUiState.None
+            wireGuardManager.retryAfterConsent()
+        } else {
+            Timber.w("VpnSettingsViewModel: VPN consent denied by the user")
+            _consentState.value = VpnConsentUiState.Denied
+        }
+    }
+
+    /** "Autoriser le VPN" / "Réessayer": asks the screen to launch the consent dialog (again). */
+    fun requestVpnConsent() {
+        if (vpnState.value !is VpnState.ConsentRequired) return
+        _consentState.update {
+            if (it == VpnConsentUiState.None || it == VpnConsentUiState.Denied) VpnConsentUiState.Required else it
         }
     }
 

@@ -20,5 +20,17 @@ sealed class VpnState {
      */
     data object SystemVpnActive : VpnState()
 
+    /**
+     * Android n'a pas (ou plus) autorisé l'app à établir un VPN : `VpnService.prepare()` a
+     * renvoyé un Intent lors de [WireGuardManager.connect] — premier lancement, ou consentement
+     * révoqué parce qu'une autre app VPN a pris la main. Le backend n'a PAS été appelé.
+     *
+     * L'UI (SetupScreen, VpnSettingsScreen) lance [WireGuardManager.prepareIntent] via
+     * `ActivityResultContracts.StartActivityForResult()` puis, si l'utilisateur accepte,
+     * appelle [WireGuardManager.retryAfterConsent]. Politique réseau : identique à
+     * [Disconnected] (requêtes bloquées par `VpnRequiredInterceptor`).
+     */
+    data object ConsentRequired : VpnState()
+
     data class Error(val message: String) : VpnState()
 }

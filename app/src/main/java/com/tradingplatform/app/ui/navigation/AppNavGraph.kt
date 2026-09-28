@@ -2,7 +2,6 @@ package com.tradingplatform.app.ui.navigation
 
 import android.content.ActivityNotFoundException
 import android.content.Intent
-import android.net.Uri
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.zIndex
+import androidx.core.net.toUri
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModel
@@ -72,7 +72,6 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -106,7 +105,7 @@ private fun UpgradeRequiredDialog() {
                 // Try Play Store app first, fall back to browser if Play Store is absent (sideload).
                 val marketIntent = Intent(
                     Intent.ACTION_VIEW,
-                    Uri.parse("market://details?id=$packageName"),
+                    "market://details?id=$packageName".toUri(),
                 ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 try {
                     context.startActivity(marketIntent)
@@ -114,7 +113,7 @@ private fun UpgradeRequiredDialog() {
                     Timber.w(e, "UpgradeRequiredDialog: Play Store not available, opening browser")
                     val webIntent = Intent(
                         Intent.ACTION_VIEW,
-                        Uri.parse("https://play.google.com/store/apps/details?id=$packageName"),
+                        "https://play.google.com/store/apps/details?id=$packageName".toUri(),
                     ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     runCatching { context.startActivity(webIntent) }
                         .onFailure { Timber.w(it, "UpgradeRequiredDialog: no browser available") }
@@ -188,14 +187,20 @@ private fun KeystoreCorruptionDialog(
 // ── AppNavViewModel ────────────────────────────────────────────────────────────
 
 /**
- * Minimal ViewModel that reads the persisted auth state and admin flag from
- * [EncryptedDataStore] once at startup to determine the initial navigation
- * destination and to drive the [BottomNavBar] admin tab visibility.
+ * Root navigation ViewModel: reads the persisted auth state and admin flag from
+ * [EncryptedDataStore] at startup, then follows the session events of [SessionManager].
  *
- * [isLoggedIn] is a tri-state:
- * - `null`  — checking (datastore read in flight)
- * - `true`  — access token present → start at Dashboard
- * - `false` — no token → start at Login
+ * - [startDestination] is computed ONCE from the startup read and never changes afterwards:
+ *   changing the NavHost start destination replaces the graph and resets the back stack.
+ *   In-app navigation after a login is done explicitly by the Login / Totp success callbacks
+ *   (→ Dashboard); after a logout, by the "forced logout" / "setup" effects of [AppNavGraph].
+ * - [isLoggedIn] is a session STATE for banners, effects and guards (VPN banner, FCM deep
+ *   link, forced-logout navigation) — never the source of the start destination. Tri-state:
+ *   - `null`  — checking (datastore read in flight)
+ *   - `true`  — session active (token at startup, or [SessionManager.sessionStartedEvents])
+ *   - `false` — no session (no token at startup, [SessionManager.forcedLogoutEvents],
+ *     Keystore corruption)
+ * - [isAdmin] drives the [BottomNavBar] admin tab and the Devices guard (see [refreshIsAdmin]).
  */
 @HiltViewModel
 class AppNavViewModel @Inject constructor(
@@ -248,15 +253,33 @@ class AppNavViewModel @Inject constructor(
     fun reconnectVpn() = wireGuardManager.reconnect()
 
     private val _isLoggedIn = MutableStateFlow<Boolean?>(null)
+
+    /**
+     * État de session réactif : valeur initiale lue au démarrage, puis `true` sur
+     * [SessionManager.sessionStartedEvents] (login / 2FA réussis dans l'app) et `false` sur
+     * [SessionManager.forcedLogoutEvents] / corruption Keystore. Sert aux bannières, effets et
+     * guards — la destination de départ dépend uniquement de [startDestination].
+     */
     val isLoggedIn: StateFlow<Boolean?> = _isLoggedIn.asStateFlow()
+
+    /**
+     * Destination de départ du NavHost, calculée UNE SEULE FOIS à partir du contexte lu au
+     * démarrage (`null` tant que la lecture est en cours). Ne suit ni [isLoggedIn] ni
+     * [isSetupCompleted] : un changement de startDestination remplacerait le graphe et viderait
+     * la back stack. Survit aux changements de configuration (ViewModel à l'échelle Activity).
+     */
+    private val _startDestination = MutableStateFlow<String?>(null)
+    val startDestination: StateFlow<String?> = _startDestination.asStateFlow()
 
     /**
      * Incrémenté à chaque logout forcé ([SessionManager.forcedLogoutEvents]).
      *
-     * Clé de l'effet de navigation "→ Login" en plus de [isLoggedIn] : après un login effectué
-     * pendant la session (Login → Dashboard), [isLoggedIn] reste à `false` (il n'est lu qu'au
-     * démarrage) — un logout forcé ultérieur ne produirait alors aucune transition de
-     * StateFlow et la navigation ne serait jamais relancée.
+     * Clé de l'effet de navigation "→ Login" en plus de [isLoggedIn]. [isLoggedIn] suit les
+     * événements de session (true → false → true …), mais un logout forcé peut encore arriver
+     * alors qu'il vaut déjà `false` — deux logouts forcés consécutifs, ou un logout forcé reçu
+     * entre le sessionStarted et la navigation Login → Dashboard suivi d'un second une fois sur
+     * Dashboard : sans ce compteur, aucune transition de StateFlow et la navigation ne serait
+     * pas relancée.
      */
     private val _forcedLogoutCount = MutableStateFlow(0)
     val forcedLogoutCount: StateFlow<Int> = _forcedLogoutCount.asStateFlow()
@@ -375,13 +398,18 @@ class AppNavViewModel @Inject constructor(
     /**
      * Re-reads [isAdmin] from [EncryptedDataStore] via [GetAuthContextUseCase].
      *
-     * Must be called after a successful login (direct or via 2FA) so that the
-     * [BottomNavBar] Devices tab and the admin guard in the NavHost reflect the
-     * newly persisted flag without requiring an app restart.
+     * Must be called after a successful login (direct or via 2FA) — i.e. once the login use
+     * case has returned — so that the [BottomNavBar] Devices tab and the admin guard in the
+     * NavHost reflect the newly persisted flag without requiring an app restart.
      *
-     * [AppNavViewModel._isAdmin] is set once in [init] from the DataStore value
-     * present at launch (typically `false` for a fresh login), so it must be
-     * refreshed once [AuthRepositoryImpl] has written the real value.
+     * Deliberately NOT done on [SessionManager.sessionStartedEvents]: [AuthRepositoryImpl]
+     * emits that event right after populating [TokenHolder] and BEFORE writing `IS_ADMIN` to
+     * the DataStore, so a read triggered by the event would return the previous (cleared) value.
+     *
+     * [isAdmin] is deliberately not reset on logout either: the admin tab / Devices routes are
+     * not reachable from the logged-out screens, and flipping it while the Devices screen is
+     * still composed would race the Devices guard navigation (→ Dashboard) with the forced
+     * logout navigation (→ Login). The next login overwrites it through this method.
      */
     fun refreshIsAdmin() {
         viewModelScope.launch {
@@ -406,15 +434,29 @@ class AppNavViewModel @Inject constructor(
                 _isAdmin.value = false
                 _isLoggedIn.value = false
                 _isSetupCompleted.value = true  // laisser passer Setup pour arriver sur Login
+                _startDestination.value = startDestinationFor(setupCompleted = true, loggedIn = false)
                 return@launch
             }
             _isAdmin.value = context.isAdmin
             _isLoggedIn.value = context.isLoggedIn
             _isSetupCompleted.value = context.setupCompleted
+            _startDestination.value = startDestinationFor(
+                setupCompleted = context.setupCompleted,
+                loggedIn = context.isLoggedIn,
+            )
             Timber.d(
                 "AppNavViewModel: isLoggedIn=${context.isLoggedIn}, " +
                     "isAdmin=${context.isAdmin}, setupCompleted=${context.setupCompleted}"
             )
+        }
+        viewModelScope.launch {
+            // Login / vérification 2FA réussis pendant la session. Seul l'état change ici :
+            // la navigation Login/Totp → Dashboard est faite par leurs callbacks de succès
+            // (après la fin du use case), qui rafraîchissent aussi isAdmin (refreshIsAdmin).
+            sessionManager.sessionStartedEvents.collect {
+                Timber.d("AppNavViewModel: session started — isLoggedIn=true")
+                _isLoggedIn.value = true
+            }
         }
         viewModelScope.launch {
             sessionManager.forcedLogoutEvents.collect {
@@ -474,6 +516,12 @@ class AppNavViewModel @Inject constructor(
         }
     }
 
+    private fun startDestinationFor(setupCompleted: Boolean, loggedIn: Boolean): String = when {
+        !setupCompleted -> Screen.Setup.route
+        loggedIn -> Screen.Dashboard.route
+        else -> Screen.Login.route
+    }
+
     /** Called by the UI when the Setup flow completes (VPN configured). */
     fun onSetupCompleted() {
         _isSetupCompleted.value = true
@@ -531,11 +579,15 @@ private fun pairingReturnRoute(source: String?) = when (source) {
 /**
  * Root navigation graph for the application.
  *
- * Reads the auth state from [AppNavViewModel] to pick the correct start destination.
- * While the state is being determined (null), nothing is rendered to avoid a flash.
+ * The start destination comes from [AppNavViewModel.startDestination], computed once from the
+ * startup auth state. While that state is being determined (null), nothing is rendered to
+ * avoid a flash. Later session changes never touch the start destination: they are explicit
+ * navigations (Login/Totp success → Dashboard, forced logout → Login, setup lost → Setup),
+ * and [AppNavViewModel.isLoggedIn] only feeds banners / effects / guards.
  *
- * FCM deep link: reads the "navigate_to" extra from the current Activity intent
- * and navigates to [Screen.Alerts] if set to "alerts".
+ * FCM deep link: collects [AppNavViewModel.deepLinkEvents] (fed from the "navigate_to"
+ * Activity extra) and navigates to [Screen.Alerts] once a session is active and an
+ * authenticated screen is shown.
  *
  * Pairing flow: the four pairing screens share a single [PairingViewModel] instance
  * scoped to the nested "pairing_graph" navigation graph via
@@ -561,22 +613,22 @@ fun AppNavGraph(
     val biometricLocked by appNavViewModel.biometricLocked.collectAsStateWithLifecycle()
     val forcedLogoutCount by appNavViewModel.forcedLogoutCount.collectAsStateWithLifecycle()
     val awaitingLoggedOutScreen by appNavViewModel.awaitingLoggedOutScreen.collectAsStateWithLifecycle()
+    val startDestinationOrNull by appNavViewModel.startDestination.collectAsStateWithLifecycle()
 
     // Wait until all datastore checks complete before rendering anything.
-    // isLoggedIn and isSetupCompleted are set atomically in the same init coroutine,
-    // so checking isSetupCompleted alone is sufficient — but both are null initially.
+    // isLoggedIn, isSetupCompleted and startDestination are set together in the same init
+    // coroutine (all null initially) and never go back to null.
     // Biometric lock: BiometricLockManager.isLocked starts at `true` (fail-closed until the
     // cold-start restore/unlock in TradingApplication). Once this gate opens, the overlay below
     // is composed in the same Box as the Scaffold, above it (zIndex), and AnimatedVisibility
     // shows it without a fade-in on its first composition → no authenticated frame is exposed.
     val loggedIn = isLoggedIn ?: return
-    val setupCompleted = isSetupCompleted ?: return
-
-    val startDestination = when {
-        !setupCompleted -> Screen.Setup.route
-        loggedIn -> Screen.Dashboard.route
-        else -> Screen.Login.route
-    }
+    if (isSetupCompleted == null) return
+    // Figé au démarrage (AppNavViewModel.startDestination) : un startDestination qui suivrait
+    // isLoggedIn / isSetupCompleted remplacerait le graphe du NavHost et viderait la back stack
+    // à chaque login / logout. Les transitions de session sont des navigations explicites :
+    // callbacks de succès Login/Totp → Dashboard, effets "logout forcé" → Login et "setup" → Setup.
+    val startDestination = startDestinationOrNull ?: return
 
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -599,6 +651,7 @@ fun AppNavGraph(
     // Forced logout — triggered by SessionManager when TokenAuthenticator invalidates the session.
     // When isLoggedIn transitions to false after being true (expired token, forced logout),
     // navigate to Login and clear the entire backstack so the user can re-authenticate.
+    // Sans cet effet, rien ne ramènerait à Login : startDestination est figé au démarrage.
     // Les dialogs globaux (upgradeRequired / keystoreCorruption) sont fermés explicitement
     // sauf si c'est la corruption Keystore qui a déclenché le logout (dialog encore nécessaire).
     //
@@ -606,9 +659,10 @@ fun AppNavGraph(
     // chiffré après corruption Keystore — c'est l'effet "Setup" ci-dessous qui gagne :
     // sans config VPN, Login est inutilisable.
     //
-    // Clé forcedLogoutCount : après un login fait pendant la session, isLoggedIn reste à false
-    // (lu une seule fois au démarrage) — sans ce compteur, un logout forcé ultérieur (401,
-    // logout Settings, escape hatch biométrique) ne relancerait pas cet effet. Déjà sur un
+    // Clé forcedLogoutCount : isLoggedIn suit les événements de session (logout → login →
+    // logout = false → true → false), mais un logout forcé peut encore arriver alors qu'il vaut
+    // déjà false (deux logouts consécutifs, logout reçu entre sessionStarted et la navigation
+    // Login → Dashboard) — sans ce compteur, cet effet ne serait alors pas relancé. Déjà sur un
     // écran hors session (Login / Totp / Setup) → no-op, pour ne pas recréer LoginScreen à
     // chaque 401 synthétique émis sans token.
     LaunchedEffect(isLoggedIn, forcedLogoutCount) {
@@ -657,13 +711,21 @@ fun AppNavGraph(
     // (cold start depuis notification) est re-joué au premier subscribe. On attend que
     // le NavController ait chargé sa destination de départ avant de consommer, puis on
     // clear le replay cache après consommation pour éviter une re-navigation sur rotation.
+    //
+    // Clé loggedIn (réactif, PR 6.1) : hors session, rien n'est consommé — l'event reste dans
+    // le replay cache et est re-joué quand l'effet redémarre après un login fait dans l'app.
+    // isLoggedIn passe à true dès le sessionStarted, AVANT que Login/Totp n'aient navigué vers
+    // Dashboard (le use case charge encore le portfolio) : on attend donc qu'une destination
+    // authentifiée soit affichée, sinon Alerts serait empilé au-dessus de Login puis effacé par
+    // la navigation Login → Dashboard. Un logout pendant l'attente annule l'effet (clé).
     LaunchedEffect(loggedIn) {
+        if (!loggedIn) return@LaunchedEffect
         appNavViewModel.deepLinkEvents.collect { destination ->
-            if (destination == "alerts" && loggedIn) {
-                // Attendre que la back stack soit initialisée (cold start depuis notification)
-                androidx.compose.runtime.snapshotFlow { navController.currentBackStackEntry }
-                    .filterNotNull()
-                    .first()
+            if (destination == "alerts") {
+                // Back stack initialisée (cold start depuis notification) ET hors écrans
+                // non authentifiés (Login / Totp / Setup).
+                navController.currentBackStackEntryFlow
+                    .first { it.destination.route !in NO_SESSION_ROUTES }
                 navController.navigate(Screen.Alerts.route) {
                     popUpTo(Screen.Dashboard.route) { saveState = false }
                     launchSingleTop = true
@@ -707,7 +769,7 @@ fun AppNavGraph(
 
         Column(modifier = Modifier.padding(innerPadding)) {
             // Global VPN disconnect banner
-            val isVpnDisconnected = loggedIn && vpnState is VpnState.Disconnected
+            val isVpnDisconnected = loggedIn && (vpnState is VpnState.Disconnected || vpnState is VpnState.ConsentRequired)
             val isVpnConnecting = loggedIn && vpnState is VpnState.Connecting
             VpnStatusBanner(
                 isDisconnected = isVpnDisconnected,
@@ -746,10 +808,13 @@ fun AppNavGraph(
             composable(Screen.Login.route) {
                 LoginScreen(
                     onNavigateToDashboard = {
+                        // Navigation explicite post-login : startDestination est figé au
+                        // démarrage, isLoggedIn (déjà true via sessionStarted) n'est qu'un état.
                         // Refresh isAdmin before navigating — LoginUseCase has just written the
-                        // real value to EncryptedDataStore; the startup read in init{} returned
-                        // false (no token yet). Without this refresh the Devices tab stays
-                        // hidden for admins who log in during this app session.
+                        // real value to EncryptedDataStore (after the sessionStarted event);
+                        // the startup read in init{} returned false (no token yet). Without this
+                        // refresh the Devices tab stays hidden for admins who log in during
+                        // this app session.
                         appNavViewModel.refreshIsAdmin()
                         navController.navigate(Screen.Dashboard.route) {
                             popUpTo(Screen.Login.route) { inclusive = true }

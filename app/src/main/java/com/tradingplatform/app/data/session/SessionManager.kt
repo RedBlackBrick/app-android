@@ -22,7 +22,8 @@ import javax.inject.Singleton
  *
  * [sessionStartedEvents] est collecté par [PrivateWsClient] pour se (re)connecter immédiatement
  * après un login / une vérification 2FA réussis ; [forcedLogoutEvents] est aussi collecté par
- * [PrivateWsClient] pour fermer le WS privé à la fin de session.
+ * [PrivateWsClient] pour fermer le WS privé à la fin de session. [AppNavViewModel] collecte les
+ * deux pour tenir `isLoggedIn` à jour (true / false) pendant toute la vie du process.
  *
  * SharedFlow (replay=0) : les consommateurs sont des singletons / le ViewModel racine, abonnés
  * avant toute émission. Les émetteurs n'attendent pas — tryEmit.
@@ -45,7 +46,10 @@ class SessionManager @Inject constructor() {
     /**
      * Début de session — émis par AuthRepositoryImpl juste après que l'access token d'un login
      * ou d'une vérification 2FA réussis a été placé dans [TokenHolder].
-     * Consommateur : PrivateWsClient (reset du backoff + connexion immédiate).
+     * Consommateurs : PrivateWsClient (reset du backoff + connexion immédiate) et
+     * AppNavViewModel (`isLoggedIn = true` ; la navigation vers Dashboard reste faite par les
+     * callbacks Login/Totp). Émis AVANT l'écriture de `IS_ADMIN` dans le DataStore : un
+     * consommateur ne doit pas relire ce flag sur cet événement.
      */
     private val _sessionStartedEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val sessionStartedEvents: SharedFlow<Unit> = _sessionStartedEvents.asSharedFlow()

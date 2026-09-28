@@ -1,6 +1,7 @@
 package com.tradingplatform.app.fcm
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -108,6 +109,11 @@ class TradingFirebaseMessagingService : FirebaseMessagingService() {
         showNotification(title, body, notificationId(alertType.name, receivedAt, title, body))
     }
 
+    // ANDROID_ID is read here only as a stable per-device fingerprint accompanying FCM token
+    // registration (server-side dedup/rotation of stale tokens on reinstall) — never used for
+    // advertising/analytics or cross-app tracking, so the general HardwareIds guidance (use an
+    // advertising/analytics ID instead) does not apply to this fraud/registration use case.
+    @SuppressLint("HardwareIds")
     override fun onNewToken(token: String) {
         // Token FCM renouvelé — jamais logger le token en clair
         Timber.tag(TAG).d("FCM token renouvelé : [REDACTED]")

@@ -239,8 +239,8 @@ private fun SwipeToDismissWatchlistCard(
     quote: Quote?,
     sparklinePoints: List<BigDecimal>?,
     onDismiss: () -> Unit,
-    onSourceTap: (String) -> Unit = {},
     modifier: Modifier = Modifier,
+    onSourceTap: (String) -> Unit = {},
 ) {
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
@@ -297,9 +297,9 @@ private fun SwipeToDismissWatchlistCard(
 private fun WatchlistCard(
     symbol: String,
     quote: Quote?,
+    modifier: Modifier = Modifier,
     sparklinePoints: List<BigDecimal>? = null,
     onSourceTap: (String) -> Unit = {},
-    modifier: Modifier = Modifier,
 ) {
     val extendedColors = LocalExtendedColors.current
 

@@ -1,7 +1,10 @@
 package com.tradingplatform.app.vpn
 
+import android.content.Intent
+import androidx.datastore.preferences.core.Preferences
 import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
 import com.wireguard.android.backend.Tunnel
+import io.mockk.coEvery
 import io.mockk.mockk
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -11,6 +14,8 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -71,8 +76,16 @@ class WireGuardManagerTest {
         override fun stop() { stopCount++ }
     }
 
+    /** `VpnService.prepare` stand-in: [intent] non-null = consent missing. */
+    private class FakeConsentChecker : VpnConsentChecker {
+        var intent: Intent? = null
+        var calls = 0
+        override fun prepareIntent(): Intent? { calls++; return intent }
+    }
+
     private val backend = FakeTunnelBackend()
     private val serviceController = FakeServiceController()
+    private val consentChecker = FakeConsentChecker()
     private var backendCreations = 0
 
     // applicationScope = the TestScope itself, NOT backgroundScope: work launched from
@@ -84,6 +97,7 @@ class WireGuardManagerTest {
         dataStore = mockk<EncryptedDataStore>(relaxed = true),
         backendFactory = { backendCreations++; backend },
         serviceController = serviceController,
+        consentChecker = consentChecker,
         ioDispatcher = StandardTestDispatcher(testScheduler),
     )
 
@@ -188,6 +202,7 @@ class WireGuardManagerTest {
             dataStore = mockk<EncryptedDataStore>(relaxed = true),
             backendFactory = { failing },
             serviceController = serviceController,
+            consentChecker = consentChecker,
             ioDispatcher = StandardTestDispatcher(testScheduler),
         )
 
@@ -196,5 +211,95 @@ class WireGuardManagerTest {
 
         assertEquals(VpnState.Error("VPN_NOT_AUTHORIZED"), manager.state.value)
         assertEquals(1, serviceController.stopCount)
+    }
+
+    // ── VPN consent (VpnService.prepare) ─────────────────────────────────────
+
+    @Test
+    fun `connect without VPN consent publishes ConsentRequired and never calls the backend`() = runTest {
+        consentChecker.intent = mockk<Intent>(relaxed = true)
+        val manager = createManager()
+
+        manager.connect(config)
+        advanceUntilIdle()
+
+        assertEquals(VpnState.ConsentRequired, manager.state.value)
+        assertTrue("backend must not be called", backend.calls.isEmpty())
+        assertEquals("backend must not even be created", 0, backendCreations)
+        assertEquals("notification service must not start", 0, serviceController.startCount)
+        assertEquals(1, consentChecker.calls)
+    }
+
+    @Test
+    fun `prepareIntent delegates to VpnService prepare seam`() = runTest {
+        val manager = createManager()
+        assertNull(manager.prepareIntent())
+
+        val intent = mockk<Intent>(relaxed = true)
+        consentChecker.intent = intent
+        assertSame(intent, manager.prepareIntent())
+    }
+
+    @Test
+    fun `retryAfterConsent replays the pending connect once consent is granted`() = runTest {
+        consentChecker.intent = mockk<Intent>(relaxed = true)
+        val manager = createManager()
+        manager.connect(config)
+        advanceUntilIdle()
+        assertEquals(VpnState.ConsentRequired, manager.state.value)
+
+        consentChecker.intent = null // user accepted the system dialog
+        manager.retryAfterConsent()
+        // Connecting is published synchronously — observers never re-read the stale state.
+        assertEquals(VpnState.Connecting, manager.state.value)
+        advanceUntilIdle()
+
+        assertEquals(VpnState.Connected(), manager.state.value)
+        assertEquals(listOf(Tunnel.State.UP), backend.calls)
+        assertEquals(1, serviceController.startCount)
+    }
+
+    @Test
+    fun `retryAfterConsent without granted consent goes back to ConsentRequired`() = runTest {
+        consentChecker.intent = mockk<Intent>(relaxed = true)
+        val manager = createManager()
+        manager.connect(config)
+        advanceUntilIdle()
+
+        manager.retryAfterConsent()
+        advanceUntilIdle()
+
+        assertEquals(VpnState.ConsentRequired, manager.state.value)
+        assertTrue(backend.calls.isEmpty())
+    }
+
+    @Test
+    fun `disconnect while consent is pending ends Disconnected and drops the pending config`() = runTest {
+        consentChecker.intent = mockk<Intent>(relaxed = true)
+        val emptyStore = mockk<EncryptedDataStore> {
+            coEvery { readString(any<Preferences.Key<String>>()) } returns null
+        }
+        val manager = WireGuardManager(
+            applicationScope = this,
+            dataStore = emptyStore,
+            backendFactory = { backendCreations++; backend },
+            serviceController = serviceController,
+            consentChecker = consentChecker,
+            ioDispatcher = StandardTestDispatcher(testScheduler),
+        )
+        manager.connect(config)
+        advanceUntilIdle()
+
+        manager.disconnect()
+        advanceUntilIdle()
+        assertEquals(VpnState.Disconnected, manager.state.value)
+
+        // No pending config any more: retryAfterConsent falls back to reconnect() from the
+        // store, which is empty here (relaxed mock → null keys) → nothing is brought UP.
+        consentChecker.intent = null
+        manager.retryAfterConsent()
+        advanceUntilIdle()
+        assertEquals(VpnState.Disconnected, manager.state.value)
+        assertTrue(Tunnel.State.UP !in backend.calls)
     }
 }
