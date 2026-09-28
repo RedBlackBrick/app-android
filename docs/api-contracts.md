@@ -639,3 +639,83 @@ Response 200:
   "last_error": null
 }
 ```
+
+---
+
+## Garde de drift de contrats
+
+Audit `PLAN.md` Phase 0 §3 / PR 5c — conception détaillée : `audit/plan-ui-tests-ci.md` PART 2
+§(3). Objectif : détecter automatiquement un décalage entre ce que l'app suppose (DTOs Moshi,
+chemins Retrofit, clés lues dans les payloads WebSocket) et ce que le backend envoie
+réellement, sans dépendre d'un VPS/MockWebServer — la source de vérité est l'OpenAPI backend
+commité (`trading-platform2/audit/front/openapi.json`, 3.1, ~490 chemins) plus un fichier
+maintenu à la main pour les événements WebSocket (qui n'ont pas d'export OpenAPI/AsyncAPI).
+
+### Fichiers
+
+| Fichier | Rôle |
+|---|---|
+| `scripts/extract_openapi_contracts.py` | Lit l'OpenAPI backend, ne garde que les chemins appelés par les interfaces Retrofit d'`app/src/main/.../data/api/*.kt` et les schémas `components.schemas` référencés transitivement par leurs requêtes/réponses. Écrit `app/src/test/resources/contracts/openapi.json` (trié, formaté). |
+| `app/src/test/resources/contracts/openapi.json` | Sortie du script ci-dessus — **généré, à regénérer et commiter**, jamais édité à la main. |
+| `app/src/test/resources/contracts/ws_events.json` | Maintenu à la main : pour chaque type d'événement WS privé/public, la liste des clés JSON que le backend envoie réellement (union sur tous les points d'émission), avec la référence au fichier backend source. |
+| `app/src/test/java/com/tradingplatform/app/contracts/DtoContractTest.kt` | Les 4 tests JUnit qui comparent le code app à ces deux fichiers (réflexion Kotlin sur `@Json(name)` / nullabilité / valeurs par défaut des DTOs, réflexion sur les annotations Retrofit `@GET`/`@POST`/…). |
+
+### Quand regénérer
+
+```bash
+python3 scripts/extract_openapi_contracts.py
+# ou, si l'export OpenAPI backend n'est pas au chemin par défaut :
+python3 scripts/extract_openapi_contracts.py /chemin/vers/openapi.json
+```
+
+À relancer (et commiter le fichier `openapi.json` régénéré) :
+- après tout changement de schéma backend touchant un endpoint que l'app appelle (champ
+  renommé/supprimé, `required` modifié, ajout d'un endpoint consommé côté app) ;
+- avant de merger toute PR qui modifie un DTO Android ou une interface Retrofit `data/api/*Api.kt` ;
+- en CI, idéalement via une future cible `make openapi-android` côté backend qui régénère et
+  copie l'export réduit (non encore câblée — actuellement un geste manuel).
+
+`ws_events.json` n'a pas de script d'extraction (pas d'export WS côté backend) — le mettre à
+jour à la main en relisant les fichiers cités dans son champ `source` par événement
+(`app/portfolio/consumer.py`, `app/execution/consumer.py`, `app/execution/exit_consumer.py`,
+`app/notification/service.py`, `app/notification/consumer.py`, `app/strategy/consumer/base.py`,
+`app/events/catalyst/consumer.py`, `app/websocket/market_data_bridge.py` côté trading-platform2).
+
+### Ce que `DtoContractTest` vérifie
+
+1. **Champs DTO présents dans le schéma** — chaque `@Json(name=...)` (ou nom de paramètre à
+   défaut) d'un DTO de la table `DTO_SCHEMA_TABLE` existe dans `schema.properties` (en suivant
+   `allOf`/`$ref`).
+2. **Champs DTO non-nullables sans défaut couverts par le schéma** — chaque paramètre non-nullable
+   sans valeur par défaut doit correspondre à un champ `required` **ou** portant un `default`
+   explicite dans le schéma (Pydantic sérialise toujours un champ avec défaut, même absent de
+   `required`). Sinon : risque réel de crash Moshi (le backend peut légalement omettre ou
+   `null`-er le champ).
+3. **Chemins Retrofit présents dans l'OpenAPI réduit** — chaque `@GET/@POST/@PUT/@DELETE/@PATCH`
+   des interfaces `data/api/*Api.kt` (lu par réflexion sur les annotations, pas par re-parsing
+   du `.kt`) existe dans `openapi.json`, aux noms de `{param}` près.
+4. **Clés WS lues par l'app ⊆ clés envoyées par le backend** — pour chaque type d'événement WS,
+   l'ensemble de clés lu (codé en dur dans le test, miroir de `WsRepository.kt` /
+   `PrivateWsClient.kt` / `PublicWsClient.kt`) doit être un sous-ensemble de `ws_events.json`.
+
+Aurait attrapé les findings d'audit #6, #7 et #23 (formes d'enveloppe market-data, noms de
+champs des payloads WS position/portfolio) s'il avait existé avant leurs correctifs en PRs
+2.1/2.3.
+
+### Findings PR 5c (nouveaux, non corrigés dans cette PR)
+
+En écrivant ce test, plusieurs dérives **non tracées auparavant** dans `audit/PLAN.md` sont
+apparues. Cette PR ne modifie pas le code source principal (hors périmètre) — les tests
+suivants sont donc **rouges intentionnellement** tant qu'un correctif dédié n'est pas fait :
+
+| Test | Constat |
+|---|---|
+| DTO non-nullables | `PositionDto.quantity` / `PositionDto.avgPrice` (← `average_price`) sont non-nullables sans défaut côté Kotlin, mais `PositionResponse.quantity`/`average_price` sont `Decimal \| None = None` côté backend (trading-platform2 `app/portfolio/schemas.py:980-981`) — ni `required`, ni `default`. |
+| DTO champs présents | `DeviceDto.hostname` / `.scrapersCircuit` / `.availableMemoryMb` n'ont aucune propriété correspondante dans `DeviceResponse` (`app/edge/schemas.py:186-221`) — toujours `null`, code mort côté app. |
+| WS `order_update` | L'app lit `fill_price` (`WsRepository.kt:102`) ; aucun point d'émission (`execution/consumer.py`, `execution/exit_consumer.py`) n'envoie cette clé, seulement `price`. |
+| WS `notification` | L'app lit `data.type` avec fallback `"info"` (`PrivateWsClient.kt:445`) ; le backend envoie `notification_type`, jamais `type`. |
+| WS `catalyst_event` | L'app lit `event_type`/`title`/`description` (`WsRepository.kt:123-126`) ; le backend envoie `catalyst_type` (pas `event_type`) et aucun `title`/`description` au niveau racine (seulement `data` imbriqué). |
+| WS `market_data` (public) | L'app lit `source_name`/`source_type`/`quality` (`PublicWsClient.kt:143-147`) ; le canal public n'envoie que `source` (texte libre) — `source_name`/`source_type`/`quality` n'existent que sur le canal admin (`app/websocket/admin_events.py`). |
+
+Voir le rapport de la PR 5c pour les citations complètes (fichier:ligne backend) et les
+recommandations de correctif.

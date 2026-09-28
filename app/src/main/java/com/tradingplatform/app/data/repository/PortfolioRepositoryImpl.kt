@@ -17,6 +17,7 @@ import com.tradingplatform.app.domain.model.Position
 import com.tradingplatform.app.domain.model.PositionStatus
 import com.tradingplatform.app.domain.model.Transaction
 import com.tradingplatform.app.domain.repository.PortfolioRepository
+import com.tradingplatform.app.domain.util.runCatchingCancellable
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.cancellation.CancellationException
@@ -32,13 +33,13 @@ class PortfolioRepositoryImpl @Inject constructor(
         portfolioId: String,
         positionId: Int,
         forceRefresh: Boolean,
-    ): Result<Cached<Position>> = runCatching {
+    ): Result<Cached<Position>> = runCatchingCancellable {
         val now = System.currentTimeMillis()
         val cached = positionDao.getById(positionId)
 
         // Cache servi uniquement s'il est frais (TTL positions — CacheTtl / CLAUDE.md §2)
         if (cached != null && !forceRefresh && CacheTtl.isFresh(cached.syncedAt, CacheTtl.POSITIONS_MS, now)) {
-            return@runCatching Cached(cached.toDomain(), cached.syncedAt)
+            return@runCatchingCancellable Cached(cached.toDomain(), cached.syncedAt)
         }
 
         // Cache absent, périmé ou refresh forcé — fetch `status=all` pour que les positions
@@ -50,7 +51,7 @@ class PortfolioRepositoryImpl @Inject constructor(
         } catch (e: Exception) {
             // Réseau indisponible : afficher la ligne périmée avec son vrai horodatage
             // (CacheTimestamp la marque « offline ») plutôt qu'une erreur bloquante.
-            if (cached != null) return@runCatching Cached(cached.toDomain(), cached.syncedAt)
+            if (cached != null) return@runCatchingCancellable Cached(cached.toDomain(), cached.syncedAt)
             throw e
         }
 
@@ -60,7 +61,7 @@ class PortfolioRepositoryImpl @Inject constructor(
     }
 
     override suspend fun getPositions(portfolioId: String, status: PositionStatus): Result<List<Position>> =
-        runCatching { fetchAndCachePositions(portfolioId, status, System.currentTimeMillis()) }
+        runCatchingCancellable { fetchAndCachePositions(portfolioId, status, System.currentTimeMillis()) }
 
     /**
      * `GET /positions?status=…` puis upsert + purge Room.
@@ -89,7 +90,7 @@ class PortfolioRepositoryImpl @Inject constructor(
      * par `GetPnlUseCase` → ici. Une ligne par période (upsert REPLACE sur `period`).
      */
     override suspend fun getPnlSummary(portfolioId: String, period: PnlPeriod): Result<PnlSummary> =
-        runCatching {
+        runCatchingCancellable {
             val response = portfolioApi.getPnl(portfolioId, period.toApiString())
             if (!response.isSuccessful) {
                 error("Get PnL failed: HTTP ${response.code()}")
@@ -109,7 +110,7 @@ class PortfolioRepositoryImpl @Inject constructor(
         }
 
     override suspend fun getPerformance(portfolioId: String): Result<PerformanceMetrics> =
-        runCatching {
+        runCatchingCancellable {
             val response = portfolioApi.getPerformance(portfolioId)
             if (!response.isSuccessful) {
                 error("Get performance failed: HTTP ${response.code()}")
@@ -118,7 +119,7 @@ class PortfolioRepositoryImpl @Inject constructor(
                 ?: error("Empty performance response")
         }
 
-    override suspend fun getNav(portfolioId: String): Result<NavSummary> = runCatching {
+    override suspend fun getNav(portfolioId: String): Result<NavSummary> = runCatchingCancellable {
         val response = portfolioApi.getPortfolioDetail(portfolioId)
         if (!response.isSuccessful) {
             error("Get portfolio detail failed: HTTP ${response.code()}")
@@ -131,7 +132,7 @@ class PortfolioRepositoryImpl @Inject constructor(
         limit: Int,
         offset: Int,
         symbol: String?,
-    ): Result<List<Transaction>> = runCatching {
+    ): Result<List<Transaction>> = runCatchingCancellable {
         val response = portfolioApi.getTransactions(portfolioId, limit, offset, symbol)
         if (!response.isSuccessful) {
             error("Get transactions failed: HTTP ${response.code()}")

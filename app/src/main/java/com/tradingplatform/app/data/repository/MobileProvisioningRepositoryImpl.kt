@@ -4,6 +4,7 @@ import com.tradingplatform.app.BuildConfig
 import com.tradingplatform.app.di.IoDispatcher
 import com.tradingplatform.app.domain.model.MobileProvisioningResult
 import com.tradingplatform.app.domain.repository.MobileProvisioningRepository
+import com.tradingplatform.app.domain.util.runCatchingCancellable
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 import okhttp3.CertificatePinner
@@ -65,7 +66,7 @@ class MobileProvisioningRepositoryImpl @Inject constructor(
         deviceLabel: String?,
         fcmToken: String?,
     ): Result<MobileProvisioningResult> = withContext(io) {
-        runCatching {
+        runCatchingCancellable {
             val client = testClientOverride ?: run {
                 val pinner = CertificatePinner.Builder()
                     .add(host, BuildConfig.CERT_PIN_SHA256)

@@ -285,6 +285,19 @@ dependencies {
     testImplementation(libs.compose.ui.test)
     testImplementation(libs.org.json)
     testImplementation(kotlin("test"))
+    // kotlin-reflect — NOT already on the classpath (checked: absent from libs.versions.toml
+    // and from every other module dependency). Needed by DtoContractTest (contracts/) for
+    // KParameter.isOptional / .type.isMarkedNullable / .annotations on DTO primary
+    // constructors — the same introspection Moshi's own KotlinJsonAdapterFactory performs at
+    // runtime for non-codegen adapters.
+    testImplementation(kotlin("reflect"))
+    // JVM-only libsodium binding (JNA-backed) for SealedBoxHelperRealTest — 5.1.4 : 5.2.0 est compilé pour Java 21 (class v65) alors que les tests tournent sur JDK 17 — LazySodiumAndroid's
+    // JNI .so cannot load on the plain JVM unit test runner. Same version as lazysodium-android
+    // (libs.versions.toml "lazysodium") and the JNA version the main app already pulls in via
+    // `implementation("net.java.dev.jna:jna:5.17.0@aar")` (NetworkModule / build.gradle.kts
+    // above), to avoid resolving two different JNA versions on the test classpath.
+    testImplementation("com.goterl:lazysodium-java:5.1.4")
+    testImplementation("net.java.dev.jna:jna:5.17.0")
     androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.compose.ui.test)
     androidTestImplementation(libs.room.testing)

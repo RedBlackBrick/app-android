@@ -2,6 +2,7 @@ package com.tradingplatform.app.data.api.interceptor
 
 import com.tradingplatform.app.data.api.AuthPaths
 import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -66,6 +67,8 @@ class EncryptedCookieJar @Inject constructor(
                     applicationScope.launch(Dispatchers.IO) {
                         try {
                             dataStore.saveCookie(cookie.name, cookie.value)
+                        } catch (e: CancellationException) {
+                            throw e
                         } catch (e: Exception) {
                             Timber.w(e, "EncryptedCookieJar: async saveCookie failed")
                         }

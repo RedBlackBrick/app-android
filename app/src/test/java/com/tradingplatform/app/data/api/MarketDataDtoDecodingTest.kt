@@ -6,6 +6,9 @@ import com.tradingplatform.app.data.model.SymbolListResponseDto
 import com.tradingplatform.app.data.repository.MarketDataRepositoryImpl
 import com.tradingplatform.app.di.NetworkModule
 import io.mockk.mockk
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.Dispatcher
@@ -124,7 +127,11 @@ class MarketDataDtoDecodingTest {
             .addConverterFactory(MoshiConverterFactory.create(moshi))
             .build()
             .create(MarketDataApi::class.java)
-        repository = MarketDataRepositoryImpl(api, mockk<QuoteDao>(relaxed = true))
+        repository = MarketDataRepositoryImpl(
+            api,
+            mockk<QuoteDao>(relaxed = true),
+            CoroutineScope(SupervisorJob() + Dispatchers.IO),
+        )
     }
 
     @After

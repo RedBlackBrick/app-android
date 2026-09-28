@@ -6,6 +6,7 @@ import com.tradingplatform.app.domain.model.NavSummary
 import com.tradingplatform.app.domain.model.PnlPeriod
 import com.tradingplatform.app.domain.model.PnlSummary
 import com.tradingplatform.app.domain.model.Quote
+import com.tradingplatform.app.domain.model.WsUpdate
 import com.tradingplatform.app.domain.usecase.activity.GetActivityFeedUseCase
 import com.tradingplatform.app.domain.usecase.auth.GetPortfolioIdUseCase
 import com.tradingplatform.app.domain.usecase.market.GetPublicWsConnectionStateUseCase
@@ -16,6 +17,7 @@ import com.tradingplatform.app.domain.usecase.portfolio.GetPortfolioNavUseCase
 import com.tradingplatform.app.domain.model.WsConnectionState
 import com.tradingplatform.app.domain.usecase.portfolio.GetPortfolioWsUpdatesUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetWsConnectionStateUseCase
+import com.tradingplatform.app.ui.common.DataState
 import com.tradingplatform.app.util.MainDispatcherRule
 import com.tradingplatform.app.vpn.VpnNotConnectedException
 import io.mockk.coEvery
@@ -32,7 +34,9 @@ import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -153,44 +157,218 @@ class DashboardViewModelTest {
         viewModel.viewModelScope.cancel()
     }
 
-    // ── NavUiState ────────────────────────────────────────────────────────────
+    // ── NAV (DataState) ───────────────────────────────────────────────────────
 
     @Test
-    fun `navSummary emits Success when use case returns data`() = runTest {
+    fun `initial DashboardUiState is initial loading for NAV and PnL`() {
+        val state = DashboardUiState()
+        assertTrue(state.navSummary.isInitialLoading)
+        assertTrue(state.pnlSummary.isInitialLoading)
+    }
+
+    @Test
+    fun `navSummary holds the value when use case returns data`() = runTest {
         createViewModel()
         val state = viewModel.uiState.value.navSummary
-        assertTrue("Expected Success, got $state", state is NavUiState.Success)
-        assertEquals(fakeNav, (state as NavUiState.Success).data)
+        assertEquals(fakeNav, state.value)
+        assertNull(state.error)
+        assertFalse(state.isRefreshing)
+        assertTrue("syncedAt must be set on success", state.syncedAt > 0L)
         viewModel.viewModelScope.cancel()
     }
 
     @Test
-    fun `navSummary emits Error when use case fails`() = runTest {
+    fun `initial NAV failure leaves value null with error`() = runTest {
         coEvery { getPortfolioNavUseCase(any()) } returns Result.failure(RuntimeException("Network error"))
         createViewModel()
         val state = viewModel.uiState.value.navSummary
-        assertTrue("Expected Error, got $state", state is NavUiState.Error)
+        assertNull(state.value)
+        assertEquals("Network error", state.error)
+        assertFalse(state.isRefreshing)
+        assertFalse(state.isInitialLoading)
         viewModel.viewModelScope.cancel()
     }
 
-    // ── PnlUiState ────────────────────────────────────────────────────────────
+    // ── PnL (DataState) ───────────────────────────────────────────────────────
 
     @Test
-    fun `pnlSummary emits Success when use case returns data`() = runTest {
+    fun `pnlSummary holds the value when use case returns data`() = runTest {
         createViewModel()
         val state = viewModel.uiState.value.pnlSummary
-        assertTrue("Expected Success, got $state", state is PnlUiState.Success)
-        assertEquals(fakePnl, (state as PnlUiState.Success).data)
+        assertEquals(fakePnl, state.value)
+        assertNull(state.error)
+        assertFalse(state.isRefreshing)
         viewModel.viewModelScope.cancel()
     }
 
     @Test
-    fun `pnlSummary emits Error when use case fails`() = runTest {
+    fun `initial PnL failure leaves value null with error`() = runTest {
         coEvery { getPnlUseCase(any(), any()) } returns Result.failure(RuntimeException("PnL error"))
         createViewModel()
         val state = viewModel.uiState.value.pnlSummary
-        assertTrue("Expected Error, got $state", state is PnlUiState.Error)
+        assertNull(state.value)
+        assertEquals("PnL error", state.error)
+        assertFalse(state.isInitialLoading)
         viewModel.viewModelScope.cancel()
+    }
+
+    @Test
+    fun `refresh failure after Success keeps the value and sets the error`() = runTest {
+        coEvery { getPortfolioNavUseCase(any()) } returnsMany listOf(
+            Result.success(fakeNav),
+            Result.failure(RuntimeException("NAV down")),
+        )
+        coEvery { getPnlUseCase(any(), any()) } returnsMany listOf(
+            Result.success(fakePnl),
+            Result.failure(RuntimeException("PnL down")),
+        )
+        createViewModel()
+        val syncedAtBefore = viewModel.uiState.value.navSummary.syncedAt
+
+        viewModel.refresh()
+
+        val nav = viewModel.uiState.value.navSummary
+        assertEquals("NAV value must survive a failed refresh", fakeNav, nav.value)
+        assertEquals("NAV down", nav.error)
+        assertFalse(nav.isRefreshing)
+        assertFalse(nav.isInitialLoading)
+        assertEquals("syncedAt reflects the last successful sync", syncedAtBefore, nav.syncedAt)
+        val pnl = viewModel.uiState.value.pnlSummary
+        assertEquals("PnL value must survive a failed refresh", fakePnl, pnl.value)
+        assertEquals("PnL down", pnl.error)
+        viewModel.viewModelScope.cancel()
+    }
+
+    // ── WS private — optimistic NAV patch + debounced refetch ─────────────────
+
+    @Test
+    fun `WS portfolio update after Success patches NAV directly and keeps values while refreshing`() = runTest {
+        val wsFlow = MutableSharedFlow<WsUpdate.PortfolioUpdate>()
+        every { getPortfolioWsUpdatesUseCase() } returns wsFlow
+        createViewModel()
+        assertEquals(fakeNav, viewModel.uiState.value.navSummary.value)
+
+        wsFlow.emit(WsUpdate.PortfolioUpdate(totalValue = 105_000.0, cashBalance = 15_000.0, positionsValue = 90_000.0))
+
+        // Avant le debounce : NAV patchée depuis le WS, PnL conservée, les deux en refresh.
+        val nav = viewModel.uiState.value.navSummary
+        assertNotNull("NAV value must never be nulled by a WS update", nav.value)
+        assertEquals(0, BigDecimal("105000").compareTo(nav.value!!.currentValue))
+        assertEquals(0, BigDecimal("15000").compareTo(nav.value!!.cashBalance))
+        // Champs absents du WS inchangés
+        assertEquals(fakeNav.totalRealizedPnl, nav.value!!.totalRealizedPnl)
+        assertTrue(nav.isRefreshing)
+        assertFalse(nav.isInitialLoading)
+        val pnl = viewModel.uiState.value.pnlSummary
+        assertEquals(fakePnl, pnl.value)
+        assertTrue(pnl.isRefreshing)
+        // Aucun refetch avant l'expiration du debounce
+        coVerify(exactly = 1) { getPortfolioNavUseCase(any()) }
+
+        // Après le debounce : refetch REST NAV + PnL, valeur REST appliquée
+        advanceTimeBy(WS_REFETCH_DEBOUNCE_MS + 1)
+        coVerify(exactly = 2) { getPortfolioNavUseCase(any()) }
+        coVerify(exactly = 2) { getPnlUseCase(any(), any()) }
+        val after = viewModel.uiState.value
+        assertEquals(fakeNav, after.navSummary.value)
+        assertFalse(after.navSummary.isRefreshing)
+        assertFalse(after.pnlSummary.isRefreshing)
+        viewModel.viewModelScope.cancel()
+    }
+
+    @Test
+    fun `WS triggered refetch failure keeps the patched NAV and the PnL value`() = runTest {
+        val wsFlow = MutableSharedFlow<WsUpdate.PortfolioUpdate>()
+        every { getPortfolioWsUpdatesUseCase() } returns wsFlow
+        coEvery { getPortfolioNavUseCase(any()) } returnsMany listOf(
+            Result.success(fakeNav),
+            Result.failure(IOException("timeout")),
+        )
+        coEvery { getPnlUseCase(any(), any()) } returnsMany listOf(
+            Result.success(fakePnl),
+            Result.failure(IOException("timeout")),
+        )
+        createViewModel()
+
+        wsFlow.emit(WsUpdate.PortfolioUpdate(totalValue = 101_000.0))
+        advanceTimeBy(WS_REFETCH_DEBOUNCE_MS + 1)
+
+        val nav = viewModel.uiState.value.navSummary
+        assertNotNull(nav.value)
+        assertEquals(0, BigDecimal("101000").compareTo(nav.value!!.currentValue))
+        assertEquals("timeout", nav.error)
+        assertFalse(nav.isRefreshing)
+        val pnl = viewModel.uiState.value.pnlSummary
+        assertEquals(fakePnl, pnl.value)
+        assertEquals("timeout", pnl.error)
+        viewModel.viewModelScope.cancel()
+    }
+
+    @Test
+    fun `burst of 5 WS updates within the debounce triggers a single refetch`() = runTest {
+        val wsFlow = MutableSharedFlow<WsUpdate.PortfolioUpdate>()
+        every { getPortfolioWsUpdatesUseCase() } returns wsFlow
+        createViewModel()
+        coVerify(exactly = 1) { getPortfolioNavUseCase(any()) }
+        coVerify(exactly = 1) { getPnlUseCase(any(), any()) }
+
+        repeat(5) { i ->
+            wsFlow.emit(WsUpdate.PortfolioUpdate(totalValue = 100_000.0 + i))
+            advanceTimeBy(100L)
+        }
+        // Chaque événement patche la NAV immédiatement (dernier total appliqué)
+        assertEquals(
+            0,
+            BigDecimal("100004").compareTo(viewModel.uiState.value.navSummary.value!!.currentValue),
+        )
+
+        advanceTimeBy(WS_REFETCH_DEBOUNCE_MS + 1)
+        coVerify(exactly = 2) { getPortfolioNavUseCase(any()) }
+        coVerify(exactly = 2) { getPnlUseCase(any(), any()) }
+
+        // Plus aucun refetch ensuite
+        advanceTimeBy(10_000L)
+        coVerify(exactly = 2) { getPortfolioNavUseCase(any()) }
+        viewModel.viewModelScope.cancel()
+    }
+
+    @Test
+    fun `WS update before the first NAV success does not invent a NAV`() = runTest {
+        val wsFlow = MutableSharedFlow<WsUpdate.PortfolioUpdate>()
+        every { getPortfolioWsUpdatesUseCase() } returns wsFlow
+        coEvery { getPortfolioNavUseCase(any()) } returns Result.failure(RuntimeException("down"))
+        createViewModel()
+
+        wsFlow.emit(WsUpdate.PortfolioUpdate(totalValue = 100_000.0))
+
+        val nav = viewModel.uiState.value.navSummary
+        assertNull(nav.value)
+        assertTrue(nav.isRefreshing)
+        viewModel.viewModelScope.cancel()
+    }
+
+    @Test
+    fun `patchedWith derives the total from cash plus positions when total_value is absent`() {
+        val patched = fakeNav.patchedWith(
+            WsUpdate.PortfolioUpdate(cashBalance = 10_000.0, positionsValue = 95_000.0),
+        )
+        assertEquals(0, BigDecimal("105000").compareTo(patched.currentValue))
+        assertEquals(0, BigDecimal("10000").compareTo(patched.cashBalance))
+
+        val unchanged = fakeNav.patchedWith(WsUpdate.PortfolioUpdate(symbol = "AAPL"))
+        assertEquals(fakeNav, unchanged)
+    }
+
+    @Test
+    fun `DataState failure keeps value and success clears error`() {
+        val ok = DataState<Int>(isRefreshing = true).success(1, now = 42L)
+        val stale = ok.loading().failure("boom")
+        assertEquals(1, stale.value)
+        assertEquals("boom", stale.error)
+        assertEquals(42L, stale.syncedAt)
+        assertFalse(stale.isInitialLoading)
+        val recovered = stale.loading().success(2, now = 43L)
+        assertEquals(DataState(value = 2, isRefreshing = false, error = null, syncedAt = 43L), recovered)
     }
 
     // ── QuoteUiState — via polling REST fallback ───────────────────────────────
@@ -291,6 +469,8 @@ class DashboardViewModelTest {
         viewModel.selectPeriod(PnlPeriod.MONTH)
 
         assertEquals(PnlPeriod.MONTH, viewModel.uiState.value.selectedPeriod)
+        coVerify(exactly = 1) { getPnlUseCase(any(), PnlPeriod.MONTH) }
+        assertEquals(fakePnl, viewModel.uiState.value.pnlSummary.value)
         viewModel.viewModelScope.cancel()
     }
 
@@ -305,14 +485,15 @@ class DashboardViewModelTest {
             // the initial Loading state may or may not be emitted before the Success.
             // We skip intermediate states and check the final settled state.
             val items = mutableListOf(awaitItem())
-            // Collect until settled (Success or Error)
-            while (items.last().navSummary is NavUiState.Loading) {
+            // Collect until settled (value or error)
+            while (items.last().navSummary.let { it.value == null && it.error == null }) {
                 items.add(awaitItem())
             }
             val finalState = items.last()
-            assertTrue(
-                "Expected navSummary Success, got ${finalState.navSummary}",
-                finalState.navSummary is NavUiState.Success,
+            assertEquals(
+                "Expected navSummary value, got ${finalState.navSummary}",
+                fakeNav,
+                finalState.navSummary.value,
             )
             cancelAndIgnoreRemainingEvents()
         }
@@ -328,7 +509,10 @@ class DashboardViewModelTest {
 
         val state = viewModel.uiState.value
         assertNotNull(state)
-        assertTrue(state.navSummary is NavUiState.Success || state.navSummary is NavUiState.Loading)
+        // La valeur n'est jamais remise à null pendant / après un refresh réussi
+        assertEquals(fakeNav, state.navSummary.value)
+        assertEquals(fakePnl, state.pnlSummary.value)
+        coVerify(exactly = 2) { getPortfolioNavUseCase(any()) }
         viewModel.viewModelScope.cancel()
     }
 

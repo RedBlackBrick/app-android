@@ -8,12 +8,15 @@ import com.tradingplatform.app.data.model.toEntity
 import com.tradingplatform.app.domain.model.Quote
 import com.tradingplatform.app.domain.model.SymbolPage
 import com.tradingplatform.app.domain.repository.MarketDataRepository
+import com.tradingplatform.app.domain.util.runCatchingCancellable
 import java.math.BigDecimal
 import java.time.Instant
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -22,43 +25,35 @@ import javax.inject.Singleton
 class MarketDataRepositoryImpl @Inject constructor(
     private val marketDataApi: MarketDataApi,
     private val quoteDao: QuoteDao,
+    private val applicationScope: CoroutineScope,
 ) : MarketDataRepository {
 
     /**
-     * Déduplication des requêtes quote en vol (P5 fix).
+     * Déduplication des requêtes quote en vol (P5 fix, revu PR 3.3 — audit #10 / B-misc-1).
      *
      * Si plusieurs sources (Dashboard, PositionDetail, Widget) demandent le même symbole
      * simultanément, une seule requête réseau est effectuée — les autres attendent le résultat.
      *
-     * Pattern : CompletableDeferred plutôt que CoroutineScope.async pour éviter que la
-     * cancellation d'un appelant n'annule le Deferred pour tous les autres.
-     * Le Deferred est retiré de la map dès qu'il est complété (pas de données stales).
+     * Pattern : le fetch réel tourne dans [applicationScope] (détaché de tout appelant),
+     * via [CoroutineScope.async]. La cancellation d'un appelant n'annule que son propre
+     * `await()` — jamais le Deferred partagé, donc jamais les autres appelants en attente.
+     * `invokeOnCompletion` retire l'entrée de la map dès que le Deferred se termine, pour
+     * qu'un appel ultérieur déclenche un nouveau fetch.
      */
-    private val inFlightQuotes = ConcurrentHashMap<String, CompletableDeferred<Result<Quote>>>()
+    private val inFlightQuotes = ConcurrentHashMap<String, Deferred<Result<Quote>>>()
 
     override suspend fun getQuote(symbol: String): Result<Quote> {
         val upperSymbol = symbol.uppercase()
 
-        // Fast path : une requête identique est déjà en vol — réutiliser son résultat
-        val existing = inFlightQuotes[upperSymbol]
-        if (existing != null) {
-            return existing.await()
-        }
+        // Fast path : une requête identique est déjà en vol — réutiliser son résultat.
+        // Si l'appelant est annulé pendant cet await(), seul lui est affecté — le Deferred
+        // partagé (applicationScope) continue pour les autres appelants.
+        inFlightQuotes[upperSymbol]?.let { return it.await() }
 
-        // Créer un nouveau Deferred. putIfAbsent retourne null si c'est nous le premier,
-        // ou le Deferred existant si un autre thread a gagné la course.
-        val deferred = CompletableDeferred<Result<Quote>>()
-        val winner = inFlightQuotes.putIfAbsent(upperSymbol, deferred)
-        if (winner != null) {
-            // Un autre thread a inséré entre notre check et notre put — attendre le sien
-            return winner.await()
-        }
-
-        // Nous sommes le premier demandeur — exécuter la requête réelle.
-        // supervisorScope isole la cancellation : si l'appelant est annulé, le Deferred
-        // est quand même complété pour les autres.
-        val result = supervisorScope {
-            runCatching {
+        // LAZY : on ne démarre le fetch que si on gagne effectivement la course putIfAbsent —
+        // sinon on jetterait un Deferred déjà en train d'exécuter un appel réseau dupliqué.
+        val deferred = applicationScope.async(start = CoroutineStart.LAZY) {
+            runCatchingCancellable {
                 val response = marketDataApi.getQuote(upperSymbol)
                 if (!response.isSuccessful) {
                     error("Get quote failed: HTTP ${response.code()}")
@@ -76,11 +71,15 @@ class MarketDataRepositoryImpl @Inject constructor(
             }
         }
 
-        // Compléter le Deferred et le retirer immédiatement pour permettre un nouveau fetch
-        deferred.complete(result)
-        inFlightQuotes.remove(upperSymbol)
+        // putIfAbsent retourne null si c'est nous le premier (gagnant) — sinon le Deferred
+        // d'un autre appelant qui a gagné la course entre notre check et notre put.
+        val current = inFlightQuotes.putIfAbsent(upperSymbol, deferred) ?: deferred
+        if (current === deferred) {
+            deferred.invokeOnCompletion { inFlightQuotes.remove(upperSymbol, deferred) }
+            deferred.start()
+        }
 
-        return result
+        return current.await()
     }
 
     override suspend fun getAvailableSymbols(): Result<List<String>> =
@@ -91,7 +90,7 @@ class MarketDataRepositoryImpl @Inject constructor(
         search: String?,
         limit: Int,
         offset: Int,
-    ): Result<SymbolPage> = runCatching {
+    ): Result<SymbolPage> = runCatchingCancellable {
         val response = marketDataApi.getSymbols(
             search = search?.trim()?.ifBlank { null },
             limit = limit,
@@ -108,7 +107,7 @@ class MarketDataRepositoryImpl @Inject constructor(
         )
     }
 
-    override suspend fun getHistory(symbol: String, limit: Int): Result<List<BigDecimal>> = runCatching {
+    override suspend fun getHistory(symbol: String, limit: Int): Result<List<BigDecimal>> = runCatchingCancellable {
         val upperSymbol = symbol.uppercase()
         val end = Instant.now()
         val start = end.minus(HISTORY_LOOKBACK_DAYS, ChronoUnit.DAYS)

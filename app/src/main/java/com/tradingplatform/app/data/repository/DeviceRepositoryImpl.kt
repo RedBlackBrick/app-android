@@ -9,6 +9,7 @@ import com.tradingplatform.app.data.model.toEntity
 import com.tradingplatform.app.domain.model.Cached
 import com.tradingplatform.app.domain.model.Device
 import com.tradingplatform.app.domain.repository.DeviceRepository
+import com.tradingplatform.app.domain.util.runCatchingCancellable
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.cancellation.CancellationException
@@ -19,20 +20,20 @@ class DeviceRepositoryImpl @Inject constructor(
     private val deviceDao: DeviceDao,
 ) : DeviceRepository {
 
-    override suspend fun getDevices(): Result<List<Device>> = runCatching {
+    override suspend fun getDevices(): Result<List<Device>> = runCatchingCancellable {
         fetchAndCacheDevices(System.currentTimeMillis())
     }
 
     override suspend fun getDeviceStatus(
         deviceId: String,
         forceRefresh: Boolean,
-    ): Result<Cached<Device>> = runCatching {
+    ): Result<Cached<Device>> = runCatchingCancellable {
         val now = System.currentTimeMillis()
         val cached = deviceDao.getById(deviceId)
 
         // Cache servi uniquement s'il est frais (TTL devices — CacheTtl / CLAUDE.md §2)
         if (cached != null && !forceRefresh && CacheTtl.isFresh(cached.syncedAt, CacheTtl.DEVICES_MS, now)) {
-            return@runCatching Cached(cached.toDomain(), cached.syncedAt)
+            return@runCatchingCancellable Cached(cached.toDomain(), cached.syncedAt)
         }
 
         // Pas d'endpoint GET /v1/edge/devices/{id} — fallback sur getDevices() complet
@@ -45,7 +46,7 @@ class DeviceRepositoryImpl @Inject constructor(
         } catch (e: Exception) {
             // Réseau indisponible : afficher la ligne périmée avec son vrai horodatage
             // (CacheTimestamp la marque « offline ») plutôt qu'une erreur bloquante.
-            if (cached != null) return@runCatching Cached(cached.toDomain(), cached.syncedAt)
+            if (cached != null) return@runCatchingCancellable Cached(cached.toDomain(), cached.syncedAt)
             throw e
         }
 
@@ -71,7 +72,7 @@ class DeviceRepositoryImpl @Inject constructor(
         return devices
     }
 
-    override suspend fun unpairDevice(deviceId: String): Result<Unit> = runCatching {
+    override suspend fun unpairDevice(deviceId: String): Result<Unit> = runCatchingCancellable {
         val response = deviceApi.unpairDevice(deviceId)
         if (!response.isSuccessful) {
             error("Unpair device failed: HTTP ${response.code()}")
@@ -79,7 +80,7 @@ class DeviceRepositoryImpl @Inject constructor(
         deviceDao.deleteByDeviceId(deviceId)
     }
 
-    override suspend fun sendCommand(deviceId: String, commandType: String, params: Map<String, Any>?): Result<Unit> = runCatching {
+    override suspend fun sendCommand(deviceId: String, commandType: String, params: Map<String, Any>?): Result<Unit> = runCatchingCancellable {
         val response = deviceApi.sendCommand(
             body = DeviceCommandRequestDto(deviceId = deviceId, commandType = commandType, params = params),
         )

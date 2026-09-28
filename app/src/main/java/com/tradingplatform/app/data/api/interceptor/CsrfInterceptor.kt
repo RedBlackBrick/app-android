@@ -4,6 +4,7 @@ import com.tradingplatform.app.data.api.AuthPaths
 import com.tradingplatform.app.data.local.datastore.DataStoreKeys
 import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
 import com.tradingplatform.app.data.session.TokenHolder
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -181,6 +182,8 @@ class CsrfInterceptor @Inject constructor(
                 mutex.withLock {
                     if (csrfToken == null) fetchCsrfToken()
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Timber.tag(TAG).w(e, "CsrfInterceptor: preFetch failed (non-blocking)")
             }
@@ -196,11 +199,21 @@ class CsrfInterceptor @Inject constructor(
     }
 
     private suspend fun persistToStore(token: String) {
-        try { dataStore.writeString(DataStoreKeys.CSRF_TOKEN, token) } catch (_: Exception) {}
+        try {
+            dataStore.writeString(DataStoreKeys.CSRF_TOKEN, token)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+        }
     }
 
     private suspend fun clearFromStore() {
-        try { dataStore.remove(DataStoreKeys.CSRF_TOKEN) } catch (_: Exception) {}
+        try {
+            dataStore.remove(DataStoreKeys.CSRF_TOKEN)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+        }
     }
 
     private suspend fun fetchCsrfToken(): String {

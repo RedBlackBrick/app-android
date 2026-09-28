@@ -4,6 +4,7 @@ import com.tradingplatform.app.data.api.PairingLanApi
 import com.tradingplatform.app.domain.exception.PairingDeviceException
 import com.tradingplatform.app.domain.model.PairingStatus
 import com.tradingplatform.app.domain.repository.PairingRepository
+import com.tradingplatform.app.domain.util.runCatchingCancellable
 import com.tradingplatform.app.security.SealedBoxHelper
 import com.tradingplatform.app.security.isLocalNetwork
 import com.tradingplatform.app.security.sealLanBody
@@ -44,7 +45,7 @@ class PairingRepositoryImpl @Inject constructor(
         localToken: String,
         nonce: String,
         radxaWgPubkey: String,
-    ): Result<Unit> = runCatching {
+    ): Result<Unit> = runCatchingCancellable {
         Timber.tag(TAG).d("PairingRepository: sending encrypted PIN to $deviceIp:$devicePort sessionId=$sessionId pin=[REDACTED] token=[REDACTED] nonce=[REDACTED]")
 
         val payloadJson = JSONObject().apply {
@@ -90,7 +91,7 @@ class PairingRepositoryImpl @Inject constructor(
         val url = "https://$deviceIp:$devicePort/status?session_id=$sessionId"
 
         while (true) {
-            val status = runCatching {
+            val status = runCatchingCancellable {
                 val response = pairingApi.getStatus(url)
                 if (response.isSuccessful) {
                     val statusStr = response.body()?.get("status")?.toString() ?: "failed"

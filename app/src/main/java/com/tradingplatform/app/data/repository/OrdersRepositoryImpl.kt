@@ -8,6 +8,7 @@ import com.tradingplatform.app.domain.model.OrderStatus
 import com.tradingplatform.app.domain.model.OrderType
 import com.tradingplatform.app.domain.model.Page
 import com.tradingplatform.app.domain.repository.OrdersRepository
+import com.tradingplatform.app.domain.util.runCatchingCancellable
 import java.time.Instant
 import java.time.format.DateTimeParseException
 import javax.inject.Inject
@@ -18,7 +19,7 @@ class OrdersRepositoryImpl @Inject constructor(
     private val api: OrdersApi,
 ) : OrdersRepository {
 
-    override suspend fun listActiveOrders(portfolioId: String): Result<List<Order>> = runCatching {
+    override suspend fun listActiveOrders(portfolioId: String): Result<List<Order>> = runCatchingCancellable {
         val response = api.listActiveOrders(portfolioId)
         if (!response.isSuccessful) {
             error("List active orders failed: HTTP ${response.code()}")
@@ -30,7 +31,7 @@ class OrdersRepositoryImpl @Inject constructor(
         portfolioId: String,
         limit: Int,
         offset: Int,
-    ): Result<Page<Order>> = runCatching {
+    ): Result<Page<Order>> = runCatchingCancellable {
         val response = api.listOrderHistory(portfolioId, limit, offset)
         if (!response.isSuccessful) {
             error("List order history failed: HTTP ${response.code()}")

@@ -358,6 +358,7 @@ section a eu une erreur réseau transitoire.
 - **Subscriptions WS ref-comptées** : `PublicWsClient` compte les collecteurs par symbole — frame `subscribe` seulement à 0→1, `unsubscribe` seulement à 1→0, resouscription de toutes les clés sur `onOpen`, fermeture quand plus aucun symbole. Dashboard et MarketData peuvent donc suivre le même symbole sans se couper mutuellement
 - **Fallback REST piloté par l'état** : `PublicWsClient.connectionState` (`WsConnectionState` : `Connecting` à l'ouverture / pendant le backoff, `Connected` sur onOpen, `Disconnected` sur onFailure/onClosed/disconnect, `Degraded` à partir de 3 tentatives de reconnexion) est exposé via `PublicWsRepository` + `GetPublicWsConnectionStateUseCase` (qui expose aussi `isAppForeground()`). Le flux WS `quoteUpdates` **ne lève jamais** sur coupure — un `catch` autour de sa collecte est du code mort. `QuoteFallbackController` collecte le flux WS en permanence (jamais annulé → resouscription automatique après reconnexion) et, quand l'état n'est pas `Connected` depuis **2 s** (debounce ; `Connected` est propagé immédiatement), appelle `onStale` puis polle `GET /v1/market-data/quote/{symbol}` toutes les **30 secondes** — uniquement si l'app est au premier plan. Le polling s'arrête dès le retour à `Connected` (`collectLatest`). Dans `openWebSocket`, un `catch (e: Exception)` doit relancer `CancellationException`
 - **Portfolio (P&L, positions)** : mises à jour temps réel via `WsRepository` (WebSocket `wss://vps/v1/ws/private`) en complément du polling REST
+- **Dashboard NAV / PnL — `DataState<T>`** (`ui/common/DataState.kt` : `value`, `isRefreshing`, `error`, `syncedAt`) : la valeur n'est **jamais** remise à `null` après un premier succès — `loading()` et `failure()` la conservent (valeur périmée), seul `success(v, now)` la remplace. Chaque `portfolio_update` du WS privé applique `total_value` / `cash_balance` / `positions_value` **directement** à la NAV affichée (patch optimiste, `syncedAt = now` ; le backend n'envoie pas de P&L sur ce canal), passe NAV + PnL en `isRefreshing`, puis déclenche un refetch REST NAV + PnL **debouncé 750 ms** (une rafale = une paire de requêtes). Côté écran : skeletons uniquement si NAV **et** PnL sont `isInitialLoading` ; `isRefreshing` n'alimente que le `PullToRefreshBox` ; valeur + erreur → valeur périmée + `CacheTimestamp(syncedAt, CacheTtl.PNL_MS)` + snackbar ; pas de valeur + erreur → carte d'erreur inline. Un changement de période PnL réinitialise la seule section PnL (jamais la PnL d'une autre période sous la nouvelle puce)
 - **Positions live** : les `position_update` du WS privé sont mergés dans `PositionsViewModel` pour mettre à jour `currentPrice` et `unrealizedPnl` en temps réel (affichage via `AnimatedPnlText`)
 - **Widgets** : rafraîchissement inclus dans le cycle WorkManager **5 min**
 - **Symboles disponibles** : `GET /v1/market-data/symbols` retourne la liste des symboles trackés par le backend
@@ -431,7 +432,15 @@ domain/usecase/alerts/
 
 ```kotlin
 // Toutes les méthodes des interfaces Repository retournent Result<T> (stdlib Kotlin)
-// Jamais de throw directement depuis un Repository — toujours wrapper dans runCatching {}
+// Jamais de throw directement depuis un Repository — toujours wrapper dans
+// runCatchingCancellable {} (domain/util/RunCatchingCancellable.kt), jamais runCatching {} nu.
+// runCatching {} catche Throwable, donc avale silencieusement CancellationException et casse la
+// concurrence structurée (une coroutine annulée ressort comme un Result.failure « normal »).
+// runCatchingCancellable {} relance CancellationException (et sa sous-classe
+// TimeoutCancellationException) au lieu de l'encapsuler — un appelant qui veut convertir un
+// timeout en échec métier doit le catcher explicitement avant, comme ConfirmPairingUseCase.
+// Un test de garde (NoBareRunCatchingTest) échoue le build sur tout nouveau runCatching {} nu
+// hors d'une liste blanche de code synchrone (parsing JSON/URI, widgets Glance).
 interface PortfolioRepository {
     suspend fun getPositions(portfolioId: Int, status: PositionStatus): Result<List<Position>>
     suspend fun getPnl(portfolioId: Int, period: PnlPeriod): Result<PnlSummary>

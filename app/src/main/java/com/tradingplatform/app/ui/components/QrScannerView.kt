@@ -1,3 +1,5 @@
+@file:OptIn(androidx.camera.core.ExperimentalGetImage::class)
+
 package com.tradingplatform.app.ui.components
 
 import android.Manifest

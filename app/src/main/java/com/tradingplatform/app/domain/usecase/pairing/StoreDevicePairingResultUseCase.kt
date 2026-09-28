@@ -1,6 +1,7 @@
 package com.tradingplatform.app.domain.usecase.pairing
 
 import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
+import com.tradingplatform.app.domain.util.runCatchingCancellable
 import timber.log.Timber
 import javax.inject.Inject
 
@@ -21,7 +22,7 @@ class StoreDevicePairingResultUseCase @Inject constructor(
         localToken: String,
         wgPubkey: String,
         localIp: String,
-    ): Result<Unit> = runCatching {
+    ): Result<Unit> = runCatchingCancellable {
         Timber.d("StoreDevicePairingResult: deviceId=$deviceId token=[REDACTED] ip=$localIp")
         dataStore.writeLocalToken(deviceId, localToken)
         dataStore.writeString("device_wg_pubkey_$deviceId", wgPubkey)

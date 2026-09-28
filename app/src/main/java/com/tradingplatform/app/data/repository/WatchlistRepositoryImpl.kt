@@ -3,6 +3,7 @@ package com.tradingplatform.app.data.repository
 import com.tradingplatform.app.data.local.db.dao.WatchlistDao
 import com.tradingplatform.app.data.local.db.entity.WatchlistEntity
 import com.tradingplatform.app.domain.repository.WatchlistRepository
+import com.tradingplatform.app.domain.util.runCatchingCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
@@ -18,11 +19,11 @@ class WatchlistRepositoryImpl @Inject constructor(
             entities.map { it.symbol }
         }
 
-    override suspend fun addSymbol(symbol: String): Result<Unit> = runCatching {
+    override suspend fun addSymbol(symbol: String): Result<Unit> = runCatchingCancellable {
         watchlistDao.insert(WatchlistEntity(symbol = symbol.uppercase()))
     }
 
-    override suspend fun removeSymbol(symbol: String): Result<Unit> = runCatching {
+    override suspend fun removeSymbol(symbol: String): Result<Unit> = runCatchingCancellable {
         watchlistDao.delete(symbol.uppercase())
     }
 }

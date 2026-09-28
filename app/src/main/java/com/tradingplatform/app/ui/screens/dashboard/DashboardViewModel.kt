@@ -8,6 +8,7 @@ import com.tradingplatform.app.domain.model.PnlSummary
 import com.tradingplatform.app.domain.model.PortfolioCircuitBreakerStatus
 import com.tradingplatform.app.domain.model.Quote
 import com.tradingplatform.app.domain.model.WsConnectionState
+import com.tradingplatform.app.domain.model.WsUpdate
 import com.tradingplatform.app.domain.model.ActivityItem
 import com.tradingplatform.app.domain.usecase.activity.GetActivityFeedUseCase
 import com.tradingplatform.app.domain.usecase.auth.GetPortfolioIdUseCase
@@ -21,12 +22,15 @@ import com.tradingplatform.app.domain.usecase.portfolio.GetPortfolioNavUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPortfolioWsUpdatesUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetWsConnectionStateUseCase
 import com.tradingplatform.app.domain.usecase.risk.GetPortfolioCircuitBreakerStatusUseCase
+import com.tradingplatform.app.ui.common.DataState
 import com.tradingplatform.app.ui.common.QuoteFallbackController
 import com.tradingplatform.app.vpn.VpnNotConnectedException
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -40,23 +44,12 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import java.io.IOException
+import java.math.BigDecimal
 import java.net.SocketTimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 
 // ── UiState definitions ──────────────────────────────────────────────────────
-
-sealed interface NavUiState {
-    data object Loading : NavUiState
-    data class Success(val data: NavSummary) : NavUiState
-    data class Error(val message: String) : NavUiState
-}
-
-sealed interface PnlUiState {
-    data object Loading : PnlUiState
-    data class Success(val data: PnlSummary) : PnlUiState
-    data class Error(val message: String) : PnlUiState
-}
 
 sealed interface QuoteUiState {
     data object Loading : QuoteUiState
@@ -71,8 +64,14 @@ sealed interface QuoteUiState {
 }
 
 data class DashboardUiState(
-    val navSummary: NavUiState = NavUiState.Loading,
-    val pnlSummary: PnlUiState = PnlUiState.Loading,
+    /**
+     * NAV du portfolio. La valeur n'est jamais remise à `null` après un premier succès
+     * (refresh WS / pull-to-refresh / échec → valeur conservée, cf. [DataState]).
+     * Patchée directement par chaque `portfolio_update` WS avant le refetch REST debouncé.
+     */
+    val navSummary: DataState<NavSummary> = DataState(isRefreshing = true),
+    /** P&L de [selectedPeriod] — même contrat que [navSummary] (hors changement de période). */
+    val pnlSummary: DataState<PnlSummary> = DataState(isRefreshing = true),
     val quote: QuoteUiState = QuoteUiState.Loading,
     val portfolioId: String = "",
     val selectedPeriod: PnlPeriod = PnlPeriod.DAY,
@@ -116,6 +115,12 @@ private const val WS_STATE_DEBOUNCE_MS = 2_000L
 
 /** Maximum number of activity items retained in the feed. */
 private const val ACTIVITY_FEED_MAX_ITEMS = 12
+
+/**
+ * Debounce du refetch REST NAV + PnL déclenché par les `portfolio_update` WS : une rafale
+ * d'exécutions (ordre fractionné, rebalancing) ne produit qu'un seul couple de requêtes.
+ */
+internal const val WS_REFETCH_DEBOUNCE_MS = 750L
 
 @HiltViewModel
 class DashboardViewModel @Inject constructor(
@@ -219,6 +224,16 @@ class DashboardViewModel @Inject constructor(
     private val _isRefreshing = AtomicBoolean(false)
 
     /**
+     * Signal « un portfolio_update WS est arrivé » → refetch REST NAV + PnL debouncé de
+     * [WS_REFETCH_DEBOUNCE_MS]. Buffer 1 / DROP_OLDEST : `tryEmit` ne suspend jamais et une
+     * rafale se réduit à un seul signal.
+     */
+    private val wsRefetchTrigger = MutableSharedFlow<Unit>(
+        extraBufferCapacity = 1,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+
+    /**
      * Symbole effectivement suivi pour le cours du Dashboard — résolu au démarrage par
      * [GetDefaultQuoteSymbolUseCase] (préférence utilisateur > premier symbole watchlist
      * > [AppDefaults.DEFAULT_QUOTE_SYMBOL]). Consommé par [refresh] pour rejouer un fetch
@@ -241,8 +256,10 @@ class DashboardViewModel @Inject constructor(
         }
 
         // Collect real-time portfolio updates from the private WebSocket.
-        // On chaque portfolio_update, re-fetch NAV et PnL pour avoir les données fraîches.
+        // Chaque portfolio_update patche la NAV immédiatement puis déclenche un refetch
+        // REST NAV + PnL debouncé (valeurs conservées pendant le refetch — audit #21).
         // Relancé automatiquement en cas d'erreur avec backoff (R4 fix).
+        startWsRefetchCollection()
         startWsPrivateCollection()
 
         // Démarrer l'abonnement WS public pour les cours en temps réel.
@@ -264,13 +281,14 @@ class DashboardViewModel @Inject constructor(
     /**
      * Démarre (ou relance) la collection du flux WS privé (portfolio updates).
      *
-     * Sur chaque événement, déclenche un re-fetch REST de NAV et PnL pour
-     * avoir les données fraîches avec les valeurs désérialisées proprement.
-     *
-     * Stratégie délibérée : le payload WS brut (JSONObject) n'est pas
-     * mappé directement sur [NavUiState] pour éviter de dupliquer la logique
-     * de désérialisation. Le WS sert de signal de fraîcheur, le REST fournit
-     * les données structurées.
+     * Sur chaque événement (audit #21) :
+     * 1. `total_value` / `cash_balance` / `positions_value` sont appliqués directement à la
+     *    NAV affichée (patch optimiste, `syncedAt = now`) — le backend n'envoie pas de P&L
+     *    sur ce canal, la PnL n'est donc pas patchée ;
+     * 2. NAV et PnL passent en `isRefreshing` (valeurs conservées, pas de skeleton) ;
+     * 3. un refetch REST NAV + PnL est demandé via [wsRefetchTrigger], debouncé de
+     *    [WS_REFETCH_DEBOUNCE_MS] (cf. [startWsRefetchCollection]) — il fournit les champs
+     *    absents du WS (P&L réalisé/latent, métriques PnL) et corrige un éventuel écart.
      *
      * En cas d'erreur du flux (R4 fix) :
      * 1. Émet [DashboardUiState.wsPrivateDegraded] = true (indicateur discret, pas de pop-up)
@@ -285,7 +303,6 @@ class DashboardViewModel @Inject constructor(
         wsPrivateJob?.cancel()
         wsPrivateJob = viewModelScope.launch {
             getPortfolioWsUpdatesUseCase()
-                .debounce(500L)  // ignorer les rafales — max 1 update/500ms
                 .catch { e ->
                     Timber.tag(TAG).w(e, "DashboardViewModel: WS private flow error — marking degraded")
                     _uiState.update { it.copy(wsPrivateDegraded = true) }
@@ -309,19 +326,58 @@ class DashboardViewModel @Inject constructor(
                         )
                     }
                 }
-                .collect {
+                .collect { update ->
                     // Collection réussie — reset le compteur et le flag dégradé
                     if (wsPrivateFailures > 0) {
                         wsPrivateFailures = 0
                         _uiState.update { it.copy(wsPrivateDegraded = false) }
                         Timber.tag(TAG).d("DashboardViewModel: WS private recovered — degraded flag cleared")
                     }
+                    onPortfolioUpdate(update)
+                }
+        }
+    }
 
-                    Timber.tag(TAG).d("DashboardViewModel: portfolio_update received via WS — refreshing NAV/PnL")
-                    val portfolioId = _uiState.value.portfolioId
-                    val period = _uiState.value.selectedPeriod
-                    viewModelScope.launch { fetchNav(portfolioId) }
-                    viewModelScope.launch { fetchPnl(portfolioId, period) }
+    /**
+     * Applique un `portfolio_update` WS : patch NAV direct + passage en refresh de NAV et
+     * PnL, puis demande le refetch REST debouncé. Les montants ne sont jamais loggés.
+     */
+    private fun onPortfolioUpdate(update: WsUpdate.PortfolioUpdate) {
+        Timber.tag(TAG).d("DashboardViewModel: portfolio_update received via WS — patching NAV, refetch scheduled")
+        val now = System.currentTimeMillis()
+        _uiState.update { state ->
+            val nav = state.navSummary
+            val patched = nav.value?.patchedWith(update)
+            val newNav = if (patched != null && patched != nav.value) {
+                nav.copy(value = patched, syncedAt = now)
+            } else {
+                nav
+            }
+            state.copy(
+                navSummary = newNav.loading(),
+                pnlSummary = state.pnlSummary.loading(),
+            )
+        }
+        wsRefetchTrigger.tryEmit(Unit)
+    }
+
+    /**
+     * Refetch REST NAV + PnL déclenché par le WS privé, debouncé de [WS_REFETCH_DEBOUNCE_MS] :
+     * N `portfolio_update` rapprochés → une seule paire de requêtes. `collect` séquentiel :
+     * un signal reçu pendant un refetch en vol est traité après lui (jamais annulé).
+     */
+    @OptIn(kotlinx.coroutines.FlowPreview::class)
+    private fun startWsRefetchCollection() {
+        viewModelScope.launch {
+            wsRefetchTrigger
+                .debounce(WS_REFETCH_DEBOUNCE_MS)
+                .collect {
+                    val state = _uiState.value
+                    if (state.portfolioId.isEmpty()) return@collect
+                    coroutineScope {
+                        launch { fetchNav(state.portfolioId) }
+                        launch { fetchPnl(state.portfolioId, state.selectedPeriod) }
+                    }
                 }
         }
     }
@@ -373,7 +429,14 @@ class DashboardViewModel @Inject constructor(
     // ── Public actions ────────────────────────────────────────────────────────
 
     fun selectPeriod(period: PnlPeriod) {
-        _uiState.update { it.copy(selectedPeriod = period) }
+        // Changement de période : la PnL de l'ancienne période ne doit pas rester affichée
+        // sous la nouvelle puce (ni comme valeur « périmée » si le fetch échoue) → retour à
+        // l'état initial de la section PnL seule (la NAV garde sa valeur → pas de skeleton global).
+        // Même période re-sélectionnée : simple refresh, valeur conservée.
+        _uiState.update {
+            if (it.selectedPeriod == period) it
+            else it.copy(selectedPeriod = period, pnlSummary = DataState(isRefreshing = true))
+        }
         val portfolioId = _uiState.value.portfolioId
         viewModelScope.launch { fetchPnl(portfolioId, period) }
     }
@@ -408,28 +471,44 @@ class DashboardViewModel @Inject constructor(
 
     // ── Private fetch helpers ─────────────────────────────────────────────────
 
+    /**
+     * Fetch REST de la NAV. La valeur courante est conservée pendant le chargement et
+     * après un échec (valeur périmée + erreur) — jamais remise à `null` (audit #21).
+     */
     private suspend fun fetchNav(portfolioId: String) {
-        _uiState.update { it.copy(navSummary = NavUiState.Loading) }
+        _uiState.update { it.copy(navSummary = it.navSummary.loading()) }
         getPortfolioNavUseCase(portfolioId)
             .onSuccess { nav ->
-                _uiState.update { it.copy(navSummary = NavUiState.Success(nav)) }
+                val now = System.currentTimeMillis()
+                _uiState.update { it.copy(navSummary = it.navSummary.success(nav, now)) }
             }
             .onFailure { e ->
                 _uiState.update {
-                    it.copy(navSummary = NavUiState.Error(e.localizedMessage ?: "Erreur"))
+                    it.copy(navSummary = it.navSummary.failure(e.localizedMessage ?: "Erreur"))
                 }
             }
     }
 
+    /**
+     * Fetch REST de la PnL de [period] — même contrat que [fetchNav]. Un résultat arrivé
+     * après un changement de période est ignoré (la section appartient à la nouvelle période).
+     */
     private suspend fun fetchPnl(portfolioId: String, period: PnlPeriod) {
-        _uiState.update { it.copy(pnlSummary = PnlUiState.Loading) }
+        _uiState.update {
+            if (it.selectedPeriod == period) it.copy(pnlSummary = it.pnlSummary.loading()) else it
+        }
         getPnlUseCase(portfolioId, period)
             .onSuccess { pnl ->
-                _uiState.update { it.copy(pnlSummary = PnlUiState.Success(pnl)) }
+                val now = System.currentTimeMillis()
+                _uiState.update {
+                    if (it.selectedPeriod != period) it
+                    else it.copy(pnlSummary = it.pnlSummary.success(pnl, now))
+                }
             }
             .onFailure { e ->
                 _uiState.update {
-                    it.copy(pnlSummary = PnlUiState.Error(e.localizedMessage ?: "Erreur"))
+                    if (it.selectedPeriod != period) it
+                    else it.copy(pnlSummary = it.pnlSummary.failure(e.localizedMessage ?: "Erreur"))
                 }
             }
     }
@@ -490,4 +569,22 @@ class DashboardViewModel @Inject constructor(
             }
         }
     }
+}
+
+/**
+ * Applique les totaux d'un `portfolio_update` WS à la NAV affichée (patch optimiste).
+ *
+ * - `cash_balance` remplace [NavSummary.cashBalance] ;
+ * - `total_value` remplace [NavSummary.currentValue] ; à défaut, `cash + positions_value`
+ *   si `positions_value` est présent ;
+ * - P&L réalisé / latent inchangés (absents du payload — corrigés par le refetch REST).
+ *
+ * Champs absents → valeurs courantes conservées (payload partiel toléré).
+ */
+internal fun NavSummary.patchedWith(update: WsUpdate.PortfolioUpdate): NavSummary {
+    val cash = update.cashBalance?.let { BigDecimal.valueOf(it) } ?: cashBalance
+    val total = update.totalValue?.let { BigDecimal.valueOf(it) }
+        ?: update.positionsValue?.let { cash + BigDecimal.valueOf(it) }
+        ?: currentValue
+    return copy(currentValue = total, cashBalance = cash)
 }

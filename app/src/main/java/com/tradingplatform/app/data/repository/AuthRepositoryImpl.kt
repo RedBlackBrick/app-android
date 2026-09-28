@@ -22,7 +22,9 @@ import com.tradingplatform.app.domain.model.WsTokenInfo
 import com.tradingplatform.app.data.session.SessionManager
 import com.tradingplatform.app.data.session.TokenHolder
 import com.tradingplatform.app.domain.repository.AuthRepository
+import com.tradingplatform.app.domain.util.runCatchingCancellable
 import java.time.Instant
+import kotlinx.coroutines.CancellationException
 import okhttp3.OkHttpClient
 import retrofit2.Response
 import timber.log.Timber
@@ -46,7 +48,7 @@ class AuthRepositoryImpl @Inject constructor(
     }
 
     override suspend fun login(email: String, password: String): Result<Pair<User, AuthTokens>> =
-        runCatching {
+        runCatchingCancellable {
             val response = authApi.login(LoginRequestDto(email, password))
             if (!response.isSuccessful) {
                 val errorBody = response.errorBody()?.string()
@@ -90,10 +92,12 @@ class AuthRepositoryImpl @Inject constructor(
             Pair(user, tokens)
         }
 
-    override suspend fun logout(): Result<Unit> = runCatching {
+    override suspend fun logout(): Result<Unit> = runCatchingCancellable {
         // Tenter le logout API — même en cas d'erreur réseau, nettoyer le store local
         try {
             authApi.logout()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Timber.tag(TAG).w(e, "AuthRepository: logout API call failed, clearing local data anyway")
         }
@@ -104,16 +108,23 @@ class AuthRepositoryImpl @Inject constructor(
         // de forcer un re-scan du QR d'onboarding à chaque logout.
         try {
             dataStore.clearSession()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Timber.tag(TAG).e(e, "AuthRepository: clearSession failed during logout — session data may be stale")
         }
         csrfInterceptor.clearToken()
         cookieJar.clear()
-        try { okHttpClient.cache?.evictAll() } catch (_: Exception) {}
+        try {
+            okHttpClient.cache?.evictAll()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+        }
     }
 
     override suspend fun verify2fa(sessionToken: String, totpCode: String): Result<Pair<User, AuthTokens>> =
-        runCatching {
+        runCatchingCancellable {
             val response = authApi.verify2fa(TotpVerifyRequestDto(sessionToken, totpCode))
             if (!response.isSuccessful) {
                 when (response.code()) {
@@ -148,7 +159,7 @@ class AuthRepositoryImpl @Inject constructor(
             Pair(user, tokens)
         }
 
-    override suspend fun getPortfolios(): Result<List<Portfolio>> = runCatching {
+    override suspend fun getPortfolios(): Result<List<Portfolio>> = runCatchingCancellable {
         val response = authApi.getPortfolios()
         if (!response.isSuccessful) {
             error("Get portfolios failed: HTTP ${response.code()}")
@@ -212,7 +223,7 @@ class AuthRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun refreshToken(): Result<AuthTokens> = runCatching {
+    override suspend fun refreshToken(): Result<AuthTokens> = runCatchingCancellable {
         val response = authApi.refresh()
         if (!response.isSuccessful) {
             error("Token refresh failed: HTTP ${response.code()}")
@@ -224,7 +235,7 @@ class AuthRepositoryImpl @Inject constructor(
         tokens
     }
 
-    override suspend fun getWsToken(): Result<WsTokenInfo> = runCatching {
+    override suspend fun getWsToken(): Result<WsTokenInfo> = runCatchingCancellable {
         val response = authApi.getWsToken()
         if (!response.isSuccessful) {
             error("WS token fetch failed: HTTP ${response.code()}")
@@ -236,7 +247,7 @@ class AuthRepositoryImpl @Inject constructor(
         )
     }
 
-    override suspend fun getUserProfile(): Result<User> = runCatching {
+    override suspend fun getUserProfile(): Result<User> = runCatchingCancellable {
         val response = authApi.me()
         if (!response.isSuccessful) {
             error("Get user profile failed: HTTP ${response.code()}")

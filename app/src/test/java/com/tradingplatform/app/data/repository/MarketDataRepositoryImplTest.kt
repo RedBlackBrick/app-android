@@ -4,6 +4,9 @@ import com.tradingplatform.app.data.api.MarketDataApi
 import com.tradingplatform.app.data.local.db.dao.QuoteDao
 import com.tradingplatform.app.di.NetworkModule
 import io.mockk.mockk
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.Dispatcher
@@ -89,7 +92,11 @@ class MarketDataRepositoryImplTest {
             .addConverterFactory(MoshiConverterFactory.create(NetworkModule.provideMoshi()))
             .build()
             .create(MarketDataApi::class.java)
-        repository = MarketDataRepositoryImpl(api, mockk<QuoteDao>(relaxed = true))
+        repository = MarketDataRepositoryImpl(
+            api,
+            mockk<QuoteDao>(relaxed = true),
+            CoroutineScope(SupervisorJob() + Dispatchers.IO),
+        )
     }
 
     @After

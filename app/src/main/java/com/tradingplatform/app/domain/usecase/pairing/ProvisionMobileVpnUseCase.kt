@@ -6,6 +6,7 @@ import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
 import com.tradingplatform.app.domain.model.MobileProvisioningResult
 import com.tradingplatform.app.domain.model.SetupQrData
 import com.tradingplatform.app.domain.repository.MobileProvisioningRepository
+import com.tradingplatform.app.domain.util.runCatchingCancellable
 import com.tradingplatform.app.vpn.WireGuardConfig
 import com.tradingplatform.app.vpn.WireGuardManager
 import com.tradingplatform.app.vpn.WireGuardPeer
@@ -38,7 +39,7 @@ class ProvisionMobileVpnUseCase @Inject constructor(
     private val wireGuardManager: WireGuardManager,
     private val dataStore: EncryptedDataStore,
 ) {
-    suspend operator fun invoke(setupData: SetupQrData): Result<Unit> = runCatching {
+    suspend operator fun invoke(setupData: SetupQrData): Result<Unit> = runCatchingCancellable {
         // 1. On-device keypair. wireguard-android's KeyPair() generates a
         //    Curve25519 key via Android's SecureRandom — no SecureRandom seed
         //    handling needed on our side.

@@ -1,0 +1,3852 @@
+{
+  "_generated_by": "scripts/extract_openapi_contracts.py",
+  "_source": "/home/thomas/Codes/trading-platform2/audit/front/openapi.json",
+  "components": {
+    "schemas": {
+      "ActiveOrdersResponse": {
+        "description": "Response for listing active (non-terminal) orders.",
+        "properties": {
+          "count": {
+            "default": 0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "orders": {
+            "items": {
+              "$ref": "#/components/schemas/OrderResponse"
+            },
+            "title": "Orders",
+            "type": "array"
+          }
+        },
+        "title": "ActiveOrdersResponse",
+        "type": "object"
+      },
+      "BrokerSummary": {
+        "description": "Broker connection summary for portfolio list views.",
+        "properties": {
+          "broker_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Broker Code"
+          },
+          "connection_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connection Status"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "execution_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Mode"
+          }
+        },
+        "title": "BrokerSummary",
+        "type": "object"
+      },
+      "CommandRequest": {
+        "description": "Request to send a command to a specific device.",
+        "properties": {
+          "command_type": {
+            "$ref": "#/components/schemas/CommandType"
+          },
+          "device_id": {
+            "title": "Device Id",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": true,
+            "title": "Params",
+            "type": "object"
+          }
+        },
+        "required": [
+          "device_id",
+          "command_type"
+        ],
+        "title": "CommandRequest",
+        "type": "object"
+      },
+      "CommandResponse": {
+        "description": "Response after sending or querying a command.",
+        "properties": {
+          "command_type": {
+            "$ref": "#/components/schemas/CommandType"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "device_id": {
+            "title": "Device Id",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CommandStatus",
+            "default": "pending"
+          }
+        },
+        "required": [
+          "id",
+          "device_id",
+          "command_type"
+        ],
+        "title": "CommandResponse",
+        "type": "object"
+      },
+      "CommandStatus": {
+        "description": "Lifecycle statuses for a remote command.",
+        "enum": [
+          "pending",
+          "sent",
+          "acknowledged",
+          "completed",
+          "failed",
+          "timeout"
+        ],
+        "title": "CommandStatus",
+        "type": "string"
+      },
+      "CommandType": {
+        "description": "Supported remote command types.",
+        "enum": [
+          "reboot",
+          "update_config",
+          "update_firmware",
+          "run_script",
+          "health_check",
+          "broker_gateway_set"
+        ],
+        "title": "CommandType",
+        "type": "string"
+      },
+      "DeviceBrokerConnectionResponse": {
+        "description": "Response model for a device broker connection (masked credentials).\n\nThe field is named ``connection_status`` for consistency with\n``BrokerConnectionResponse`` (portfolio broker connections).\nInput from DB rows that use ``status`` is accepted via\n``validation_alias``.  The JSON output always includes\n``connection_status``.",
+        "properties": {
+          "api_key_hint": {
+            "title": "Api Key Hint",
+            "type": "string"
+          },
+          "broker_code": {
+            "title": "Broker Code",
+            "type": "string"
+          },
+          "connection_status": {
+            "default": "active",
+            "title": "Connection Status",
+            "type": "string"
+          },
+          "connection_type": {
+            "default": "api",
+            "title": "Connection Type",
+            "type": "string"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "device_id": {
+            "title": "Device Id",
+            "type": "string"
+          },
+          "environment": {
+            "default": "production",
+            "title": "Environment",
+            "type": "string"
+          },
+          "has_api_secret": {
+            "default": false,
+            "title": "Has Api Secret",
+            "type": "boolean"
+          },
+          "has_passphrase": {
+            "default": false,
+            "title": "Has Passphrase",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "last_tested_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Tested At"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
+          },
+          "portfolio_id": {
+            "title": "Portfolio Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "device_id",
+          "portfolio_id",
+          "broker_code",
+          "api_key_hint"
+        ],
+        "title": "DeviceBrokerConnectionResponse",
+        "type": "object"
+      },
+      "DeviceListResponse": {
+        "description": "Wrapped list of devices, matching Android DeviceListResponseDto.",
+        "properties": {
+          "devices": {
+            "items": {
+              "$ref": "#/components/schemas/DeviceResponse"
+            },
+            "title": "Devices",
+            "type": "array"
+          }
+        },
+        "required": [
+          "devices"
+        ],
+        "title": "DeviceListResponse",
+        "type": "object"
+      },
+      "DeviceResponse": {
+        "description": "Standard device response returned by most endpoints.",
+        "properties": {
+          "broker_gateway_broker_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Broker Gateway Broker Id"
+          },
+          "broker_gateway_enabled": {
+            "default": false,
+            "title": "Broker Gateway Enabled",
+            "type": "boolean"
+          },
+          "broker_gateway_status": {
+            "default": "stopped",
+            "title": "Broker Gateway Status",
+            "type": "string"
+          },
+          "cpu_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cpu Pct"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "device_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Name"
+          },
+          "device_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Type"
+          },
+          "disk_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disk Pct"
+          },
+          "firmware_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Firmware Version"
+          },
+          "id": {
+            "description": "Device identifier (device_id)",
+            "title": "Id",
+            "type": "string"
+          },
+          "ip_address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ip Address"
+          },
+          "ip_asn": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ip Asn"
+          },
+          "ip_country_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ip Country Code"
+          },
+          "ip_isp": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ip Isp"
+          },
+          "last_heartbeat": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Heartbeat"
+          },
+          "memory_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memory Pct"
+          },
+          "residential_ip": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Residential Ip"
+          },
+          "scraper_errors": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scraper Errors"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DeviceStatus",
+            "default": "offline"
+          },
+          "temperature": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Temperature"
+          },
+          "ticks_sent": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticks Sent"
+          },
+          "uptime_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uptime Seconds"
+          },
+          "wg_available": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wg Available"
+          },
+          "wg_handshake_age_s": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wg Handshake Age S"
+          },
+          "wg_rx_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wg Rx Bytes"
+          },
+          "wg_tx_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wg Tx Bytes"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "DeviceResponse",
+        "type": "object"
+      },
+      "DeviceStatus": {
+        "description": "Possible statuses for an edge device.",
+        "enum": [
+          "online",
+          "offline",
+          "pairing",
+          "maintenance",
+          "error"
+        ],
+        "title": "DeviceStatus",
+        "type": "string"
+      },
+      "FcmTokenRegisterRequest": {
+        "description": "Payload for registering an Android device FCM token.",
+        "properties": {
+          "device_fingerprint": {
+            "description": "Unique device identifier (Android ID or install UUID). Used to deduplicate tokens per device.",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Device Fingerprint",
+            "type": "string"
+          },
+          "fcm_token": {
+            "description": "Firebase Cloud Messaging registration token",
+            "minLength": 1,
+            "title": "Fcm Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "fcm_token",
+          "device_fingerprint"
+        ],
+        "title": "FcmTokenRegisterRequest",
+        "type": "object"
+      },
+      "FcmTokenRegisterResponse": {
+        "description": "Response after registering an FCM token.",
+        "properties": {
+          "registered": {
+            "title": "Registered",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "registered"
+        ],
+        "title": "FcmTokenRegisterResponse",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "LoginRequest": {
+        "description": "Login credentials with optional TOTP code for 2FA.",
+        "properties": {
+          "email": {
+            "format": "email",
+            "maxLength": 254,
+            "title": "Email",
+            "type": "string"
+          },
+          "password": {
+            "minLength": 1,
+            "title": "Password",
+            "type": "string"
+          },
+          "totp_code": {
+            "anyOf": [
+              {
+                "maxLength": 20,
+                "minLength": 6,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "6-digit TOTP code or alphanumeric backup code for 2FA",
+            "title": "Totp Code"
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "LoginRequest",
+        "type": "object"
+      },
+      "LoginResponse": {
+        "description": "Union response for the /login endpoint.\n\nEither a full login success (requires_2fa=False, user/tokens present)\nor a 2FA challenge (requires_2fa=True, temp_token present).\nAll optional fields default to None so both shapes validate.",
+        "properties": {
+          "message": {
+            "default": "",
+            "title": "Message",
+            "type": "string"
+          },
+          "requires_2fa": {
+            "default": false,
+            "title": "Requires 2Fa",
+            "type": "boolean"
+          },
+          "session_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Token"
+          },
+          "temp_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Temp Token"
+          },
+          "tokens": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TokenResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "user": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "LoginResponse",
+        "type": "object"
+      },
+      "MarketDataPoint": {
+        "description": "Single OHLCV data point.\n\nThe four trailing fields (``session_type``, ``quality_score``,\n``source_count``, ``data_quality``) are populated from\n``analytics.market_data`` and surfaced to the frontend chart so it can\nrender the quality strip, session bands and tooltip qualité. They are\noptional because historical rows ingested before the ingestion pipeline\nstarted populating them may carry ``NULL``. ``data_quality`` is typed as\n``str`` rather than a strict ``Literal`` because the DB enum\n(``raw|validated|reconciled|official_eod|estimated|interpolated|corrected|aggregated``)\nis the source of truth and we forward it verbatim (no transformation) —\nthe frontend already accepts ``string | null`` here.",
+        "properties": {
+          "ask": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Last observed ask in the candle's bucket — same NULL semantics as ``bid``.",
+            "title": "Ask"
+          },
+          "bid": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Last observed bid in the candle's bucket (migration 141). NULL for OHLCV-only sources (Yahoo/Polygon/Stooq/EOD/backfill/gap-fill) and for historical rows ingested before this column was tracked. Never split/spinoff-adjusted (NULL when ``adjusted=true``).",
+            "title": "Bid"
+          },
+          "close": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Close",
+            "type": "string"
+          },
+          "data_quality": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Quality"
+          },
+          "high": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "High",
+            "type": "string"
+          },
+          "low": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Low",
+            "type": "string"
+          },
+          "open": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Open",
+            "type": "string"
+          },
+          "quality_score": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "0-100 quality score from the ingestion pipeline",
+            "title": "Quality Score"
+          },
+          "session_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "regular",
+                  "pre_market",
+                  "post_market",
+                  "closed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Type"
+          },
+          "source": {
+            "default": "",
+            "title": "Source",
+            "type": "string"
+          },
+          "source_count": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Number of distinct sources that contributed to this candle",
+            "title": "Source Count"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "timeframe": {
+            "$ref": "#/components/schemas/TimeFrame",
+            "default": "1d"
+          },
+          "timestamp": {
+            "format": "date-time",
+            "title": "Timestamp",
+            "type": "string"
+          },
+          "volume": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Volume"
+          },
+          "volume_unit": {
+            "anyOf": [
+              {
+                "enum": [
+                  "shares",
+                  "ticks",
+                  "last_size",
+                  "quote_notional"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Unit of the ``volume`` field — 'shares' when the broker reports real trade volume, 'ticks' when the candle uses the tick-count proxy, 'last_size' for last-size based feeds (IB/Alpaca/Yahoo WS), 'quote_notional' for quote-currency notional feeds (e.g. Binance USDT = price×qty). NULL for legacy rows ingested before this column was tracked.",
+            "title": "Volume Unit"
+          }
+        },
+        "required": [
+          "symbol",
+          "timestamp",
+          "open",
+          "high",
+          "low",
+          "close"
+        ],
+        "title": "MarketDataPoint",
+        "type": "object"
+      },
+      "MarketDataResponse": {
+        "description": "Response model wrapping a list of market data points.",
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/MarketDataPoint"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ISO 8601 timestamp cursor for the next page",
+            "title": "Next Cursor"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "timeframe": {
+            "$ref": "#/components/schemas/TimeFrame"
+          }
+        },
+        "required": [
+          "symbol",
+          "data",
+          "count",
+          "timeframe"
+        ],
+        "title": "MarketDataResponse",
+        "type": "object"
+      },
+      "MessageResponse": {
+        "description": "Generic message response.",
+        "properties": {
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "title": "MessageResponse",
+        "type": "object"
+      },
+      "NavResponse": {
+        "description": "Net Asset Value snapshot for a portfolio.\n\nMatches the Android NavResponseDto contract.",
+        "properties": {
+          "cash": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Cash",
+            "type": "string"
+          },
+          "nav": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Nav",
+            "type": "string"
+          },
+          "positions_value": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Positions Value",
+            "type": "string"
+          },
+          "timestamp": {
+            "title": "Timestamp",
+            "type": "string"
+          }
+        },
+        "required": [
+          "nav",
+          "cash",
+          "positions_value",
+          "timestamp"
+        ],
+        "title": "NavResponse",
+        "type": "object"
+      },
+      "OrderHistoryResponse": {
+        "description": "Response for listing historical (terminal) orders.",
+        "properties": {
+          "count": {
+            "default": 0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "orders": {
+            "items": {
+              "$ref": "#/components/schemas/OrderResponse"
+            },
+            "title": "Orders",
+            "type": "array"
+          }
+        },
+        "title": "OrderHistoryResponse",
+        "type": "object"
+      },
+      "OrderResponse": {
+        "description": "Response model for a single order.",
+        "properties": {
+          "average_fill_price": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Average Fill Price"
+          },
+          "broker_order_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Broker Order Id"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "filled_quantity": {
+            "default": "0.0",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Filled Quantity",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "limit_price": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit Price"
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata"
+          },
+          "order_type": {
+            "$ref": "#/components/schemas/OrderType"
+          },
+          "portfolio_id": {
+            "default": "",
+            "title": "Portfolio Id",
+            "type": "string"
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quantity"
+          },
+          "side": {
+            "$ref": "#/components/schemas/TradeSide"
+          },
+          "signal_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signal Id"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OrderStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stop_price": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Price"
+          },
+          "strategy_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strategy Id"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "id",
+          "symbol",
+          "side",
+          "order_type"
+        ],
+        "title": "OrderResponse",
+        "type": "object"
+      },
+      "OrderStatus": {
+        "description": "Order lifecycle status.\n\nMatches the PostgreSQL ``order_status`` type (lowercase) defined in\n``01_schemas_types/02_enums.sql``.  Used by execution, risk, and\nportfolio modules.",
+        "enum": [
+          "pending_approval",
+          "pending",
+          "submitted",
+          "partial",
+          "filled",
+          "cancelled",
+          "rejected",
+          "expired",
+          "error",
+          "pending_cancel",
+          "rollover_pending",
+          "pending_retry"
+        ],
+        "title": "OrderStatus",
+        "type": "string"
+      },
+      "OrderType": {
+        "description": "Order type enum.\n\nValues are UPPERCASE to match the application-level convention used in\norder dicts and broker adapters.",
+        "enum": [
+          "MARKET",
+          "LIMIT",
+          "STOP",
+          "STOP_LIMIT",
+          "TRAILING_STOP",
+          "MOC",
+          "LOC"
+        ],
+        "title": "OrderType",
+        "type": "string"
+      },
+      "PerformanceMetrics": {
+        "description": "Portfolio performance metrics over a given period.",
+        "properties": {
+          "avg_trade_return": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Trade Return"
+          },
+          "cagr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cagr"
+          },
+          "max_drawdown": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Drawdown"
+          },
+          "period": {
+            "default": "all",
+            "description": "Window the metrics were computed over: 7d/30d/90d/180d/1y/all.",
+            "title": "Period",
+            "type": "string"
+          },
+          "profit_factor": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profit Factor"
+          },
+          "sharpe_ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sharpe Ratio"
+          },
+          "sortino_ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sortino Ratio"
+          },
+          "total_fees": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Fees"
+          },
+          "total_return": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Return"
+          },
+          "total_return_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Return Pct"
+          },
+          "volatility": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Volatility"
+          },
+          "win_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Win Rate"
+          }
+        },
+        "title": "PerformanceMetrics",
+        "type": "object"
+      },
+      "PnlResponse": {
+        "description": "PNL summary for a portfolio over a given period.\n\nMatches the Android PnlResponseDto contract.\n\nUnit: every amount is denominated in the **portfolio's** currency. The\nunderlying ``portfolio.positions`` columns are stored in the SYMBOL's\ncurrency, so the aggregation converts (see\n``app.portfolio.calculators.realized_pnl``). Do not re-derive these sums\nfrom the per-position figures in :class:`PositionResponse` — those are\nunconverted.",
+        "properties": {
+          "losing_trades": {
+            "default": 0,
+            "title": "Losing Trades",
+            "type": "integer"
+          },
+          "period": {
+            "title": "Period",
+            "type": "string"
+          },
+          "realized_pnl": {
+            "default": "0.0",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Realized Pnl",
+            "type": "string"
+          },
+          "total_pnl": {
+            "default": "0.0",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Total Pnl",
+            "type": "string"
+          },
+          "total_pnl_percent": {
+            "default": 0.0,
+            "title": "Total Pnl Percent",
+            "type": "number"
+          },
+          "trades_count": {
+            "default": 0,
+            "title": "Trades Count",
+            "type": "integer"
+          },
+          "unrealized_pnl": {
+            "default": "0.0",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Unrealized Pnl",
+            "type": "string"
+          },
+          "winning_trades": {
+            "default": 0,
+            "title": "Winning Trades",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "period"
+        ],
+        "title": "PnlResponse",
+        "type": "object"
+      },
+      "PortfolioCircuitBreakerStatus": {
+        "description": "Portfolio-scoped circuit-breaker status (the risk-rule violation counter).\n\nDistinct from ``CircuitBreakerStatus``, which describes the in-memory\nPython-level breakers wrapping broker calls. This one mirrors the\nper-portfolio Redis counter at ``circuit_breaker:{portfolio_id}`` that\nthe validation pipeline reads in ``RiskManager._check_circuit_breaker``.",
+        "properties": {
+          "count": {
+            "description": "Current violation count in the rolling window.",
+            "title": "Count",
+            "type": "integer"
+          },
+          "enabled": {
+            "description": "True if a circuit_breaker rule is active for this portfolio.",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "portfolio_id": {
+            "title": "Portfolio Id",
+            "type": "string"
+          },
+          "redis_unavailable": {
+            "default": false,
+            "description": "True if Redis was unreachable. The endpoint reports state='open' in that case, mirroring the validation pipeline's fail-closed policy.",
+            "title": "Redis Unavailable",
+            "type": "boolean"
+          },
+          "state": {
+            "description": "'closed' (trading allowed) or 'open' (trading paused).",
+            "title": "State",
+            "type": "string"
+          },
+          "threshold": {
+            "description": "Max violations before tripping. 0 when no rule applies.",
+            "title": "Threshold",
+            "type": "integer"
+          },
+          "ttl_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Seconds until the counter expires. None if no key is set.",
+            "title": "Ttl Seconds"
+          },
+          "window_seconds": {
+            "description": "Rolling window size in seconds. 0 when no rule applies.",
+            "title": "Window Seconds",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "portfolio_id",
+          "enabled",
+          "state",
+          "count",
+          "threshold",
+          "window_seconds"
+        ],
+        "title": "PortfolioCircuitBreakerStatus",
+        "type": "object"
+      },
+      "PortfolioDetailResponse": {
+        "description": "Enhanced portfolio detail with positions, allocations, and P&L.\n\nUnit split, deliberate and load-bearing: the ``total_*`` aggregates are in\nthe **portfolio's** currency (FX-converted per position via\n``app.portfolio.calculators.realized_pnl``), while the ``realized_pnl`` /\n``unrealized_pnl`` carried by each :class:`PositionResponse` in\n``positions`` are raw, i.e. in that **symbol's** currency. Summing the\nlatter client-side does NOT reproduce the former on a cross-currency book.",
+        "properties": {
+          "asset_type_allocation": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Asset Type Allocation",
+            "type": "object"
+          },
+          "portfolio": {
+            "$ref": "#/components/schemas/PortfolioResponse"
+          },
+          "positions": {
+            "items": {
+              "$ref": "#/components/schemas/PositionResponse"
+            },
+            "title": "Positions",
+            "type": "array"
+          },
+          "sector_allocation": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Sector Allocation",
+            "type": "object"
+          },
+          "strategies": {
+            "items": {
+              "$ref": "#/components/schemas/PortfolioStrategyLink"
+            },
+            "title": "Strategies",
+            "type": "array"
+          },
+          "top_performers": {
+            "items": {
+              "$ref": "#/components/schemas/PositionResponse"
+            },
+            "title": "Top Performers",
+            "type": "array"
+          },
+          "total_dividends": {
+            "default": "0.0",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Total Dividends",
+            "type": "string"
+          },
+          "total_realized_pnl": {
+            "default": "0.0",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Total Realized Pnl",
+            "type": "string"
+          },
+          "total_unrealized_pnl": {
+            "default": "0.0",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Total Unrealized Pnl",
+            "type": "string"
+          },
+          "worst_performers": {
+            "items": {
+              "$ref": "#/components/schemas/PositionResponse"
+            },
+            "title": "Worst Performers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "portfolio"
+        ],
+        "title": "PortfolioDetailResponse",
+        "type": "object"
+      },
+      "PortfolioResponse": {
+        "description": "Full portfolio detail returned from the API.\n\n``allocation_mode`` was removed on 2026-05-17 (Wave 3): the DB column\nsurvives for legacy seeds but the strategy engine reads the runtime\nsizing mode from ``trading.composite_strategies.allocation_mode``\n(``app/strategy/consumer/base.py:1352``). The frontend used to badge\nthe value on PortfolioCard / PortfolioHeader / settings, which was\nmisleading — the badge now reads the per-strategy allocation_mode\ninstead.",
+        "properties": {
+          "benchmark_sid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Benchmark Sid"
+          },
+          "benchmark_variant_preference": {
+            "default": "total_return",
+            "title": "Benchmark Variant Preference",
+            "type": "string"
+          },
+          "broker_summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BrokerSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cash_balance": {
+            "default": "0.0",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Cash Balance",
+            "type": "string"
+          },
+          "commission_rate": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commission Rate"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "currency_code": {
+            "default": "EUR",
+            "title": "Currency Code",
+            "type": "string"
+          },
+          "current_value": {
+            "default": "0.0",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Current Value",
+            "type": "string"
+          },
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "initial_capital": {
+            "default": "0.0",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Initial Capital",
+            "type": "string"
+          },
+          "is_active": {
+            "default": true,
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "is_paper": {
+            "default": false,
+            "title": "Is Paper",
+            "type": "boolean"
+          },
+          "min_commission": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Commission"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "owner_id": {
+            "title": "Owner Id",
+            "type": "integer"
+          },
+          "position_sizing_config": {
+            "additionalProperties": true,
+            "title": "Position Sizing Config",
+            "type": "object"
+          },
+          "protection_config": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Protection Config"
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timezone"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "id",
+          "owner_id",
+          "name"
+        ],
+        "title": "PortfolioResponse",
+        "type": "object"
+      },
+      "PortfolioStrategyLink": {
+        "description": "Represents a link between a portfolio and a strategy.",
+        "properties": {
+          "alloc_mode": {
+            "default": "percent",
+            "title": "Alloc Mode",
+            "type": "string"
+          },
+          "allocation_pct": {
+            "title": "Allocation Pct",
+            "type": "number"
+          },
+          "budget_allocated": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Budget Allocated"
+          },
+          "config_snapshot_captured_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Config Snapshot Captured At"
+          },
+          "config_snapshot_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Config Snapshot Hash"
+          },
+          "configuration_override": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Configuration Override"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "custom_parameters": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Custom Parameters"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_active": {
+            "default": true,
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "latest_version_number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Version Number"
+          },
+          "max_positions_override": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Positions Override"
+          },
+          "portfolio_id": {
+            "title": "Portfolio Id",
+            "type": "string"
+          },
+          "strategy_id": {
+            "title": "Strategy Id",
+            "type": "string"
+          },
+          "strategy_version_number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strategy Version Number"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "version_is_active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version Is Active"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "portfolio_id",
+          "strategy_id",
+          "allocation_pct"
+        ],
+        "title": "PortfolioStrategyLink",
+        "type": "object"
+      },
+      "PositionResponse": {
+        "description": "Full position detail.\n\nUnit: ``average_price``, ``last_price``, ``market_value``,\n``unrealized_pnl`` and ``realized_pnl`` are all in the **symbol's**\ncurrency, straight from ``portfolio.positions``. That is unambiguous for a\nsingle position and it is what a per-position display should show — but it\nmeans these fields must NOT be summed across positions without conversion.\nUse the pre-aggregated ``total_*`` fields of\n:class:`PortfolioDetailResponse`, or\n``app.portfolio.calculators.realized_pnl``.\n\n``symbol_currency`` names that unit so a reader no longer has to guess it\n(the guess used to be the portfolio's currency, which prints \"250 €\" next\nto a share that trades at $250). ``None`` means\n``reference.symbols.currency_code`` is NULL for this instrument — a data\nhole, not a licence to substitute a default.",
+        "properties": {
+          "average_price": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Average Price"
+          },
+          "broker_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Broker Id"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "entry_price": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Price"
+          },
+          "entry_rule_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Rule Id"
+          },
+          "entry_rule_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Rule Name"
+          },
+          "entry_strategy_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Strategy Id"
+          },
+          "entry_strategy_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Strategy Name"
+          },
+          "entry_strategy_version_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Strategy Version Id"
+          },
+          "entry_timestamp": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Timestamp"
+          },
+          "exit_strategy_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit Strategy Id"
+          },
+          "has_active_conditionals": {
+            "default": false,
+            "title": "Has Active Conditionals",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": true,
+            "title": "Is Active"
+          },
+          "last_price": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Price"
+          },
+          "market_value": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Market Value"
+          },
+          "portfolio_id": {
+            "title": "Portfolio Id",
+            "type": "string"
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quantity"
+          },
+          "realized_pnl": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Realized Pnl"
+          },
+          "rollover_locked": {
+            "default": false,
+            "title": "Rollover Locked",
+            "type": "boolean"
+          },
+          "side": {
+            "default": "LONG",
+            "title": "Side",
+            "type": "string"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "symbol_currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Symbol Currency"
+          },
+          "symbol_sid": {
+            "title": "Symbol Sid",
+            "type": "integer"
+          },
+          "unrealized_pnl": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unrealized Pnl"
+          },
+          "unrealized_pnl_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unrealized Pnl Pct"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "id",
+          "portfolio_id",
+          "symbol",
+          "symbol_sid"
+        ],
+        "title": "PositionResponse",
+        "type": "object"
+      },
+      "QuoteResponse": {
+        "description": "Enriched quote response for mobile clients.",
+        "properties": {
+          "ask": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ask"
+          },
+          "bid": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bid"
+          },
+          "change": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Change"
+          },
+          "change_percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Change Percent"
+          },
+          "data_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Mode"
+          },
+          "price": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Price",
+            "type": "string"
+          },
+          "quality": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quality"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "source_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Name"
+          },
+          "source_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Type"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "timestamp": {
+            "format": "date-time",
+            "title": "Timestamp",
+            "type": "string"
+          },
+          "volume": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Volume"
+          }
+        },
+        "required": [
+          "symbol",
+          "price",
+          "timestamp",
+          "source"
+        ],
+        "title": "QuoteResponse",
+        "type": "object"
+      },
+      "RefreshResponse": {
+        "description": "Response from the /refresh endpoint.",
+        "properties": {
+          "access_token": {
+            "title": "Access Token",
+            "type": "string"
+          },
+          "expires_in": {
+            "title": "Expires In",
+            "type": "integer"
+          },
+          "refresh_token": {
+            "title": "Refresh Token",
+            "type": "string"
+          },
+          "token_type": {
+            "default": "bearer",
+            "title": "Token Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "access_token",
+          "refresh_token",
+          "expires_in"
+        ],
+        "title": "RefreshResponse",
+        "type": "object"
+      },
+      "SymbolListItem": {
+        "description": "Compact symbol item returned by the paginated symbols endpoint.",
+        "properties": {
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
+          "exchange": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exchange"
+          },
+          "is_active": {
+            "default": true,
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "sid": {
+            "title": "Sid",
+            "type": "integer"
+          },
+          "ticker": {
+            "title": "Ticker",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sid",
+          "ticker",
+          "name"
+        ],
+        "title": "SymbolListItem",
+        "type": "object"
+      },
+      "SymbolListResponse": {
+        "description": "Paginated response for the symbols list endpoint.",
+        "properties": {
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "symbols": {
+            "items": {
+              "$ref": "#/components/schemas/SymbolListItem"
+            },
+            "title": "Symbols",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "symbols",
+          "total",
+          "limit",
+          "offset",
+          "has_more"
+        ],
+        "title": "SymbolListResponse",
+        "type": "object"
+      },
+      "TimeFrame": {
+        "description": "Supported timeframes for OHLCV data.",
+        "enum": [
+          "1m",
+          "5m",
+          "15m",
+          "1h",
+          "4h",
+          "1d",
+          "1w",
+          "1M"
+        ],
+        "title": "TimeFrame",
+        "type": "string"
+      },
+      "TokenResponse": {
+        "description": "JWT token pair returned after authentication.",
+        "properties": {
+          "access_token": {
+            "title": "Access Token",
+            "type": "string"
+          },
+          "expires_in": {
+            "description": "Access token expiry in seconds",
+            "title": "Expires In",
+            "type": "integer"
+          },
+          "refresh_token": {
+            "title": "Refresh Token",
+            "type": "string"
+          },
+          "token_type": {
+            "default": "bearer",
+            "title": "Token Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "access_token",
+          "refresh_token",
+          "expires_in"
+        ],
+        "title": "TokenResponse",
+        "type": "object"
+      },
+      "TradeSide": {
+        "description": "Unified trade/order direction enum.\n\nMatches the PostgreSQL ``order_side`` type (lowercase 'buy'/'sell')\ndefined in ``01_schemas_types/02_enums.sql``.\n\nUsed by the execution module (as ``OrderSide`` alias) and the backtest\nmodule.  The strategy module has its own ``SignalAction`` enum with\nadditional values (HOLD, INCREASE, DECREASE) — the uppercase-to-lowercase\nconversion happens at the consumer boundary.",
+        "enum": [
+          "buy",
+          "sell"
+        ],
+        "title": "TradeSide",
+        "type": "string"
+      },
+      "UserResponse": {
+        "description": "Public user information (no sensitive fields).",
+        "properties": {
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "first_name": {
+            "default": "",
+            "title": "First Name",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_admin": {
+            "default": false,
+            "title": "Is Admin",
+            "type": "boolean"
+          },
+          "last_login": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Login"
+          },
+          "last_name": {
+            "default": "",
+            "title": "Last Name",
+            "type": "string"
+          },
+          "previous_login": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Login"
+          },
+          "totp_enabled": {
+            "default": false,
+            "title": "Totp Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "email"
+        ],
+        "title": "UserResponse",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "Verify2FARequest": {
+        "description": "Complete 2FA flow using the temporary token.\n\n``totp_code`` accepts either a 6-digit TOTP code or an alphanumeric\nbackup code (up to 20 chars).",
+        "properties": {
+          "temp_token": {
+            "title": "Temp Token",
+            "type": "string"
+          },
+          "totp_code": {
+            "maxLength": 20,
+            "minLength": 6,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Totp Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "temp_token",
+          "totp_code"
+        ],
+        "title": "Verify2FARequest",
+        "type": "object"
+      },
+      "VerifyTwoFAResponse": {
+        "description": "Response from the /verify-2fa endpoint.",
+        "properties": {
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "session_token": {
+            "title": "Session Token",
+            "type": "string"
+          },
+          "tokens": {
+            "$ref": "#/components/schemas/TokenResponse"
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserResponse"
+          }
+        },
+        "required": [
+          "message",
+          "user",
+          "tokens",
+          "session_token"
+        ],
+        "title": "VerifyTwoFAResponse",
+        "type": "object"
+      },
+      "VpnPeerDetailResponse": {
+        "description": "Full VPN peer record as stored in identity.vpn_peers.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "is_active": {
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "last_handshake": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Handshake"
+          },
+          "paired_at": {
+            "format": "date-time",
+            "title": "Paired At",
+            "type": "string"
+          },
+          "peer_type": {
+            "title": "Peer Type",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "integer"
+          },
+          "wg_public_key": {
+            "title": "Wg Public Key",
+            "type": "string"
+          },
+          "wg_tunnel_ip": {
+            "title": "Wg Tunnel Ip",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "user_id",
+          "label",
+          "peer_type",
+          "wg_public_key",
+          "wg_tunnel_ip",
+          "is_active",
+          "paired_at"
+        ],
+        "title": "VpnPeerDetailResponse",
+        "type": "object"
+      },
+      "VpnPeerListResponse": {
+        "description": "Paginated list of VPN peers.\n\nWraps a list of VpnPeerDetailResponse with a total count, matching\nthe format expected by Android (VpnPeerListResponseDto).",
+        "properties": {
+          "peers": {
+            "items": {
+              "$ref": "#/components/schemas/VpnPeerDetailResponse"
+            },
+            "title": "Peers",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "peers",
+          "total"
+        ],
+        "title": "VpnPeerListResponse",
+        "type": "object"
+      },
+      "WebSocketTokenResponse": {
+        "description": "Short-lived JWT token for WebSocket authentication.",
+        "properties": {
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "token": {
+            "title": "Token",
+            "type": "string"
+          },
+          "token_type": {
+            "default": "websocket",
+            "title": "Token Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "expires_at"
+        ],
+        "title": "WebSocketTokenResponse",
+        "type": "object"
+      }
+    }
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/v1/auth/login": {
+      "post": {
+        "description": "Authenticate user with optional 2FA support.",
+        "operationId": "login_v1_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Login",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/v1/auth/logout": {
+      "post": {
+        "description": "Logout current session.",
+        "operationId": "logout_v1_auth_logout_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Logout",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/v1/auth/me": {
+      "get": {
+        "description": "Get current authenticated user profile.",
+        "operationId": "get_me_v1_auth_me_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Me",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/v1/auth/refresh": {
+      "post": {
+        "description": "Refresh access token using refresh token from httpOnly cookie.",
+        "operationId": "refresh_token_v1_auth_refresh_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefreshResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Refresh Token",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/v1/auth/ws-token": {
+      "post": {
+        "description": "Generate a JWT token for WebSocket authentication.\n\nThe token lifetime is controlled by ``ws_token_ttl_seconds`` (defaults\nto the access token TTL when set to 0).  It includes the\n``type=websocket`` claim so that the WebSocket handshake can\ndistinguish it from regular access tokens.\n\nThe frontend refreshes the WS token proactively before expiry and\nsends the new token over the existing connection via a\n``refresh_token`` message, avoiding reconnection.",
+        "operationId": "generate_ws_token_v1_auth_ws_token_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebSocketTokenResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Generate Ws Token",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/v1/edge-control/commands": {
+      "post": {
+        "description": "Send a command to an edge device.\n\nRequires JWT authentication. The device must belong to the authenticated\nuser (or user must be admin).\n\nThe command is enqueued in the device's Redis command queue. The device\nretrieves it via GET /commands or SSE.",
+        "operationId": "send_command_v1_edge_control_commands_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommandRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Send Command",
+        "tags": [
+          "edge-control",
+          "edge-control"
+        ]
+      }
+    },
+    "/v1/edge-control/me/vpn-peers": {
+      "get": {
+        "description": "List all VPN peers belonging to the authenticated user.\n\nReturns a wrapped response with {peers: [...], total: N} matching\nthe Android VpnPeerListResponseDto contract.",
+        "operationId": "list_my_vpn_peers_v1_edge_control_me_vpn_peers_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VpnPeerListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List My Vpn Peers",
+        "tags": [
+          "edge-control",
+          "edge-control"
+        ]
+      }
+    },
+    "/v1/edge/broker-connections/{device_id}": {
+      "get": {
+        "description": "Get all broker connections for a device.",
+        "operationId": "get_device_broker_connections_v1_edge_broker_connections__device_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "device_id",
+            "required": true,
+            "schema": {
+              "title": "Device Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DeviceBrokerConnectionResponse"
+                  },
+                  "title": "Response Get Device Broker Connections V1 Edge Broker Connections  Device Id  Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Device Broker Connections",
+        "tags": [
+          "edge-broker",
+          "edge-broker"
+        ]
+      }
+    },
+    "/v1/edge/devices": {
+      "get": {
+        "description": "List registered edge devices. Admins see all; regular users see only their own.\n\nReturns a wrapped response ``{devices: [...]}`` matching the Android\n``DeviceListResponseDto`` contract.",
+        "operationId": "list_devices_v1_edge_devices_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "active_only",
+            "required": false,
+            "schema": {
+              "default": true,
+              "title": "Active Only",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Devices",
+        "tags": [
+          "edge",
+          "edge-collector"
+        ]
+      }
+    },
+    "/v1/edge/devices/{device_id}": {
+      "delete": {
+        "description": "Delete (unpair) an edge device owned by the authenticated user.\n\nMirrors the DELETE /edge-control/devices/{device_id} endpoint but is\nexposed on the collector router (/v1/edge) so mobile clients (Android)\ncan reach it at the same base URL they use for registration and listing.\nAdmins can delete any device; regular users can only delete their own.",
+        "operationId": "delete_device_v1_edge_devices__device_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "device_id",
+            "required": true,
+            "schema": {
+              "title": "Device Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Device",
+        "tags": [
+          "edge",
+          "edge-collector"
+        ]
+      }
+    },
+    "/v1/market-data/quote/{symbol}": {
+      "get": {
+        "description": "Return an enriched quote for *symbol* compatible with the Android QuoteDto.\n\nFetches the freshest candle from ``analytics.market_data``.\n``previous_close`` and ``change_pct`` are always ``null``: they came from\n``analytics.market_data_cache``, a table that never held a single row (its\ntrigger function was created but never attached) and is dropped by\nmigration 170 — so this endpoint has always returned ``null`` for them.\n``bid`` and ``ask`` are not available either (scraped data, no L2 feed).",
+        "operationId": "get_quote_v1_market_data_quote__symbol__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "symbol",
+            "required": true,
+            "schema": {
+              "title": "Symbol",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuoteResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get enriched quote (Android)",
+        "tags": [
+          "market-data"
+        ]
+      }
+    },
+    "/v1/market-data/symbols": {
+      "get": {
+        "description": "Return the catalogue of tracked symbols with server-side search and pagination.",
+        "operationId": "list_symbols_v1_market_data_symbols_get",
+        "parameters": [
+          {
+            "description": "Filter by exchange code",
+            "in": "query",
+            "name": "exchange",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by exchange code",
+              "title": "Exchange"
+            }
+          },
+          {
+            "description": "Search by ticker or name (case-insensitive)",
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Search by ticker or name (case-insensitive)",
+              "title": "Search"
+            }
+          },
+          {
+            "description": "Filter by ISO currency code (EUR, USD, GBP, ...)",
+            "in": "query",
+            "name": "currency",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by ISO currency code (EUR, USD, GBP, ...)",
+              "title": "Currency"
+            }
+          },
+          {
+            "description": "Restrict to the current components of an index (by the index's symbol sid)",
+            "in": "query",
+            "name": "index_sid",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Restrict to the current components of an index (by the index's symbol sid)",
+              "title": "Index Sid"
+            }
+          },
+          {
+            "description": "Max results per page",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "description": "Max results per page",
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Number of results to skip",
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "description": "Number of results to skip",
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SymbolListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List available symbols",
+        "tags": [
+          "market-data"
+        ]
+      }
+    },
+    "/v1/market-data/{symbol}/history": {
+      "get": {
+        "description": "Return OHLCV data for a symbol between start and end dates.\n\nSupports cursor-based pagination for large date ranges.  Pass\n``next_cursor`` from a previous response as the ``cursor`` query\nparameter to fetch the next page.",
+        "operationId": "get_history_v1_market_data__symbol__history_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "symbol",
+            "required": true,
+            "schema": {
+              "title": "Symbol",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Start datetime (ISO 8601)",
+            "in": "query",
+            "name": "start",
+            "required": true,
+            "schema": {
+              "description": "Start datetime (ISO 8601)",
+              "format": "date-time",
+              "title": "Start",
+              "type": "string"
+            }
+          },
+          {
+            "description": "End datetime (ISO 8601)",
+            "in": "query",
+            "name": "end",
+            "required": true,
+            "schema": {
+              "description": "End datetime (ISO 8601)",
+              "format": "date-time",
+              "title": "End",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "timeframe",
+            "required": false,
+            "schema": {
+              "default": "1d",
+              "title": "Timeframe",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 1000,
+              "maximum": 10000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Pagination cursor (ISO 8601 timestamp from previous next_cursor)",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Pagination cursor (ISO 8601 timestamp from previous next_cursor)",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "When true, returns split/spinoff-adjusted OHLCV (matches what backtests see). When false (default), returns raw market data.",
+            "in": "query",
+            "name": "adjusted",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "When true, returns split/spinoff-adjusted OHLCV (matches what backtests see). When false (default), returns raw market data.",
+              "title": "Adjusted",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketDataResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get historical OHLCV data",
+        "tags": [
+          "market-data"
+        ]
+      }
+    },
+    "/v1/notifications/fcm-token": {
+      "post": {
+        "description": "Register or update an Android device FCM token for the authenticated user.\n\nThe token is stored per device (identified by ``device_fingerprint``).\nCalling this endpoint again with the same fingerprint updates the token\n(upsert), which handles the case where FCM rotates the registration token.\n\nNOTE: This endpoint commits directly via ``repo.session.commit()`` rather\nthan delegating to a service layer.  This is a known pattern exception\nfor this simple single-statement upsert — adding a service method would\nbe pure boilerplate with no business logic to encapsulate.",
+        "operationId": "register_fcm_token_v1_notifications_fcm_token_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FcmTokenRegisterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FcmTokenRegisterResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Register Fcm Token",
+        "tags": [
+          "notifications",
+          "notifications"
+        ]
+      }
+    },
+    "/v1/orders/active": {
+      "get": {
+        "description": "List active (non-terminal) orders: PENDING, SUBMITTED, PARTIAL.",
+        "operationId": "list_active_orders_v1_orders_active_get",
+        "parameters": [
+          {
+            "description": "Portfolio ID",
+            "in": "query",
+            "name": "portfolio_id",
+            "required": true,
+            "schema": {
+              "description": "Portfolio ID",
+              "title": "Portfolio Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActiveOrdersResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Active Orders",
+        "tags": [
+          "orders",
+          "execution"
+        ]
+      }
+    },
+    "/v1/orders/history": {
+      "get": {
+        "description": "List historical (terminal) orders: FILLED, CANCELLED, REJECTED, EXPIRED.",
+        "operationId": "list_order_history_v1_orders_history_get",
+        "parameters": [
+          {
+            "description": "Portfolio ID",
+            "in": "query",
+            "name": "portfolio_id",
+            "required": true,
+            "schema": {
+              "description": "Portfolio ID",
+              "title": "Portfolio Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Max results",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "description": "Max results",
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Results to skip (pagination)",
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "description": "Results to skip (pagination)",
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderHistoryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Order History",
+        "tags": [
+          "orders",
+          "execution"
+        ]
+      }
+    },
+    "/v1/portfolios": {
+      "get": {
+        "description": "List all portfolios belonging to the authenticated user.\n\nCached 10 s in redis-cache, keyed by ``user_id`` (audit perf\n2026-05-27). Invalidated on every portfolio create / update /\ndelete via :func:`_invalidate_user_portfolio_cache` below.",
+        "operationId": "list_user_portfolios_v1_portfolios_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PortfolioResponse"
+                  },
+                  "title": "Response List User Portfolios V1 Portfolios Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List User Portfolios",
+        "tags": [
+          "portfolios",
+          "portfolios"
+        ]
+      }
+    },
+    "/v1/portfolios/{portfolio_id}": {
+      "get": {
+        "description": "Get enhanced portfolio detail with positions, allocations, and P&L.",
+        "operationId": "get_portfolio_v1_portfolios__portfolio_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "portfolio_id",
+            "required": true,
+            "schema": {
+              "title": "Portfolio Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortfolioDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Portfolio",
+        "tags": [
+          "portfolios",
+          "portfolios"
+        ]
+      }
+    },
+    "/v1/portfolios/{portfolio_id}/performance": {
+      "get": {
+        "description": "Get performance metrics for a portfolio over the requested window.\n\n``period='all'`` (default) returns inception-to-date metrics. The other\nwindows recompute Sharpe / Sortino / volatility / max-drawdown /\ntotal-return on the windowed daily-snapshot equity curve, and\nwin-rate / profit-factor on trades closed within the window. An\nout-of-set value is rejected with HTTP 422 by the ``pattern`` above.",
+        "operationId": "get_performance_v1_portfolios__portfolio_id__performance_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "portfolio_id",
+            "required": true,
+            "schema": {
+              "title": "Portfolio Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Window: 7d / 30d / 90d / 180d / 1y / all. Default 'all' (inception-to-date).",
+            "in": "query",
+            "name": "period",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "description": "Window: 7d / 30d / 90d / 180d / 1y / all. Default 'all' (inception-to-date).",
+              "pattern": "^(7d|30d|90d|180d|1y|all)$",
+              "title": "Period",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PerformanceMetrics"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Performance",
+        "tags": [
+          "portfolios",
+          "portfolios"
+        ]
+      }
+    },
+    "/v1/portfolios/{portfolio_id}/pnl": {
+      "get": {
+        "description": "Get PNL summary for a portfolio over a given period.\n\nP&L numerics (realized / unrealized / total) reflect the **lifetime\ncumulative** state of the portfolio, sourced directly from\n``portfolio.positions``:\n\n* ``realized_pnl`` — Σ ``realized_pnl`` across every position ever\n  opened (active + closed). The column is updated atomically by\n  ``PositionRepository.update_position_fifo`` SELL path with the\n  true FIFO P&L per close event.\n* ``unrealized_pnl`` — Σ ``unrealized_pnl`` across currently-active\n  positions only. Recomputed live by\n  ``update_position_price_atomic`` from ``last_price``.\n* ``total_pnl`` — sum of the two; matches\n  ``current_value - initial_capital`` to within rounding.\n\nBoth columns are stored in the **symbol's** currency, so both sums are\nFX-converted into the portfolio's currency via\n``app.portfolio.calculators.realized_pnl`` — the same factor\n``current_value`` itself is built with. Until 2026-07-26 this endpoint\nsummed them raw and labelled the result with the portfolio currency: on\nthe production ``test`` book (EUR, 30 USD positions) that reported\n-627.33 € for an actual -551.40 €, a 75.93 € overstatement of the loss.\n\nThe previous implementation summed raw BUY costs vs SELL proceeds in\nthe period without FIFO matching, treating every fresh entry as a\n\"loss\" (no cost-basis offset). That produced phantom losses equal to\nthe period's BUY total for any portfolio actively opening positions\n— e.g. a -5870.55 € display for an actually -141.96 € portfolio.\n\nThe ``period`` parameter still scopes ``trades_count`` /\n``winning_trades`` / ``losing_trades`` to recent activity. The P&L\nnumerics are period-independent because reconstructing per-period\nrealized P&L correctly requires either FIFO replay or a snapshot\ndiff path (the latter is a follow-up once\n``portfolio.portfolio_value_history.daily_pnl`` is populated).",
+        "operationId": "get_portfolio_pnl_v1_portfolios__portfolio_id__pnl_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "portfolio_id",
+            "required": true,
+            "schema": {
+              "title": "Portfolio Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Period: day, week, month, ytd, all",
+            "in": "query",
+            "name": "period",
+            "required": false,
+            "schema": {
+              "default": "day",
+              "description": "Period: day, week, month, ytd, all",
+              "title": "Period",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PnlResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Portfolio Pnl",
+        "tags": [
+          "portfolios",
+          "portfolios"
+        ]
+      }
+    },
+    "/v1/portfolios/{portfolio_id}/positions": {
+      "get": {
+        "description": "Get all positions for a portfolio.",
+        "operationId": "get_positions_v1_portfolios__portfolio_id__positions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "portfolio_id",
+            "required": true,
+            "schema": {
+              "title": "Portfolio Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PositionResponse"
+                  },
+                  "title": "Response Get Positions V1 Portfolios  Portfolio Id  Positions Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Positions",
+        "tags": [
+          "portfolios",
+          "portfolios"
+        ]
+      }
+    },
+    "/v1/portfolios/{portfolio_id}/strategies": {
+      "get": {
+        "description": "List all strategies attached to a portfolio.",
+        "operationId": "list_portfolio_strategies_v1_portfolios__portfolio_id__strategies_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "portfolio_id",
+            "required": true,
+            "schema": {
+              "title": "Portfolio Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PortfolioStrategyLink"
+                  },
+                  "title": "Response List Portfolio Strategies V1 Portfolios  Portfolio Id  Strategies Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Portfolio Strategies",
+        "tags": [
+          "portfolios",
+          "portfolios"
+        ]
+      }
+    },
+    "/v1/risk/portfolios/{portfolio_id}/circuit-breaker/status": {
+      "get": {
+        "description": "Return the circuit-breaker status for a single portfolio.\n\nReflects the violation counter that ``RiskManager._check_circuit_breaker``\nreads at proposal-validation time (Redis key\n``circuit_breaker:{portfolio_id}``). The state is derived by comparing the\ncounter to the active rule's ``max_violations``:\n\n* ``state=\"closed\"`` — count below threshold (or no rule active).\n* ``state=\"open\"``   — count at or above threshold; the validation\n  pipeline is currently rejecting proposals for this portfolio.\n\nMirrors the validation pipeline's fail-closed policy when Redis is\nunreachable: the response sets ``redis_unavailable=true`` and\n``state=\"open\"``.",
+        "operationId": "get_portfolio_circuit_breaker_status_v1_risk_portfolios__portfolio_id__circuit_breaker_status_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "portfolio_id",
+            "required": true,
+            "schema": {
+              "title": "Portfolio Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortfolioCircuitBreakerStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Portfolio Circuit Breaker Status",
+        "tags": [
+          "risk",
+          "risk"
+        ]
+      }
+    }
+  }
+}

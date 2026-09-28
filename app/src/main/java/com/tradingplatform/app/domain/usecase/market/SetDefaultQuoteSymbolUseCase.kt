@@ -2,6 +2,7 @@ package com.tradingplatform.app.domain.usecase.market
 
 import com.tradingplatform.app.data.local.datastore.DataStoreKeys
 import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
+import com.tradingplatform.app.domain.util.runCatchingCancellable
 import javax.inject.Inject
 
 /**
@@ -14,7 +15,7 @@ import javax.inject.Inject
 class SetDefaultQuoteSymbolUseCase @Inject constructor(
     private val encryptedDataStore: EncryptedDataStore,
 ) {
-    suspend operator fun invoke(symbol: String): Result<Unit> = runCatching {
+    suspend operator fun invoke(symbol: String): Result<Unit> = runCatchingCancellable {
         val normalized = symbol.uppercase().trim()
         if (normalized.isEmpty()) {
             encryptedDataStore.remove(DataStoreKeys.DEFAULT_QUOTE_SYMBOL)

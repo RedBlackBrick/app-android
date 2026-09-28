@@ -4,6 +4,7 @@ import com.tradingplatform.app.data.api.RiskApi
 import com.tradingplatform.app.domain.model.CircuitBreakerState
 import com.tradingplatform.app.domain.model.PortfolioCircuitBreakerStatus
 import com.tradingplatform.app.domain.repository.RiskRepository
+import com.tradingplatform.app.domain.util.runCatchingCancellable
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -14,7 +15,7 @@ class RiskRepositoryImpl @Inject constructor(
 
     override suspend fun getPortfolioCircuitBreakerStatus(
         portfolioId: String,
-    ): Result<PortfolioCircuitBreakerStatus> = runCatching {
+    ): Result<PortfolioCircuitBreakerStatus> = runCatchingCancellable {
         val response = api.getPortfolioCircuitBreakerStatus(portfolioId)
         if (!response.isSuccessful) {
             error("Get portfolio circuit-breaker status failed: HTTP ${response.code()}")

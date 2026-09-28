@@ -6,6 +6,7 @@ import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
 import com.tradingplatform.app.data.local.db.AppDatabase
 import com.tradingplatform.app.data.session.TokenHolder
 import com.tradingplatform.app.data.websocket.PrivateWsClient
+import com.tradingplatform.app.domain.util.runCatchingCancellable
 import com.tradingplatform.app.security.BiometricLockManager
 import com.tradingplatform.app.vpn.WireGuardManager
 import kotlinx.coroutines.Dispatchers
@@ -47,9 +48,9 @@ class RecoverFromKeystoreCorruptionUseCase @Inject constructor(
 ) {
     suspend operator fun invoke(): Boolean {
         Timber.w("RecoverFromKeystoreCorruption: tearing down local state")
-        runCatching { privateWsClient.disconnect() }
+        runCatchingCancellable { privateWsClient.disconnect() }
             .onFailure { Timber.w(it, "RecoverFromKeystoreCorruption: WS disconnect failed") }
-        runCatching { wireGuardManager.disconnect() }
+        runCatchingCancellable { wireGuardManager.disconnect() }
             .onFailure { Timber.w(it, "RecoverFromKeystoreCorruption: VPN disconnect failed") }
 
         // Caches mémoire vidés AVANT le reset disque — aucun intercepteur ne doit réutiliser
