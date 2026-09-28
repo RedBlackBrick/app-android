@@ -148,8 +148,11 @@ class PublicWsClient @Inject constructor(
          * Retourne null si le symbol est absent ou si le parsing du prix échoue.
          *
          * Champs fournis par MarketDataBridge (cf. TP2 market_data_bridge.py §_forward) :
-         * symbol, price, open, high, low, close, volume, bid (nullable), ask (nullable).
-         * Le timestamp est au niveau racine de l'enveloppe serveur.
+         * symbol, price (toujours), puis open/high/low/close/volume/bid/ask/source/data_mode
+         * chacun seulement `if val is not None` côté backend — tous nullable ici. `source` est
+         * un texte libre (ex: "yahoo"), mappé vers `sourceName` ; il n'y a pas de `source_type`/
+         * `quality` sur ce canal (PR-5c finding — ces clés n'existent que sur le canal admin
+         * séparé `admin_events.py`). Le timestamp est au niveau racine de l'enveloppe serveur.
          *
          * `internal` (et non `private`) pour être exercée directement par
          * `PublicWsClientParseTest` sans construire un [PublicWsClient] (dont le `init`
@@ -186,11 +189,13 @@ class PublicWsClient @Inject constructor(
                     Instant.now()
                 }
 
-                val sourceName = data.optString("source_name", "").ifEmpty { null }
-                val sourceType = data.optString("source_type", "").ifEmpty { null }
-                val quality = if (data.has("quality") && !data.isNull("quality")) {
-                    data.optInt("quality", -1).takeIf { it >= 0 }
-                } else null
+                // PR-5c FINDING / PR-2.5 fix: MarketDataBridge._forward (TP2
+                // app/websocket/market_data_bridge.py) only ever puts a single free-text
+                // `source` key on this channel — `source_name`/`source_type`/`quality` are
+                // exclusive to the separate admin_events.py channel and never sent here.
+                // Mapped straight into Quote.sourceName; sourceType/quality have no
+                // backend equivalent on the public bridge and stay null.
+                val sourceName = data.optString("source", "").ifEmpty { null }
                 val dataMode = data.optString("data_mode", "").ifEmpty { null }
 
                 PublicWsEvent.MarketData(
@@ -205,8 +210,6 @@ class PublicWsClient @Inject constructor(
                     ask = ask,
                     timestamp = timestamp,
                     sourceName = sourceName,
-                    sourceType = sourceType,
-                    quality = quality,
                     dataMode = dataMode,
                 )
             } catch (e: Exception) {

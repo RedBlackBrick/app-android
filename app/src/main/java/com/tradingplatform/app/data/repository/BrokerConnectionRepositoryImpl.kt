@@ -23,7 +23,6 @@ class BrokerConnectionRepositoryImpl @Inject constructor(
                 portfolioId = it.portfolioId,
                 brokerCode = it.brokerCode,
                 connectionStatus = it.connectionStatus,
-                executionMode = it.executionMode,
             )
         } ?: emptyList()
     }

@@ -898,13 +898,9 @@ private fun BrokerConnectionRow(
                     style = MaterialTheme.typography.labelSmall,
                     color = statusColor,
                 )
-                if (connection.executionMode != null) {
-                    Text(
-                        text = connection.executionMode.replaceFirstChar { it.uppercase() },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                // PR-5c FINDING / PR-2.5 fix: execution_mode was never a field of
+                // DeviceBrokerConnectionResponse (backend never sends it here) — removed
+                // from BrokerConnectionDto/BrokerConnection; this badge is dropped with it.
             }
         }
     }

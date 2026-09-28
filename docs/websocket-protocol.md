@@ -150,6 +150,8 @@ Champs parses depuis le JSONObject `data` (source : `MarketDataBridge` / Redis S
 | `volume` | Long | non | Defaut `0` |
 | `bid` | BigDecimal | oui | Nullable cote serveur (champ optionnel du Redis Stream) |
 | `ask` | BigDecimal | oui | Nullable cote serveur |
+| `source` | String (-> `sourceName`) | oui | **PR-2.5 fix (PR-5c finding)** : seule cle source envoyee par `MarketDataBridge._forward` — texte libre (ex: `"yahoo"`), mappee dans `Quote.sourceName`. Il n'y a pas de `source_type`/`quality` sur ce canal (existent uniquement sur le canal admin separe `admin_events.py`) — `PublicWsEvent.MarketData.sourceType`/`quality` restent donc toujours `null` |
+| `data_mode` | String (-> `dataMode`) | oui | Utilise par `SourceQualityDot` (MarketDataScreen) pour la couleur du point (`"realtime"`/`"polling"`/`"eod"`) |
 | `timestamp` | Instant | non | Lu depuis le champ racine de l'enveloppe (`json.optString("timestamp")`), pas depuis `data`. Fallback `Instant.now()` si absent |
 
 Si le parsing echoue (ex: valeur non numerique), le message est ignore avec un log warning.
@@ -193,17 +195,20 @@ Message JSON -----> WsEvent (sealed class) ------> WsUpdate (domain sealed class
                       - Connected                         - Notification(notifType, title, body)
                       - Disconnected(reason?)             - StrategySignal(signalId?, strategyId?, symbol?, action?,
                                                              confidence?, strategyType?)
-                                                          - CatalystEvent(symbol?, eventType?, title?, description?)
+                                                          - CatalystEvent(symbol?, catalystType?, strategyId?, description?)
 ```
 
 La couche `WsRepository` (data) extrait les champs du `JSONObject` brut avec des extensions null-safe (`optDoubleOrNull`, `optIntOrNull`). Les champs sont **tous nullable** (sauf `Notification.notifType/title/body` et `PositionUpdate.isActive`, qui defaut a `true` quand la cle est absente) pour tolerer les payloads partiels du serveur.
 
-**Champs reels envoyes par le backend** (`app/portfolio/consumer.py`, construits a chaque execution d'ordre — pas de push periodique independant) :
+**Champs reels envoyes par le backend** (verifies contre `trading-platform2`, cles exactes ; voir le guard `DtoContractTest` §4 et `app/src/test/resources/contracts/ws_events.json`) :
 
 | Evenement | Payload backend (cles exactes) | Notes |
 |-----------|--------------------------------|-------|
-| `position_update` (`ws_position_payload`, ~L2164-2199) | `portfolio_id`, `symbol`, `side`, `quantity`, `average_price`, `last_price` (nullable), `unrealized_pnl` (nullable), `realized_pnl` (nullable), `is_active` | **Pas de `position_id`** — le mapping garde `WsUpdate.PositionUpdate.positionId` nullable pour un futur ajout backend. `last_price` est mappe avec fallback sur `current_price` (ancien nom potentiel). `is_active == false` signifie que ce fill a cloture completement la position |
-| `portfolio_update` (`ws_payload`, ~L2151-2160) | `portfolio_id`, `symbol`, `side`, `quantity`, `price`, `total_value`, `cash_balance`, `positions_value` | **Pas de `nav`, `daily_pnl` ni `total_pnl`** — le payload decrit le trade qui vient de s'executer, pas un snapshot NAV/P&L. `WsUpdate.PortfolioUpdate.nav` est renseigne depuis `total_value` pour compatibilite arriere des consommateurs existants ; `dailyPnl`/`totalPnl` restent `null` |
+| `position_update` (`app/portfolio/consumer.py` `ws_position_payload`, ~L2164-2199) | `portfolio_id`, `symbol`, `side`, `quantity`, `average_price`, `last_price` (nullable), `unrealized_pnl` (nullable), `realized_pnl` (nullable), `is_active` | **Pas de `position_id`** — le mapping garde `WsUpdate.PositionUpdate.positionId` nullable pour un futur ajout backend. `last_price` est mappe avec fallback sur `current_price` (ancien nom potentiel). `is_active == false` signifie que ce fill a cloture completement la position |
+| `portfolio_update` (`app/portfolio/consumer.py` `ws_payload`, ~L2151-2160) | `portfolio_id`, `symbol`, `side`, `quantity`, `price`, `total_value`, `cash_balance`, `positions_value` | **Pas de `nav`, `daily_pnl` ni `total_pnl`** — le payload decrit le trade qui vient de s'executer, pas un snapshot NAV/P&L. `WsUpdate.PortfolioUpdate.nav` est renseigne depuis `total_value` pour compatibilite arriere des consommateurs existants ; `dailyPnl`/`totalPnl` restent `null` |
+| `order_update` (`app/execution/consumer.py` `_send_order_ws_update`, `app/execution/exit_consumer.py`) | `order_id`, `symbol`, `side`, `status`, `broker_order_id`, `quantity`, `price`, `order_type`, `portfolio_id`, `strategy_id`, `strategy_type`, `reason`, `exit_order`, `rule_type`, `trigger_price`, `position_id` | **PR-2.5 fix (PR-5c finding)** : `WsUpdate.OrderUpdate.fillPrice` est lu depuis `price` — aucun call site n'envoie jamais `fill_price` (l'ancien nom lu, toujours `null`) |
+| `notification` (`app/notification/service.py` `send_and_route`/`broadcast`, `app/notification/consumer.py`) | `title`, `body`, `notification_type`, `priority`, `data`, `id` | **PR-2.5 fix (PR-5c finding)** : `WsEvent.Notification.notifType` est lu depuis `notification_type` — la cle `type` n'existe pas sur ce canal (ancien fallback, toujours `"info"`). Le fallback `message` pour `body` a ete supprime (mort — jamais envoye) |
+| `catalyst_event` (`app/events/catalyst/consumer.py` `_forward_to_websocket`) | `catalyst_type`, `symbol`, `strategy_id`, `data` (objet imbrique, forme `EarningsEventData`/`SpinoffEventData` selon `catalyst_type` — voir `app/events/catalyst/schemas.py`) | **PR-2.5 fix (PR-5c finding)** : `WsUpdate.CatalystEvent.catalystType` est lu depuis `catalyst_type` (jamais `event_type`). Il n'y a pas de `title`/`description` au niveau racine — `description` est compose a partir des champs presents dans `data` (`fiscal_quarter`/`eps_direction` pour `earnings`, `child_symbol`/`phase` pour `spinoff`), sinon `null` |
 
 ### 3.2 WsUpdate -> ActivityItem (activity feed)
 
@@ -215,7 +220,7 @@ La couche `WsRepository` (data) extrait les champs du `JSONObject` brut avec des
 | `wsRepository.strategySignals` | `ActivityItem.Signal(symbol, action, confidence, strategyType, timestamp)` |
 | `wsRepository.notifications` | `ActivityItem.RiskAlert(title, body, severity, timestamp)` |
 | `wsRepository.portfolioUpdates` | `ActivityItem.PortfolioChange(totalValue?, symbol?, side?, quantity?, price?, dailyPnl?, timestamp)` |
-| `wsRepository.catalystEvents` | `ActivityItem.CatalystEvent(symbol, eventType, title, timestamp)` |
+| `wsRepository.catalystEvents` | `ActivityItem.CatalystEvent(symbol, eventType, title, timestamp)` — `eventType` <- `catalyst.catalystType`, `title` compose a partir d'un libelle ("Resultats"/"Spin-off") et de `catalyst.description` (nullable) |
 
 `ActivityItem.PortfolioChange` affiche le trade execute (side + quantite + symbole) et la valeur totale du portfolio plutot qu'une NAV/P&L qui n'existe pas sur ce canal — `dailyPnl` reste `null` en pratique (le backend ne l'envoie jamais sur `portfolio_update`) et n'apparait dans l'UI que s'il devient un jour non-null.
 

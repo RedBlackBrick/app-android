@@ -608,9 +608,13 @@ class PrivateWsClient @Inject constructor(
             "position_update"  -> emit(WsEvent.PositionUpdate(data))
             "order_update"     -> emit(WsEvent.OrderUpdate(data))
             "notification"     -> {
-                val notifType = data.optString("type", "info")
+                // PR-5c FINDING / PR-2.5 fix: the backend key is `notification_type`
+                // (app/notification/service.py send_and_route/broadcast) — never `type`.
+                // `body` is always sent alongside it; the `message` fallback was dead
+                // (no call site ever sends `message`), dropped.
+                val notifType = data.optString("notification_type", "info")
                 val title = data.optString("title", "")
-                val body  = data.optString("body", data.optString("message", ""))
+                val body  = data.optString("body", "")
                 emit(WsEvent.Notification(notifType, title, body, data))
             }
             "strategy_signal"  -> emit(WsEvent.StrategySignal(data))

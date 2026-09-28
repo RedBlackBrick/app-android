@@ -90,7 +90,15 @@ class WsRepository(
             )
         }
 
-    /** Mises à jour d'ordres en temps réel — mappé vers le domain model. */
+    /**
+     * Mises à jour d'ordres en temps réel — mappé vers le domain model.
+     *
+     * PR-5c FINDING / PR-2.5 fix: `_send_order_ws_update` (app/execution/consumer.py,
+     * app/execution/exit_consumer.py) never sets a `fill_price` key — only `price`
+     * (the requested/limit price at SUBMITTED time, or the executed price on fills,
+     * depending on the call site). [WsUpdate.OrderUpdate.fillPrice] is populated
+     * from `price` accordingly; `fill_price` is never sent so it is not read.
+     */
     override val orderUpdates: Flow<WsUpdate.OrderUpdate> =
         wsClient.events.filterIsInstance<WsEvent.OrderUpdate>().map { event ->
             WsUpdate.OrderUpdate(
@@ -99,7 +107,7 @@ class WsRepository(
                 side = event.data.optString("side", null),
                 status = event.data.optString("status", null),
                 quantity = event.data.optIntOrNull("quantity"),
-                fillPrice = event.data.optDoubleOrNull("fill_price"),
+                fillPrice = event.data.optDoubleOrNull("price"),
             )
         }
 
@@ -116,14 +124,24 @@ class WsRepository(
             )
         }
 
-    /** Événements catalyst (earnings, spinoff). */
+    /**
+     * Événements catalyst (earnings, spinoff).
+     *
+     * PR-5c FINDING / PR-2.5 fix: `_forward_to_websocket` (app/events/catalyst/consumer.py)
+     * sends `{"catalyst_type", "symbol", "strategy_id", "data"}` — never `event_type`,
+     * and no top-level `title`/`description` (those keys don't exist on this channel).
+     * [description] is synthesized from whichever fields exist in the nested `data`
+     * object (`EarningsEventData` / `SpinoffEventData`, app/events/catalyst/schemas.py)
+     * for the given `catalyst_type` — see [buildCatalystDescription].
+     */
     override val catalystEvents: Flow<WsUpdate.CatalystEvent> =
         wsClient.events.filterIsInstance<WsEvent.CatalystEvent>().map { event ->
+            val catalystType = event.data.optString("catalyst_type", null)
             WsUpdate.CatalystEvent(
                 symbol = event.data.optString("symbol", null),
-                eventType = event.data.optString("event_type", null),
-                title = event.data.optString("title", null),
-                description = event.data.optString("description", null),
+                catalystType = catalystType,
+                strategyId = event.data.optString("strategy_id", null),
+                description = buildCatalystDescription(catalystType, event.data.optJSONObject("data")),
             )
         }
 
@@ -132,6 +150,30 @@ class WsRepository(
 
     /** Etat de connexion WS prive expose a l'UI (F5). */
     override val connectionState: StateFlow<WsConnectionState> = wsClient.connectionState
+}
+
+/**
+ * Builds a short human-readable description of a catalyst event from the nested
+ * event-specific `data` object (`EarningsEventData` / `SpinoffEventData`,
+ * app/events/catalyst/schemas.py). Neither shape carries a `title`/`description`
+ * field — this composes one from the fields that do exist. Returns null when
+ * [nested] is absent or [catalystType] is neither known shape.
+ */
+private fun buildCatalystDescription(catalystType: String?, nested: org.json.JSONObject?): String? {
+    if (nested == null) return null
+    return when (catalystType) {
+        "earnings" -> {
+            val quarter = nested.optString("fiscal_quarter", "").ifEmpty { null }
+            val direction = nested.optString("eps_direction", "").ifEmpty { null }
+            listOfNotNull(quarter, direction).joinToString(" — ").ifEmpty { null }
+        }
+        "spinoff" -> {
+            val child = nested.optString("child_symbol", "").ifEmpty { null }
+            val phase = nested.optString("phase", "").ifEmpty { null }
+            listOfNotNull(child?.let { "vers $it" }, phase).joinToString(" — ").ifEmpty { null }
+        }
+        else -> null
+    }
 }
 
 /**

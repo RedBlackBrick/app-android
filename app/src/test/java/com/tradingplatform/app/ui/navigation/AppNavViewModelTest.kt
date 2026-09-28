@@ -1,8 +1,10 @@
 package com.tradingplatform.app.ui.navigation
 
 import com.tradingplatform.app.data.session.SessionManager
+import com.tradingplatform.app.data.session.TokenHolder
 import com.tradingplatform.app.domain.usecase.auth.AuthContext
 import com.tradingplatform.app.domain.usecase.auth.GetAuthContextUseCase
+import com.tradingplatform.app.domain.usecase.auth.LogoutUseCase
 import com.tradingplatform.app.domain.usecase.auth.RecoverFromKeystoreCorruptionUseCase
 import com.tradingplatform.app.security.BiometricLockManager
 import com.tradingplatform.app.security.BiometricManager
@@ -12,8 +14,11 @@ import com.tradingplatform.app.vpn.VpnState
 import com.tradingplatform.app.vpn.WireGuardManager
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.coVerifyOrder
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.spyk
+import io.mockk.verify
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -22,13 +27,15 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 
 /**
- * Tests du chemin de récupération après corruption Keystore (audit #17) dans [AppNavViewModel].
+ * Tests du chemin de récupération après corruption Keystore (audit #17) et de l'escape hatch
+ * biométrique (PR 1.7) dans [AppNavViewModel].
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class AppNavViewModelTest {
@@ -38,8 +45,11 @@ class AppNavViewModelTest {
 
     private val getAuthContextUseCase = mockk<GetAuthContextUseCase>()
     private val corruptionFlow = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    private val forcedLogoutFlow = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     private val sessionManager = mockk<SessionManager>(relaxed = true) {
-        every { forcedLogoutEvents } returns MutableSharedFlow<Unit>()
+        every { forcedLogoutEvents } returns forcedLogoutFlow
+        // Comme le vrai SessionManager : notifyForcedLogout émet sur forcedLogoutEvents.
+        every { notifyForcedLogout() } answers { forcedLogoutFlow.tryEmit(Unit); Unit }
         every { upgradeRequiredEvents } returns MutableSharedFlow<Unit>()
         every { keystoreCorruptionEvents } returns corruptionFlow
         every { deepLinkEvents } returns MutableSharedFlow<String>()
@@ -55,6 +65,8 @@ class AppNavViewModelTest {
     }
     private val biometricManager = mockk<BiometricManager>(relaxed = true)
     private val recoverUseCase = mockk<RecoverFromKeystoreCorruptionUseCase>()
+    private val logoutUseCase = mockk<LogoutUseCase>()
+    private val tokenHolder = spyk(TokenHolder().apply { setToken("jwt-access-token") })
 
     private lateinit var viewModel: AppNavViewModel
 
@@ -70,7 +82,10 @@ class AppNavViewModelTest {
             systemVpnMonitor = systemVpnMonitor,
             biometricManager = biometricManager,
             recoverFromKeystoreCorruptionUseCase = recoverUseCase,
+            logoutUseCase = logoutUseCase,
+            tokenHolder = tokenHolder,
         )
+        coEvery { logoutUseCase() } returns Result.success(Unit)
     }
 
     private fun emitCorruption() {
@@ -169,5 +184,117 @@ class AppNavViewModelTest {
         viewModel.onSetupCompleted()
 
         assertEquals(true, viewModel.isSetupCompleted.value)
+    }
+
+    // ── Escape hatch biométrique (PR 1.7) ────────────────────────────────────
+
+    @Test
+    fun `escape hatch tears the session down and navigates before unlocking`() = runTest {
+        viewModel.onBiometricEscapeHatch()
+        advanceUntilIdle()
+
+        // Teardown fait, logout forcé émis → navigation Login demandée…
+        assertNull("TokenHolder must be cleared by the escape hatch", tokenHolder.accessToken)
+        assertEquals(false, viewModel.isLoggedIn.value)
+        assertEquals(1, viewModel.forcedLogoutCount.value)
+        assertTrue(viewModel.awaitingLoggedOutScreen.value)
+        // …mais l'overlay reste verrouillé tant que Login n'est pas affiché.
+        verify(exactly = 0) { biometricLockManager.unlock() }
+
+        viewModel.onLoggedOutScreenShown()
+
+        assertFalse(viewModel.awaitingLoggedOutScreen.value)
+        coVerifyOrder {
+            logoutUseCase()
+            tokenHolder.clear()
+            sessionManager.notifyForcedLogout()
+            biometricLockManager.unlock()
+        }
+        verify(exactly = 1) { biometricLockManager.unlock() }
+    }
+
+    @Test
+    fun `escape hatch still clears the token and logs out when the logout use case throws`() = runTest {
+        coEvery { logoutUseCase() } throws IllegalStateException("boom")
+
+        viewModel.onBiometricEscapeHatch()
+        advanceUntilIdle()
+
+        assertNull(tokenHolder.accessToken)
+        assertEquals(false, viewModel.isLoggedIn.value)
+        assertTrue(viewModel.awaitingLoggedOutScreen.value)
+        verify(exactly = 1) { sessionManager.notifyForcedLogout() }
+        verify(exactly = 0) { biometricLockManager.unlock() }
+    }
+
+    @Test
+    fun `escape hatch does not unlock while the logout is still in flight`() = runTest {
+        val gate = CompletableDeferred<Result<Unit>>()
+        coEvery { logoutUseCase() } coAnswers { gate.await() }
+
+        viewModel.onBiometricEscapeHatch()
+
+        verify(exactly = 0) { sessionManager.notifyForcedLogout() }
+        assertFalse(viewModel.awaitingLoggedOutScreen.value)
+        // Un "écran Login affiché" prématuré ne déverrouille pas.
+        viewModel.onLoggedOutScreenShown()
+        verify(exactly = 0) { biometricLockManager.unlock() }
+
+        gate.complete(Result.success(Unit))
+        advanceUntilIdle()
+
+        assertTrue(viewModel.awaitingLoggedOutScreen.value)
+        verify(exactly = 1) { sessionManager.notifyForcedLogout() }
+        verify(exactly = 0) { biometricLockManager.unlock() }
+    }
+
+    @Test
+    fun `double escape hatch runs the logout once`() = runTest {
+        val gate = CompletableDeferred<Result<Unit>>()
+        coEvery { logoutUseCase() } coAnswers { gate.await() }
+
+        viewModel.onBiometricEscapeHatch()
+        viewModel.onBiometricEscapeHatch()
+        gate.complete(Result.success(Unit))
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { logoutUseCase() }
+        verify(exactly = 1) { sessionManager.notifyForcedLogout() }
+    }
+
+    @Test
+    fun `biometric success during the escape hatch does not unlock`() = runTest {
+        viewModel.onBiometricEscapeHatch()
+        advanceUntilIdle()
+
+        viewModel.onBiometricUnlocked()
+
+        verify(exactly = 0) { biometricLockManager.unlock() }
+    }
+
+    @Test
+    fun `logged out screen shown outside of an escape hatch is a no-op`() = runTest {
+        viewModel.onLoggedOutScreenShown()
+
+        verify(exactly = 0) { biometricLockManager.unlock() }
+    }
+
+    @Test
+    fun `biometric success unlocks when no escape hatch is in progress`() = runTest {
+        viewModel.onBiometricUnlocked()
+
+        verify(exactly = 1) { biometricLockManager.unlock() }
+    }
+
+    @Test
+    fun `every forced logout bumps the navigation key even when already logged out`() = runTest {
+        // isLoggedIn reste false après un login fait pendant la session : sans compteur,
+        // le second logout ne produirait aucune transition et la navigation ne serait pas relancée.
+        forcedLogoutFlow.tryEmit(Unit)
+        assertEquals(false, viewModel.isLoggedIn.value)
+        assertEquals(1, viewModel.forcedLogoutCount.value)
+
+        forcedLogoutFlow.tryEmit(Unit)
+        assertEquals(2, viewModel.forcedLogoutCount.value)
     }
 }

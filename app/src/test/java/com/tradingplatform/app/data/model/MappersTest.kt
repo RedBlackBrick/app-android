@@ -139,4 +139,65 @@ class MappersTest {
         PnlPeriod.entries.forEach { assertEquals(it, PnlPeriod.fromApiString(it.toApiString())) }
         assertNull(PnlPeriod.fromApiString("year"))
     }
+
+    // ── PositionDto → Position (PR-5c FINDING / PR-2.5 fix) ──────────────────────
+
+    /**
+     * `PositionResponse.quantity`/`average_price` are `Optional[str]` server-side
+     * (app/portfolio/schemas.py:980-981) — the backend can legally omit or null them.
+     * `PositionDto` mirrors that nullability; the mapper coerces null to `BigDecimal.ZERO`
+     * so the non-nullable domain `Position` contract holds without a Moshi decode crash.
+     */
+    @Test
+    fun `PositionDto null quantity and average_price map to ZERO, not a crash`() {
+        val dto = PositionDto(
+            id = 1,
+            symbol = "TSLA",
+            quantity = null,
+            avgPrice = null,
+        )
+
+        val position = dto.toDomain()
+
+        assertEquals(BigDecimal.ZERO, position.quantity)
+        assertEquals(BigDecimal.ZERO, position.avgPrice)
+    }
+
+    @Test
+    fun `PositionDto non-null quantity and average_price pass through unchanged`() {
+        val dto = PositionDto(
+            id = 1,
+            symbol = "TSLA",
+            quantity = BigDecimal("10"),
+            avgPrice = BigDecimal("250.00"),
+        )
+
+        val position = dto.toDomain()
+
+        assertEquals(BigDecimal("10"), position.quantity)
+        assertEquals(BigDecimal("250.00"), position.avgPrice)
+    }
+
+    // ── DeviceDto → Device (PR-5c FINDING / PR-2.5 fix) ──────────────────────────
+
+    /**
+     * `hostname`/`scrapers_circuit`/`available_memory_mb` were never fields of
+     * `DeviceResponse` (trading-platform2 app/edge/schemas.py:186-221) — removed from
+     * `DeviceDto`; the domain `Device` keeps them nullable and the mapper sets them to
+     * null explicitly rather than propagating stale/fabricated values.
+     */
+    @Test
+    fun `DeviceDto toDomain sets hostname, scrapersCircuit and availableMemoryMb to null`() {
+        val dto = DeviceDto(
+            id = "device-1",
+            status = "online",
+            lastHeartbeat = null,
+        )
+
+        val device = dto.toDomain()
+
+        assertNull(device.hostname)
+        assertNull(device.scrapersCircuit)
+        assertNull(device.availableMemoryMb)
+    }
 }

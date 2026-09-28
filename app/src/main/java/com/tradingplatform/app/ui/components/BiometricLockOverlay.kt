@@ -64,6 +64,11 @@ internal const val BIOMETRIC_UNAVAILABLE_MESSAGE = "Authentification indisponibl
  *
  * En `LocalInspectionMode` (@Preview), l'UI est rendue statiquement sans lancer le prompt.
  *
+ * [authEnabled] == false (ex. dialog de corruption Keystore affiché) : l'overlay reste affiché
+ * et opaque, mais ni le prompt automatique ni le timer de l'escape hatch ne démarrent et le
+ * bouton "Déverrouiller" est désactivé — un autre flux (dialog) détient l'interaction. Le
+ * repasser à true déclenche le prompt comme à l'apparition de l'overlay.
+ *
  * [WireGuardVpnService] reste actif pendant le verrou (service foreground indépendant).
  */
 @Composable
@@ -73,6 +78,7 @@ fun BiometricLockOverlay(
     modifier: Modifier = Modifier,
     onKeyInvalidated: () -> Unit = {},
     biometricManager: BiometricManager? = null,
+    authEnabled: Boolean = true,
 ) {
     AnimatedVisibility(
         visible = isLocked,
@@ -91,22 +97,30 @@ fun BiometricLockOverlay(
             BackHandler(enabled = true) {}
 
             // Lancer automatiquement le prompt biométrique dès que l'overlay devient visible
-            LaunchedEffect(Unit) {
-                triggerBiometricAuth(
-                    context = context,
-                    biometricManager = biometricManager,
-                    onSuccess = onAuthSuccess,
-                    onError = { authError = it },
-                    onKeyInvalidated = onKeyInvalidated,
-                )
+            // (ou dès que l'authentification redevient possible — authEnabled false → true).
+            LaunchedEffect(authEnabled) {
+                if (authEnabled) {
+                    triggerBiometricAuth(
+                        context = context,
+                        biometricManager = biometricManager,
+                        onSuccess = onAuthSuccess,
+                        onError = { authError = it },
+                        onKeyInvalidated = onKeyInvalidated,
+                    )
+                }
             }
 
             // Escape hatch — if the user is still stuck on the lock overlay after 60 s
             // (biometric hardware failure, prompt never appears, etc.), surface a
             // "Se reconnecter" button that forces a logout via onKeyInvalidated.
-            LaunchedEffect(Unit) {
-                delay(ESCAPE_HATCH_DELAY_MS)
-                showEscapeHatch = true
+            // Pas de timer tant que l'authentification est suspendue (authEnabled == false).
+            LaunchedEffect(authEnabled) {
+                if (authEnabled) {
+                    delay(ESCAPE_HATCH_DELAY_MS)
+                    showEscapeHatch = true
+                } else {
+                    showEscapeHatch = false
+                }
             }
         }
 
@@ -168,6 +182,7 @@ fun BiometricLockOverlay(
                 Spacer(modifier = Modifier.height(Spacing.xl))
 
                 Button(
+                    enabled = authEnabled,
                     onClick = {
                         if (!inspectionMode) {
                             authError = null
@@ -184,7 +199,7 @@ fun BiometricLockOverlay(
                     Text("Déverrouiller")
                 }
 
-                if (showEscapeHatch) {
+                if (showEscapeHatch && authEnabled) {
                     Spacer(modifier = Modifier.height(Spacing.md))
                     OutlinedButton(
                         onClick = onKeyInvalidated,

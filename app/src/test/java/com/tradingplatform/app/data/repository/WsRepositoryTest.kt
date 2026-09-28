@@ -194,4 +194,145 @@ class WsRepositoryTest {
             assertNull("Backend never sends total_pnl on this event", update.totalPnl)
         }
     }
+
+    // ── order_update ─────────────────────────────────────────────────────────
+
+    /**
+     * PR-5c FINDING / PR-2.5 fix: `_send_order_ws_update` (app/execution/consumer.py,
+     * app/execution/exit_consumer.py) never sets a `fill_price` key — only `price`.
+     * Payload copied verbatim from that helper's base fields.
+     */
+    @Test
+    fun `order_update reads fillPrice from the real backend 'price' key`() = runTest {
+        val payload = JSONObject(
+            """
+            {
+              "order_id": "abc123",
+              "symbol": "TSLA",
+              "side": "BUY",
+              "status": "FILLED",
+              "broker_order_id": "broker-1",
+              "quantity": 10,
+              "price": 295.5,
+              "order_type": "MARKET",
+              "portfolio_id": "7",
+              "strategy_id": "3",
+              "strategy_type": "momentum"
+            }
+            """.trimIndent(),
+        )
+
+        repository.orderUpdates.test {
+            events.emit(WsEvent.OrderUpdate(payload))
+            val update = awaitItem()
+
+            assertEquals("abc123", update.orderId)
+            assertEquals("TSLA", update.symbol)
+            assertEquals("BUY", update.side)
+            assertEquals("FILLED", update.status)
+            assertEquals(10, update.quantity)
+            assertEquals(295.5, update.fillPrice)
+        }
+    }
+
+    @Test
+    fun `order_update fillPrice is null when 'price' is absent (never falls back to fill_price)`() = runTest {
+        // Backend never sends fill_price either way — confirms no dead fallback resurfaces it.
+        val payload = JSONObject(
+            """
+            {
+              "order_id": "abc123",
+              "symbol": "TSLA",
+              "side": "BUY",
+              "status": "SUBMITTED",
+              "quantity": 10,
+              "fill_price": 999.0
+            }
+            """.trimIndent(),
+        )
+
+        repository.orderUpdates.test {
+            events.emit(WsEvent.OrderUpdate(payload))
+            assertNull(awaitItem().fillPrice)
+        }
+    }
+
+    // ── catalyst_event ───────────────────────────────────────────────────────
+
+    /**
+     * PR-5c FINDING / PR-2.5 fix: `_forward_to_websocket` (app/events/catalyst/consumer.py)
+     * sends `catalyst_type`/`symbol`/`strategy_id`/`data` — never `event_type`, no
+     * top-level `title`/`description`. `data` shape here matches `EarningsEventData`
+     * (app/events/catalyst/schemas.py).
+     */
+    @Test
+    fun `catalyst_event reads catalystType from the real backend payload (earnings)`() = runTest {
+        val payload = JSONObject(
+            """
+            {
+              "catalyst_type": "earnings",
+              "symbol": "AAPL",
+              "strategy_id": "42",
+              "data": {
+                "fiscal_quarter": "Q4 2025",
+                "eps_direction": "beat"
+              }
+            }
+            """.trimIndent(),
+        )
+
+        repository.catalystEvents.test {
+            events.emit(WsEvent.CatalystEvent(payload))
+            val update = awaitItem()
+
+            assertEquals("AAPL", update.symbol)
+            assertEquals("earnings", update.catalystType)
+            assertEquals("42", update.strategyId)
+            assertEquals("Q4 2025 — beat", update.description)
+        }
+    }
+
+    @Test
+    fun `catalyst_event reads catalystType from the real backend payload (spinoff)`() = runTest {
+        val payload = JSONObject(
+            """
+            {
+              "catalyst_type": "spinoff",
+              "symbol": "XYZ",
+              "strategy_id": "7",
+              "data": {
+                "parent_symbol": "XYZ",
+                "child_symbol": "ABC",
+                "phase": "forced_selling"
+              }
+            }
+            """.trimIndent(),
+        )
+
+        repository.catalystEvents.test {
+            events.emit(WsEvent.CatalystEvent(payload))
+            val update = awaitItem()
+
+            assertEquals("spinoff", update.catalystType)
+            assertEquals("vers ABC — forced_selling", update.description)
+        }
+    }
+
+    @Test
+    fun `catalyst_event description is null without a nested data object`() = runTest {
+        val payload = JSONObject(
+            """
+            {
+              "catalyst_type": "earnings",
+              "symbol": "AAPL",
+              "strategy_id": "42"
+            }
+            """.trimIndent(),
+        )
+
+        repository.catalystEvents.test {
+            events.emit(WsEvent.CatalystEvent(payload))
+            assertNull(awaitItem().description)
+        }
+    }
 }

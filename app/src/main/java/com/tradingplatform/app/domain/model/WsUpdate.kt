@@ -89,11 +89,23 @@ sealed class WsUpdate {
         val strategyType: String? = null,
     ) : WsUpdate()
 
-    /** Catalyst event (earnings, spinoff, etc.). */
+    /**
+     * Catalyst event (earnings, spinoff, etc.).
+     *
+     * PR-5c FINDING / PR-2.5 fix: the backend (`app/events/catalyst/consumer.py`
+     * `_forward_to_websocket`) sends `catalyst_type` (never `event_type`) and no
+     * top-level `title`/`description` — those don't exist on this channel. The
+     * envelope carries a nested `data` object whose shape depends on
+     * [catalystType] (`EarningsEventData` / `SpinoffEventData` in
+     * `app/events/catalyst/schemas.py`, neither of which has a title/description
+     * field either). [description] is therefore synthesized by
+     * `WsRepository.catalystEvents` from whichever of those nested fields exist
+     * for the given [catalystType] — it stays null when nothing usable is found.
+     */
     data class CatalystEvent(
         val symbol: String? = null,
-        val eventType: String? = null,
-        val title: String? = null,
+        val catalystType: String? = null,
+        val strategyId: String? = null,
         val description: String? = null,
     ) : WsUpdate()
 }

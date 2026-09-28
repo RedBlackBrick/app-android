@@ -3,8 +3,10 @@ package com.tradingplatform.app.components
 import android.app.Application
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -129,5 +131,61 @@ class BiometricLockOverlayTest {
         // No auth LaunchedEffect in previews → no error surfaced, no prompt requested.
         composeRule.onNodeWithText(UNAVAILABLE).assertDoesNotExist()
         verify(exactly = 0) { biometricManager.authenticate(any(), any(), any(), any(), any(), any()) }
+    }
+
+    // ── authEnabled = false (dialog de corruption Keystore affiché — PR 1.7) ──
+
+    @Test
+    fun `auth disabled keeps the overlay locked without triggering the biometric prompt`() {
+        var unlocked = false
+        val biometricManager = mockk<BiometricManager>(relaxed = true)
+
+        composeRule.setContent {
+            MaterialTheme {
+                BiometricLockOverlay(
+                    isLocked = true,
+                    onAuthSuccess = { unlocked = true },
+                    biometricManager = biometricManager,
+                    authEnabled = false,
+                )
+            }
+        }
+        composeRule.waitForIdle()
+
+        assertFalse(unlocked)
+        composeRule.onNodeWithText(LOCKED_TITLE).assertIsDisplayed()
+        // triggerBiometricAuth never ran: in this non-Fragment host it would have surfaced
+        // UNAVAILABLE immediately.
+        composeRule.onNodeWithText(UNAVAILABLE).assertDoesNotExist()
+        composeRule.onNodeWithText("Déverrouiller").assertIsNotEnabled()
+        composeRule.onNodeWithText("Se reconnecter").assertDoesNotExist()
+        verify(exactly = 0) { biometricManager.authenticate(any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `re-enabling auth triggers the prompt attempt`() {
+        var unlocked = false
+        val authEnabled = mutableStateOf(false)
+
+        composeRule.setContent {
+            MaterialTheme {
+                BiometricLockOverlay(
+                    isLocked = true,
+                    onAuthSuccess = { unlocked = true },
+                    biometricManager = null,
+                    authEnabled = authEnabled.value,
+                )
+            }
+        }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText(UNAVAILABLE).assertDoesNotExist()
+
+        authEnabled.value = true
+        composeRule.waitForIdle()
+
+        // The auto-prompt LaunchedEffect ran (fail-closed: unavailable → error, still locked).
+        composeRule.onNodeWithText(UNAVAILABLE).assertIsDisplayed()
+        composeRule.onNodeWithText(LOCKED_TITLE).assertIsDisplayed()
+        assertFalse(unlocked)
     }
 }

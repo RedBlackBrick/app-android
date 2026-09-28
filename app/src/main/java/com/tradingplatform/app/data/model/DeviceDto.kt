@@ -3,6 +3,13 @@ package com.tradingplatform.app.data.model
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 
+/**
+ * PR-5c FINDING / PR-2.5 fix: `hostname`, `scrapers_circuit` and `available_memory_mb`
+ * were never present on `DeviceResponse` (trading-platform2 app/edge/schemas.py:186-221) —
+ * not provided by `GET /v1/edge/devices` (or any device endpoint using that schema).
+ * Removed here; [com.tradingplatform.app.domain.model.Device] keeps the corresponding
+ * fields nullable and the mapper sets them to null explicitly.
+ */
 @JsonClass(generateAdapter = true)
 data class DeviceDto(
     @Json(name = "id") val id: String,
@@ -16,7 +23,6 @@ data class DeviceDto(
     @Json(name = "disk_pct") val diskPct: Float? = null,
     @Json(name = "uptime_seconds") val uptimeSeconds: Long? = null,
     @Json(name = "firmware_version") val firmwareVersion: String? = null,
-    @Json(name = "hostname") val hostname: String? = null,
     @Json(name = "broker_gateway_enabled") val brokerGatewayEnabled: Boolean? = null,
     @Json(name = "broker_gateway_status") val brokerGatewayStatus: String? = null,
     @Json(name = "broker_gateway_broker_id") val brokerGatewayBrokerId: Int? = null,
@@ -27,8 +33,6 @@ data class DeviceDto(
     // continuity — only the JSON key changes.
     @Json(name = "ticks_sent") val lastTicksSent: Long? = null,
     @Json(name = "scraper_errors") val lastScraperErrors: Int? = null,
-    @Json(name = "scrapers_circuit") val scrapersCircuit: Map<String, ScraperCircuitDto>? = null,
-    @Json(name = "available_memory_mb") val availableMemoryMb: Int? = null,
     // WireGuard link quality — populated from heartbeat (Pydantic DeviceResponse
     // exposes these fields but the DTO was silently dropping them).
     @Json(name = "wg_available") val wgAvailable: Boolean? = null,

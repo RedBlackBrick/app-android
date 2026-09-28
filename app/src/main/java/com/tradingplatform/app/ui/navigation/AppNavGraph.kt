@@ -17,9 +17,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -28,7 +30,9 @@ import androidx.navigation.compose.navigation
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.tradingplatform.app.data.session.SessionManager
+import com.tradingplatform.app.data.session.TokenHolder
 import com.tradingplatform.app.domain.usecase.auth.GetAuthContextUseCase
+import com.tradingplatform.app.domain.usecase.auth.LogoutUseCase
 import com.tradingplatform.app.domain.usecase.auth.RecoverFromKeystoreCorruptionUseCase
 import com.tradingplatform.app.security.BiometricLockManager
 import com.tradingplatform.app.security.BiometricManager
@@ -62,6 +66,7 @@ import com.tradingplatform.app.ui.screens.setup.SetupScreen
 import com.tradingplatform.app.ui.screens.totp.TotpScreen
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -69,7 +74,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import timber.log.Timber
@@ -197,6 +206,8 @@ class AppNavViewModel @Inject constructor(
     private val systemVpnMonitor: SystemVpnMonitor,
     val biometricManager: BiometricManager,
     private val recoverFromKeystoreCorruptionUseCase: RecoverFromKeystoreCorruptionUseCase,
+    private val logoutUseCase: LogoutUseCase,
+    private val tokenHolder: TokenHolder,
 ) : ViewModel() {
 
     companion object {
@@ -238,6 +249,31 @@ class AppNavViewModel @Inject constructor(
 
     private val _isLoggedIn = MutableStateFlow<Boolean?>(null)
     val isLoggedIn: StateFlow<Boolean?> = _isLoggedIn.asStateFlow()
+
+    /**
+     * Incrémenté à chaque logout forcé ([SessionManager.forcedLogoutEvents]).
+     *
+     * Clé de l'effet de navigation "→ Login" en plus de [isLoggedIn] : après un login effectué
+     * pendant la session (Login → Dashboard), [isLoggedIn] reste à `false` (il n'est lu qu'au
+     * démarrage) — un logout forcé ultérieur ne produirait alors aucune transition de
+     * StateFlow et la navigation ne serait jamais relancée.
+     */
+    private val _forcedLogoutCount = MutableStateFlow(0)
+    val forcedLogoutCount: StateFlow<Int> = _forcedLogoutCount.asStateFlow()
+
+    /**
+     * Escape hatch biométrique en cours (teardown de session → navigation Login → unlock).
+     * Tant que true, un succès biométrique tardif est ignoré et un second appel est un no-op.
+     */
+    private val _escapeHatchInProgress = MutableStateFlow(false)
+
+    /**
+     * True quand le teardown de l'escape hatch est terminé et que l'overlay attend que l'écran
+     * non authentifié (Login / Setup) soit affiché — transition de navigation terminée — pour
+     * être levé. Observé par [AppNavGraph], qui appelle [onLoggedOutScreenShown].
+     */
+    private val _awaitingLoggedOutScreen = MutableStateFlow(false)
+    val awaitingLoggedOutScreen: StateFlow<Boolean> = _awaitingLoggedOutScreen.asStateFlow()
 
     private val _isAdmin = MutableStateFlow(false)
     val isAdmin: StateFlow<Boolean> = _isAdmin.asStateFlow()
@@ -282,17 +318,58 @@ class AppNavViewModel @Inject constructor(
 
     /** Called by the UI when biometric authentication succeeds. */
     fun onBiometricUnlocked() {
+        if (_escapeHatchInProgress.value) {
+            // Un prompt encore ouvert a pu réussir après le clic "Se reconnecter" : la session
+            // est en cours de destruction, l'overlay ne doit pas découvrir le contenu authentifié.
+            Timber.d("AppNavViewModel: biometric success ignored — escape hatch in progress")
+            return
+        }
         biometricLockManager.unlock()
     }
 
     /**
      * Called when the biometric key is invalidated (hardware failure, biometric removed)
      * or the user uses the escape hatch button after a long lock timeout.
-     * Unlocks the overlay and triggers a forced logout so the user lands on [LoginScreen].
+     *
+     * Ordre (l'overlay reste affiché pendant toute la séquence — aucun écran authentifié
+     * n'est dessiné déverrouillé) :
+     * 1. [LogoutUseCase] — même chemin que le logout utilisateur (SettingsViewModel) : logout
+     *    API best-effort, TokenHolder / DataStore session / Room / CSRF / cookies vidés ;
+     * 2. [TokenHolder.clear] (défense en profondeur, idempotent) — le guard du WS privé
+     *    ([com.tradingplatform.app.data.websocket.PrivateWsClient]) bloque toute reconnexion ;
+     * 3. [SessionManager.notifyForcedLogout] — navigation vers Login + fermeture du WS privé ;
+     * 4. [awaitingLoggedOutScreen] = true — [AppNavGraph] attend que Login/Setup soit affiché
+     *    (transition terminée) puis appelle [onLoggedOutScreenShown], qui seul déverrouille.
      */
     fun onBiometricEscapeHatch() {
+        if (_escapeHatchInProgress.value) return
+        _escapeHatchInProgress.value = true
+        Timber.w("AppNavViewModel: biometric escape hatch — tearing down session before unlock")
+        viewModelScope.launch {
+            try {
+                logoutUseCase()
+                    .onFailure { Timber.w(it, "AppNavViewModel: escape hatch logout API failed — local state cleared anyway") }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.e(e, "AppNavViewModel: escape hatch logout threw — continuing teardown")
+            }
+            tokenHolder.clear()
+            sessionManager.notifyForcedLogout()
+            _awaitingLoggedOutScreen.value = true
+        }
+    }
+
+    /**
+     * Called by [AppNavGraph] once the unauthenticated start screen (Login / Setup) is the
+     * resumed destination after an escape hatch — only then is the overlay lifted.
+     * No-op outside of an escape hatch sequence.
+     */
+    fun onLoggedOutScreenShown() {
+        if (!_awaitingLoggedOutScreen.value) return
+        _awaitingLoggedOutScreen.value = false
+        _escapeHatchInProgress.value = false
         biometricLockManager.unlock()
-        sessionManager.notifyForcedLogout()
     }
 
     /**
@@ -343,6 +420,7 @@ class AppNavViewModel @Inject constructor(
             sessionManager.forcedLogoutEvents.collect {
                 Timber.w("AppNavViewModel: forced logout received — redirecting to Login")
                 _isLoggedIn.value = false
+                _forcedLogoutCount.update { it + 1 }
             }
         }
         viewModelScope.launch {
@@ -420,6 +498,31 @@ private const val PAIRING_SOURCE_MY_DEVICES = "my-devices"
 
 private fun pairingGraphRoute(source: String) = "pairing_graph/$source"
 
+/** Destinations non authentifiées — cibles d'un logout (Setup si la config VPN a été perdue). */
+private val LOGGED_OUT_ROUTES = setOf(Screen.Login.route, Screen.Setup.route)
+
+/** Destinations où un logout forcé ne doit pas relancer la navigation (déjà hors session). */
+private val NO_SESSION_ROUTES = LOGGED_OUT_ROUTES + Screen.Totp.route
+
+/**
+ * Suspend jusqu'à ce que la destination courante soit un écran non authentifié
+ * ([LOGGED_OUT_ROUTES]) à l'état RESUMED. Avec les transitions NavHost, l'entrée entrante reste
+ * STARTED pendant l'animation et ne passe RESUMED qu'une fois la transition terminée — l'écran
+ * authentifié sortant n'est alors plus dessiné.
+ */
+@OptIn(ExperimentalCoroutinesApi::class)
+private suspend fun awaitLoggedOutScreenResumed(navController: NavHostController) {
+    navController.currentBackStackEntryFlow
+        .flatMapLatest { entry ->
+            if (entry.destination.route in LOGGED_OUT_ROUTES) {
+                entry.lifecycle.currentStateFlow.map { it.isAtLeast(Lifecycle.State.RESUMED) }
+            } else {
+                flowOf(false)
+            }
+        }
+        .first { it }
+}
+
 private fun pairingReturnRoute(source: String?) = when (source) {
     PAIRING_SOURCE_MY_DEVICES -> Screen.MyDevices.route
     else -> Screen.Devices.route
@@ -456,6 +559,8 @@ fun AppNavGraph(
     val keystoreRecoveryFailed by appNavViewModel.keystoreRecoveryFailed.collectAsStateWithLifecycle()
     val keystoreRecoveryInProgress by appNavViewModel.keystoreRecoveryInProgress.collectAsStateWithLifecycle()
     val biometricLocked by appNavViewModel.biometricLocked.collectAsStateWithLifecycle()
+    val forcedLogoutCount by appNavViewModel.forcedLogoutCount.collectAsStateWithLifecycle()
+    val awaitingLoggedOutScreen by appNavViewModel.awaitingLoggedOutScreen.collectAsStateWithLifecycle()
 
     // Wait until all datastore checks complete before rendering anything.
     // isLoggedIn and isSetupCompleted are set atomically in the same init coroutine,
@@ -500,8 +605,16 @@ fun AppNavGraph(
     // Si le setup n'est pas (ou plus) complété — premier lancement ou reset du stockage
     // chiffré après corruption Keystore — c'est l'effet "Setup" ci-dessous qui gagne :
     // sans config VPN, Login est inutilisable.
-    LaunchedEffect(isLoggedIn) {
-        if (isLoggedIn == false && isSetupCompleted != false) {
+    //
+    // Clé forcedLogoutCount : après un login fait pendant la session, isLoggedIn reste à false
+    // (lu une seule fois au démarrage) — sans ce compteur, un logout forcé ultérieur (401,
+    // logout Settings, escape hatch biométrique) ne relancerait pas cet effet. Déjà sur un
+    // écran hors session (Login / Totp / Setup) → no-op, pour ne pas recréer LoginScreen à
+    // chaque 401 synthétique émis sans token.
+    LaunchedEffect(isLoggedIn, forcedLogoutCount) {
+        if (isLoggedIn == false && isSetupCompleted != false &&
+            navController.currentDestination?.route !in NO_SESSION_ROUTES
+        ) {
             if (!showKeystoreCorruption) {
                 appNavViewModel.dismissAllDialogs()
             }
@@ -509,6 +622,17 @@ fun AppNavGraph(
                 popUpTo(0) { inclusive = true }
                 launchSingleTop = true
             }
+        }
+    }
+
+    // Escape hatch biométrique (PR 1.7) : la session a déjà été détruite et le logout forcé
+    // émis (→ effet ci-dessus). L'overlay reste verrouillé jusqu'à ce que Login/Setup soit la
+    // destination RESUMED (transition terminée) — aucun écran authentifié n'est dessiné
+    // déverrouillé. Seul ce chemin déverrouille après un escape hatch.
+    LaunchedEffect(awaitingLoggedOutScreen) {
+        if (awaitingLoggedOutScreen) {
+            awaitLoggedOutScreenResumed(navController)
+            appNavViewModel.onLoggedOutScreenShown()
         }
     }
 
@@ -911,6 +1035,10 @@ fun AppNavGraph(
     // BiometricLockManager owns the inactivity timer; MainActivity only forwards touches.
     // The overlay is opaque, consumes touches and back presses, and only unlocks on a
     // successful BiometricPrompt (fail-closed) — CLAUDE.md §4.
+    // Keystore corrompu (dialog affiché, typiquement au démarrage à froid où le verrou D7 est
+    // actif) : l'overlay reste affiché et opaque mais ne lance pas le prompt biométrique —
+    // le dialog de récupération est la seule action ; RecoverFromKeystoreCorruptionUseCase
+    // déverrouille après un reset réussi.
     BiometricLockOverlay(
         isLocked = biometricLocked,
         onAuthSuccess = { appNavViewModel.onBiometricUnlocked() },
@@ -919,6 +1047,7 @@ fun AppNavGraph(
             .fillMaxSize()
             .zIndex(Float.MAX_VALUE),
         biometricManager = appNavViewModel.biometricManager,
+        authEnabled = !showKeystoreCorruption,
     )
     } // Box
 }

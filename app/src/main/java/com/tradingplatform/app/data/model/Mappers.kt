@@ -20,7 +20,6 @@ import com.tradingplatform.app.domain.model.Portfolio
 import com.tradingplatform.app.domain.model.Position
 import com.tradingplatform.app.domain.model.PositionStatus
 import com.tradingplatform.app.domain.model.Quote
-import com.tradingplatform.app.domain.model.ScraperCircuitState
 import com.tradingplatform.app.domain.model.Transaction
 import com.tradingplatform.app.domain.model.User
 import com.tradingplatform.app.domain.model.VpnPeer
@@ -62,8 +61,12 @@ fun PortfolioDto.toDomain(): Portfolio = Portfolio(
 fun PositionDto.toDomain(): Position = Position(
     id = id,
     symbol = symbol,
-    quantity = quantity,
-    avgPrice = avgPrice,
+    // PR-5c FINDING / PR-2.5 fix: PositionResponse.quantity/average_price are
+    // Optional[str] server-side (app/portfolio/schemas.py:980-981) — the DB column
+    // is NOT NULL DEFAULT 0, but the response model does not guarantee it. Null
+    // coerced to ZERO rather than crashing Moshi or propagating a nullable amount.
+    quantity = quantity ?: BigDecimal.ZERO,
+    avgPrice = avgPrice ?: BigDecimal.ZERO,
     currentPrice = currentPrice,
     unrealizedPnl = unrealizedPnl,
     unrealizedPnlPercent = unrealizedPnlPercent,
@@ -153,7 +156,11 @@ fun DeviceDto.toDomain(): Device = Device(
     diskPct = diskPct,
     uptimeSeconds = uptimeSeconds,
     firmwareVersion = firmwareVersion,
-    hostname = hostname,
+    // PR-5c FINDING / PR-2.5 fix: hostname/scrapersCircuit/availableMemoryMb are not
+    // provided by GET /v1/edge/devices (DeviceResponse has no such fields — see
+    // DeviceDto's KDoc) — set to null explicitly rather than dropped from the
+    // domain model, so a future backend addition only needs the DTO + mapper touched.
+    hostname = null,
     brokerGateway = if (brokerGatewayEnabled != null || brokerGatewayStatus != null) {
         BrokerGatewayStatus(
             enabled = brokerGatewayEnabled ?: false,
@@ -163,14 +170,8 @@ fun DeviceDto.toDomain(): Device = Device(
     } else null,
     lastTicksSent = lastTicksSent,
     lastScraperErrors = lastScraperErrors,
-    scrapersCircuit = scrapersCircuit?.mapValues { (_, v) ->
-        ScraperCircuitState(
-            state = v.state,
-            consecutiveFailures = v.consecutiveFailures,
-            totalTrips = v.totalTrips,
-        )
-    },
-    availableMemoryMb = availableMemoryMb,
+    scrapersCircuit = null,
+    availableMemoryMb = null,
 )
 
 fun VpnPeerDto.toDomain(): VpnPeer = VpnPeer(

@@ -394,20 +394,20 @@ class DtoContractTest {
             "unrealized_pnl", "realized_pnl", "is_active",
         ),
         "order_update" to setOf(
-            "order_id", "symbol", "side", "status", "quantity", "fill_price",
+            "order_id", "symbol", "side", "status", "quantity", "price",
         ),
         "notification" to setOf(
-            "type", "title", "body", "message",
+            "notification_type", "title", "body",
         ),
         "strategy_signal" to setOf(
             "signal_id", "strategy_id", "symbol", "action", "confidence", "strategy_type",
         ),
         "catalyst_event" to setOf(
-            "symbol", "event_type", "title", "description",
+            "symbol", "catalyst_type", "strategy_id", "data",
         ),
         "market_data" to setOf(
             "symbol", "price", "open", "high", "low", "close", "volume", "bid", "ask",
-            "source_name", "source_type", "quality", "data_mode",
+            "source", "data_mode",
         ),
     )
 

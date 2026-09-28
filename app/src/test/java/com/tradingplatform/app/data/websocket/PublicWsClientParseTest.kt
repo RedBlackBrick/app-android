@@ -66,4 +66,43 @@ class PublicWsClientParseTest {
         assertNotNull(event)
         assertEquals(0L, event!!.volume)
     }
+
+    // ── source / sourceType / quality (PR-5c FINDING / PR-2.5 fix) ─────────────
+
+    /**
+     * MarketDataBridge._forward (TP2 app/websocket/market_data_bridge.py) only ever puts a
+     * single free-text `source` key on this channel — never `source_name`/`source_type`/
+     * `quality` (those exist only on the separate admin_events.py channel). `source` is
+     * mapped straight into `sourceName`; `sourceType`/`quality` have no backend equivalent
+     * here and must stay null.
+     */
+    @Test
+    fun `maps the real backend 'source' key into sourceName, leaves sourceType and quality null`() {
+        val json = marketDataJson("100")
+        json.put("source", "yahoo")
+        json.put("data_mode", "realtime")
+
+        val event = PublicWsClient.parseMarketData(json, "2026-09-28T10:00:00Z")
+
+        assertNotNull(event)
+        assertEquals("yahoo", event!!.sourceName)
+        assertEquals("realtime", event.dataMode)
+        assertEquals(null, event.sourceType)
+        assertEquals(null, event.quality)
+    }
+
+    @Test
+    fun `legacy source_name, source_type and quality keys are ignored (backend never sends them)`() {
+        val json = marketDataJson("100")
+        json.put("source_name", "investing.com")
+        json.put("source_type", "scraper")
+        json.put("quality", 82)
+
+        val event = PublicWsClient.parseMarketData(json, "2026-09-28T10:00:00Z")
+
+        assertNotNull(event)
+        assertEquals(null, event!!.sourceName)
+        assertEquals(null, event.sourceType)
+        assertEquals(null, event.quality)
+    }
 }

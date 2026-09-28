@@ -612,11 +612,17 @@ Setup/Login), le timeout ne verrouille pas.
 `restorePersistedState()` avant `tokenHolder.setToken` (verrouillé sauf état persisté
 « déverrouillé » avec interaction < 5 min) ; pas de session → `unlock()` silencieux (Setup/Login
 non protégés) ; Keystore corrompu → reste verrouillé (le reset de récupération déverrouille).
+Tant que le dialog de corruption Keystore est affiché, l'overlay reste opaque mais ne lance pas
+le prompt biométrique (`authEnabled = false`) ; après un reset réussi
+(`RecoverFromKeystoreCorruptionUseCase` → `unlock()`), le flux normal reprend.
 
 **Overlay fail-closed.** `BiometricLockOverlay` n'appelle `onAuthSuccess` **que** depuis le
 callback de succès du `BiometricPrompt`. Pas de `FragmentActivity` dans la chaîne de `Context`
 ou pas de `BiometricManager` → message d'erreur, l'overlay reste. Seule autre sortie : le bouton
-« Se reconnecter » (après 60 s) → logout forcé. L'overlay bloque les touches et le retour
+« Se reconnecter » (après 60 s) → logout forcé. Escape hatch (bouton ou clé invalidée) :
+`LogoutUseCase` + `TokenHolder.clear()` puis `notifyForcedLogout()`, et l'overlay n'est levé
+(`unlock()`) qu'une fois Login/Setup devenu la destination RESUMED — jamais d'écran authentifié
+déverrouillé. L'overlay bloque les touches et le retour
 arrière ; en `LocalInspectionMode` il est rendu statiquement sans lancer de prompt.
 `MainActivity` est donc une `FragmentActivity` (exigée par `BiometricPrompt`), et
 **`minSdk = 28`** (décision D1) : sur API 26-27 `BiometricPrompt` passe par un dialog AppCompat
