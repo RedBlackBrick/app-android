@@ -1,12 +1,14 @@
 package com.tradingplatform.app.data.repository
 
 import com.tradingplatform.app.data.api.PortfolioApi
+import com.tradingplatform.app.data.local.db.CacheTtl
 import com.tradingplatform.app.data.local.db.dao.PnlDao
 import com.tradingplatform.app.data.local.db.dao.PositionDao
 import com.tradingplatform.app.data.model.toDomain
 import com.tradingplatform.app.data.model.toEntity
 import com.tradingplatform.app.data.model.toPerformanceMetrics
 import com.tradingplatform.app.data.model.toPnlSummary
+import com.tradingplatform.app.domain.model.Cached
 import com.tradingplatform.app.domain.model.NavSummary
 import com.tradingplatform.app.domain.model.PerformanceMetrics
 import com.tradingplatform.app.domain.model.PnlPeriod
@@ -17,6 +19,7 @@ import com.tradingplatform.app.domain.model.Transaction
 import com.tradingplatform.app.domain.repository.PortfolioRepository
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.coroutines.cancellation.CancellationException
 
 @Singleton
 class PortfolioRepositoryImpl @Inject constructor(
@@ -25,52 +28,61 @@ class PortfolioRepositoryImpl @Inject constructor(
     private val pnlDao: PnlDao,
 ) : PortfolioRepository {
 
-    // TTL positions : 5 min (CLAUDE.md §2 — Stratégie cache Room)
-    private val POSITION_TTL_MS = 5 * 60 * 1000L
+    override suspend fun getPosition(
+        portfolioId: String,
+        positionId: Int,
+        forceRefresh: Boolean,
+    ): Result<Cached<Position>> = runCatching {
+        val now = System.currentTimeMillis()
+        val cached = positionDao.getById(positionId)
 
-    // TTL PnL snapshots : 5 min
-    private val PNL_TTL_MS = 5 * 60 * 1000L
-
-    override suspend fun getPosition(portfolioId: String, positionId: Int): Result<Position> =
-        runCatching {
-            // Fast path — read from Room cache directly (avoids fetching all positions)
-            val cached = positionDao.getById(positionId)
-            if (cached != null) return@runCatching cached.toDomain()
-
-            // Cache miss — fetch from API and find the position
-            val response = portfolioApi.getPositions(portfolioId, PositionStatus.OPEN.toApiString())
-            if (!response.isSuccessful) {
-                error("Get positions failed: HTTP ${response.code()}")
-            }
-            val positions = response.body()?.map { it.toDomain() } ?: emptyList()
-            val now = System.currentTimeMillis()
-            positionDao.upsertAllAndPurge(
-                positions.map { it.toEntity(syncedAt = now) },
-                cutoffMillis = now - POSITION_TTL_MS,
-            )
-
-            positions.find { it.id == positionId }
-                ?: error("Position $positionId not found")
+        // Cache servi uniquement s'il est frais (TTL positions — CacheTtl / CLAUDE.md §2)
+        if (cached != null && !forceRefresh && CacheTtl.isFresh(cached.syncedAt, CacheTtl.POSITIONS_MS, now)) {
+            return@runCatching Cached(cached.toDomain(), cached.syncedAt)
         }
+
+        // Cache absent, périmé ou refresh forcé — fetch `status=all` pour que les positions
+        // fermées (navigables depuis le filtre « Fermées ») se résolvent aussi.
+        val positions = try {
+            fetchAndCachePositions(portfolioId, PositionStatus.ALL, now)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Réseau indisponible : afficher la ligne périmée avec son vrai horodatage
+            // (CacheTimestamp la marque « offline ») plutôt qu'une erreur bloquante.
+            if (cached != null) return@runCatching Cached(cached.toDomain(), cached.syncedAt)
+            throw e
+        }
+
+        val position = positions.find { it.id == positionId }
+            ?: error("Position $positionId not found")
+        Cached(position, now)
+    }
 
     override suspend fun getPositions(portfolioId: String, status: PositionStatus): Result<List<Position>> =
-        runCatching {
-            val response = portfolioApi.getPositions(portfolioId, status.toApiString())
-            if (!response.isSuccessful) {
-                error("Get positions failed: HTTP ${response.code()}")
-            }
-            val positions = response.body()?.map { it.toDomain() } ?: emptyList()
+        runCatching { fetchAndCachePositions(portfolioId, status, System.currentTimeMillis()) }
 
-            // Purge Room APRÈS sync réussie — jamais avant (CLAUDE.md §2 Politique de rétention)
-            // Transaction atomique : upsert + purge en un seul commit SQLite
-            val now = System.currentTimeMillis()
-            positionDao.upsertAllAndPurge(
-                positions.map { it.toEntity(syncedAt = now) },
-                cutoffMillis = now - POSITION_TTL_MS,
-            )
-
-            positions
+    /**
+     * `GET /positions?status=…` puis upsert + purge Room.
+     * Purge APRÈS sync réussie — jamais avant (CLAUDE.md §2 Politique de rétention) ;
+     * transaction atomique : upsert + purge en un seul commit SQLite.
+     */
+    private suspend fun fetchAndCachePositions(
+        portfolioId: String,
+        status: PositionStatus,
+        now: Long,
+    ): List<Position> {
+        val response = portfolioApi.getPositions(portfolioId, status.toApiString())
+        if (!response.isSuccessful) {
+            error("Get positions failed: HTTP ${response.code()}")
         }
+        val positions = response.body()?.map { it.toDomain() } ?: emptyList()
+        positionDao.upsertAllAndPurge(
+            positions.map { it.toEntity(syncedAt = now) },
+            cutoffMillis = now - CacheTtl.POSITIONS_MS,
+        )
+        return positions
+    }
 
     /**
      * Unique writer de `pnl_snapshots` : Dashboard et WidgetUpdateWorker passent tous deux
@@ -84,11 +96,13 @@ class PortfolioRepositoryImpl @Inject constructor(
             }
             val dto = response.body() ?: error("Empty PnL response")
 
-            // Purge Room APRÈS sync réussie — transaction atomique (upsert + purge)
+            // Purge Room APRÈS sync réussie — transaction atomique (upsert + purge).
+            // Cutoff = rétention 24 h, PAS la fraîcheur 5 min : une ligne par période, une
+            // purge à 5 min supprimerait les lignes des autres périodes (CacheTtl.PNL_RETENTION_MS).
             val now = System.currentTimeMillis()
             pnlDao.upsertAndPurge(
                 dto.toEntity(period, syncedAt = now),
-                cutoffMillis = now - PNL_TTL_MS,
+                cutoffMillis = now - CacheTtl.PNL_RETENTION_MS,
             )
 
             dto.toPnlSummary()

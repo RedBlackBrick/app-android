@@ -36,14 +36,22 @@ class VpnSettingsViewModel @Inject constructor(
 ) : ViewModel() {
 
     /**
-     * Etat effectif du VPN : Connected si le tunnel interne est up OU si un VPN système
-     * (app WireGuard externe) est actif. Aligne le comportement avec [VpnStatusBanner].
+     * Etat affiché du VPN :
+     * - tunnel intégré up → [VpnState.Connected] ;
+     * - sinon, VPN système tiers actif (app WireGuard externe, OpenVPN…) →
+     *   [VpnState.SystemVpnActive] (décision D6) — distinct de Connected pour ne pas afficher
+     *   « Tunnel WireGuard actif » quand c'est un autre VPN qui porte le trafic ;
+     * - sinon l'état du tunnel intégré (Disconnected / Connecting / Error).
+     *
+     * Connecting prime sur sysActive : pendant l'établissement, [SystemVpnMonitor] voit déjà
+     * le réseau TRANSPORT_VPN du GoBackend (notre propre tunnel) avant le callback UP ; sans
+     * cette priorité l'écran afficherait brièvement « VPN système actif » à chaque connexion.
      */
     val vpnState: StateFlow<VpnState> =
         combine(wireGuardManager.state, systemVpnMonitor.active) { inApp, sysActive ->
             when {
-                inApp is VpnState.Connected -> inApp
-                sysActive -> VpnState.Connected(serverIp = "")
+                inApp is VpnState.Connected || inApp is VpnState.Connecting -> inApp
+                sysActive -> VpnState.SystemVpnActive
                 else -> inApp
             }
         }.stateIn(

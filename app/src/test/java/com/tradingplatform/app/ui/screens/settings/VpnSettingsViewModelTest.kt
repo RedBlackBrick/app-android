@@ -112,6 +112,52 @@ class VpnSettingsViewModelTest {
         assertEquals(VpnState.Connected(), viewModel.vpnState.value)
     }
 
+    // ── System VPN (decision D6) ──────────────────────────────────────────────
+
+    @Test
+    fun `vpnState is SystemVpnActive when a system VPN is up and in-app tunnel is Disconnected`() = runTest {
+        every { wireGuardManager.state } returns MutableStateFlow<VpnState>(VpnState.Disconnected)
+        every { systemVpnMonitor.active } returns MutableStateFlow(true)
+
+        val viewModel = createViewModel()
+
+        assertEquals(VpnState.SystemVpnActive, viewModel.vpnState.value)
+    }
+
+    @Test
+    fun `vpnState prefers in-app Connected over system VPN`() = runTest {
+        every { wireGuardManager.state } returns MutableStateFlow<VpnState>(VpnState.Connected())
+        every { systemVpnMonitor.active } returns MutableStateFlow(true)
+
+        val viewModel = createViewModel()
+
+        assertEquals(VpnState.Connected(), viewModel.vpnState.value)
+    }
+
+    @Test
+    fun `vpnState keeps Connecting while own tunnel establishes even if a VPN network is visible`() = runTest {
+        every { wireGuardManager.state } returns MutableStateFlow<VpnState>(VpnState.Connecting)
+        every { systemVpnMonitor.active } returns MutableStateFlow(true)
+
+        val viewModel = createViewModel()
+
+        assertEquals(VpnState.Connecting, viewModel.vpnState.value)
+    }
+
+    @Test
+    fun `vpnState switches back to in-app state when the system VPN goes away`() = runTest {
+        every { wireGuardManager.state } returns MutableStateFlow<VpnState>(VpnState.Disconnected)
+        val sysActive = MutableStateFlow(true)
+        every { systemVpnMonitor.active } returns sysActive
+
+        val viewModel = createViewModel()
+        assertEquals(VpnState.SystemVpnActive, viewModel.vpnState.value)
+
+        sysActive.value = false
+
+        assertEquals(VpnState.Disconnected, viewModel.vpnState.value)
+    }
+
     // ── connect() ─────────────────────────────────────────────────────────────
 
     @Test

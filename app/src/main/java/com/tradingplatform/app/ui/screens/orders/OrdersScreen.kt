@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -21,6 +22,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Tab
@@ -39,6 +41,7 @@ import com.tradingplatform.app.domain.model.Order
 import com.tradingplatform.app.domain.model.OrderSide
 import com.tradingplatform.app.domain.model.OrderStatus
 import com.tradingplatform.app.ui.components.MoneyText
+import com.tradingplatform.app.ui.theme.IconSize
 import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.Spacing
 import java.time.ZoneId
@@ -100,14 +103,21 @@ fun OrdersScreen(
                 onRefresh = { viewModel.refresh() },
                 modifier = Modifier.fillMaxSize(),
             ) {
-                OrdersContent(state = tabState)
+                OrdersContent(
+                    state = tabState,
+                    onLoadMore = if (uiState.selectedTab == OrdersTab.HISTORY) {
+                        viewModel::loadMoreHistory
+                    } else {
+                        null
+                    },
+                )
             }
         }
     }
 }
 
 @Composable
-private fun OrdersContent(state: OrdersTabState) {
+private fun OrdersContent(state: OrdersTabState, onLoadMore: (() -> Unit)? = null) {
     when (state) {
         is OrdersTabState.Loading -> CenteredLoading()
         is OrdersTabState.Error -> CenteredMessage(text = state.message, isError = true)
@@ -123,6 +133,21 @@ private fun OrdersContent(state: OrdersTabState) {
                 ) {
                     items(state.orders, key = { it.id }) { order ->
                         OrderRow(order = order)
+                    }
+                    if (onLoadMore != null && state.hasMore) {
+                        item {
+                            OutlinedButton(
+                                onClick = onLoadMore,
+                                enabled = !state.isLoadingMore,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                if (state.isLoadingMore) {
+                                    CircularProgressIndicator(modifier = Modifier.size(IconSize.sm))
+                                } else {
+                                    Text("Charger plus")
+                                }
+                            }
+                        }
                     }
                 }
             }

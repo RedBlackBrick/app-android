@@ -12,6 +12,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.tradingplatform.app.data.local.datastore.DataStoreKeys
 import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
+import com.tradingplatform.app.domain.exception.HttpStatusException
 import com.tradingplatform.app.domain.usecase.notification.RegisterFcmTokenUseCase
 import com.tradingplatform.app.vpn.VpnNotConnectedException
 import dagger.assisted.Assisted
@@ -50,14 +51,22 @@ class FcmTokenRegistrationWorker @AssistedInject constructor(
         return registerFcmTokenUseCase(token, fingerprint).fold(
             onSuccess = {
                 Timber.tag(TAG).d("FCM token registered via WorkManager")
-                dataStore.remove(DataStoreKeys.PENDING_FCM_TOKEN)
-                dataStore.remove(DataStoreKeys.PENDING_FCM_FINGERPRINT)
+                // Compare-and-remove: only wipe the pending keys if they still hold the token
+                // we just registered. If onNewToken() rotated them concurrently (a fresher
+                // token/fingerprint pair was written while this attempt was in flight), that
+                // pending pair must survive so it gets its own registration attempt.
+                dataStore.removeIfEquals(DataStoreKeys.PENDING_FCM_TOKEN, token)
+                dataStore.removeIfEquals(DataStoreKeys.PENDING_FCM_FINGERPRINT, fingerprint)
                 Result.success()
             },
             onFailure = { e ->
-                when (e) {
-                    is VpnNotConnectedException, is IOException -> {
+                when {
+                    e is VpnNotConnectedException || e is IOException -> {
                         Timber.tag(TAG).w(e, "FCM retry — will retry with backoff")
+                        Result.retry()
+                    }
+                    e is HttpStatusException && e.isRetryable -> {
+                        Timber.tag(TAG).w(e, "FCM retry — transient HTTP ${e.code}, will retry with backoff")
                         Result.retry()
                     }
                     else -> {

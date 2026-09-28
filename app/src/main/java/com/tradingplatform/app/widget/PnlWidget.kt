@@ -26,6 +26,7 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import com.tradingplatform.app.MainActivity
 import com.tradingplatform.app.data.local.datastore.DataStoreKeys
+import com.tradingplatform.app.data.local.db.CacheTtl
 import com.tradingplatform.app.data.local.db.entity.PnlSnapshotEntity
 import com.tradingplatform.app.di.WidgetEntryPoint
 import dagger.hilt.android.EntryPointAccessors
@@ -97,11 +98,17 @@ class PnlWidget : GlanceAppWidget() {
                 .edit { putString("$PERIOD_KEY_PREFIX$appWidgetId", period) }
         }
 
+        /** Nettoyage à la suppression d'une instance ([PnlWidgetReceiver.onDeleted]). */
+        fun clearConfiguredPeriod(context: Context, appWidgetId: Int) {
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit { remove("$PERIOD_KEY_PREFIX$appWidgetId") }
+        }
+
         /**
          * Toutes les périodes configurées par une instance de widget (clés `period_<appWidgetId>`),
          * pour que [WidgetUpdateWorker] synchronise chacune d'elles. Les valeurs inconnues
-         * (hors [AVAILABLE_PERIODS]) sont ignorées. Peut contenir la période d'un widget
-         * supprimé (les prefs ne sont pas nettoyées) — coût : un appel `/pnl` de plus par cycle.
+         * (hors [AVAILABLE_PERIODS]) sont ignorées. Les clés d'un widget supprimé sont retirées
+         * par [PnlWidgetReceiver.onDeleted] ([clearConfiguredPeriod]).
          */
         fun configuredPeriods(context: Context): Set<String> =
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).all
@@ -171,7 +178,7 @@ private fun PnlWidgetContent(
                 ),
             )
             val waitingLabel = if (lastSyncAttempt > 0L) {
-                "Tentative ${formatWidgetSyncTime(lastSyncAttempt)}"
+                "Tentative ${formatWidgetSyncTime(lastSyncAttempt, ttlMs = Long.MAX_VALUE).text}"
             } else {
                 "En attente de sync"
             }
@@ -223,10 +230,12 @@ private fun PnlWidgetContent(
             ),
         )
 
+        // Timestamp synced_at — obligatoire ; badge « périmé » au-delà de maxOf(PNL_MS, WIDGET_STALE_GRACE_MS)
+        val syncLabel = formatWidgetSyncTime(pnlSnapshot.syncedAt, widgetStaleThreshold(CacheTtl.PNL_MS))
         Text(
-            text = "Sync ${formatWidgetSyncTime(pnlSnapshot.syncedAt)}",
+            text = syncLabel.withSyncPrefix(),
             style = TextStyle(
-                color = GlanceTheme.colors.onSurfaceVariant,
+                color = syncLabelColor(syncLabel),
                 fontSize = 10.sp,
             ),
         )

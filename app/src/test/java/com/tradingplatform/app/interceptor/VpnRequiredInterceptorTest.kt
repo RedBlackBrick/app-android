@@ -72,4 +72,41 @@ class VpnRequiredInterceptorTest {
 
         assert(response.code == 200)
     }
+
+    // ── Decision D6: a third-party system VPN is accepted (policy unchanged) ──
+
+    @Test
+    fun `proceeds when a system VPN is active and in-app tunnel is down`() {
+        vpnState.value = VpnState.Disconnected
+        every { systemVpnMonitor.active } returns MutableStateFlow(true)
+
+        val client = OkHttpClient.Builder()
+            .addInterceptor(buildInterceptor())
+            .build()
+
+        mockServer.enqueue(MockResponse().setResponseCode(200))
+
+        val response = client.newCall(
+            Request.Builder().url(mockServer.url("/test")).build()
+        ).execute()
+
+        assert(response.code == 200)
+    }
+
+    @Test
+    fun `treats SystemVpnActive as allowed`() {
+        vpnState.value = VpnState.SystemVpnActive
+
+        val client = OkHttpClient.Builder()
+            .addInterceptor(buildInterceptor())
+            .build()
+
+        mockServer.enqueue(MockResponse().setResponseCode(200))
+
+        val response = client.newCall(
+            Request.Builder().url(mockServer.url("/test")).build()
+        ).execute()
+
+        assert(response.code == 200)
+    }
 }

@@ -12,6 +12,7 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -311,6 +312,46 @@ class PositionsViewModelTest {
         val state = viewModel.uiState.value as PositionsUiState.Success
         assertEquals(1, state.positions.size)
         assertEquals(PositionStatus.CLOSED, state.positions.first().status)
+    }
+
+    // ── Stale filter result dropped (finding C-pos-conc-2) ──────────────────────
+
+    /**
+     * [PositionsViewModel.selectFilter]/[PositionsViewModel.refresh] cancel the previous
+     * load job, which normally prevents an out-of-order response. This test targets the
+     * defense-in-depth guard in [PositionsViewModel.loadPositions] directly — dropping a
+     * response whose requested filter no longer matches [PositionsViewModel.selectedFilter]
+     * — without depending on `Job` cancellation timing, by driving `loadPositions` for two
+     * "filters" concurrently and completing them out of order.
+     */
+    @Test
+    fun `stale load result for a previous filter is dropped once selection has moved on`() = runTest {
+        val deferredOpen = CompletableDeferred<Result<List<Position>>>()
+        coEvery { getPositionsUseCase(any(), PositionStatus.OPEN) } coAnswers { deferredOpen.await() }
+        coEvery { getPositionsUseCase(any(), PositionStatus.ALL) } returns
+            Result.success(listOf(fakeOpenTsla))
+
+        viewModel = createViewModel()
+        // init's load for OPEN (the default selected filter) is now suspended on deferredOpen.
+
+        // Simulate the selected filter moving to ALL while the OPEN request is still in
+        // flight — driven directly via the internal `loadPositions` (not `selectFilter`,
+        // which would cancel the OPEN job and make this race unreachable).
+        viewModel.forceSelectedFilterForRaceTest(StatusFilter.ALL)
+        viewModel.loadPositions(StatusFilter.ALL)
+
+        val afterAll = viewModel.uiState.value as PositionsUiState.Success
+        assertEquals(listOf(fakeOpenTsla), afterAll.positions)
+
+        // The stale OPEN response finally arrives — it must not clobber the ALL state.
+        deferredOpen.complete(Result.success(fakePositions))
+
+        val finalState = viewModel.uiState.value as PositionsUiState.Success
+        assertEquals(
+            "Stale OPEN response must be dropped, ALL state must survive",
+            listOf(fakeOpenTsla),
+            finalState.positions,
+        )
     }
 }
 

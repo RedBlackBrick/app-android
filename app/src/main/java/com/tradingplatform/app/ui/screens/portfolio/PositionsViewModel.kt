@@ -1,5 +1,6 @@
 package com.tradingplatform.app.ui.screens.portfolio
 
+import androidx.annotation.VisibleForTesting
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tradingplatform.app.domain.model.Position
@@ -9,6 +10,7 @@ import com.tradingplatform.app.domain.usecase.auth.GetPortfolioIdUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPositionWsUpdatesUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPositionsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -41,19 +43,33 @@ class PositionsViewModel @Inject constructor(
     private val _selectedFilter = MutableStateFlow(StatusFilter.OPEN)
     val selectedFilter: StateFlow<StatusFilter> = _selectedFilter.asStateFlow()
 
+    /**
+     * Test-only seam: moves [selectedFilter] without cancelling [loadJob], so a test can
+     * reproduce the race window between an in-flight [loadPositions] response and a filter
+     * change, independently of `Job` cancellation (see [loadPositions] kdoc).
+     */
+    @VisibleForTesting
+    internal fun forceSelectedFilterForRaceTest(filter: StatusFilter) {
+        _selectedFilter.value = filter
+    }
+
     private var portfolioId: String = ""
 
+    /** Tracks the in-flight load so a filter change/refresh can cancel a stale one. */
+    private var loadJob: Job? = null
+
     init {
-        viewModelScope.launch {
+        loadJob = viewModelScope.launch {
             portfolioId = getPortfolioIdUseCase()
-            loadPositions()
+            loadPositions(_selectedFilter.value)
         }
         collectPositionWsUpdates()
     }
 
     fun selectFilter(filter: StatusFilter) {
+        loadJob?.cancel()
         _selectedFilter.value = filter
-        viewModelScope.launch { loadPositions() }
+        loadJob = viewModelScope.launch { loadPositions(filter) }
     }
 
     /**
@@ -121,18 +137,33 @@ class PositionsViewModel @Inject constructor(
     }
 
     fun refresh() {
-        viewModelScope.launch { loadPositions() }
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch { loadPositions(_selectedFilter.value) }
     }
 
-    private suspend fun loadPositions() {
+    /**
+     * Loads positions for [requestedFilter].
+     *
+     * [selectFilter]/[refresh] always cancel the previous [loadJob] before launching a new
+     * one, which normally prevents an out-of-order response from overwriting a newer one.
+     * The [_selectedFilter] check below is a defense-in-depth guard for the residual window
+     * between a response arriving and cancellation taking effect — it drops the result if the
+     * user has since moved on to a different filter, rather than trusting cancellation alone.
+     *
+     * Internal (not private) so tests can drive this directly to exercise that guard without
+     * depending on coroutine cancellation timing.
+     */
+    @VisibleForTesting
+    internal suspend fun loadPositions(requestedFilter: StatusFilter) {
         _uiState.update { PositionsUiState.Loading }
-        val status = when (_selectedFilter.value) {
+        val status = when (requestedFilter) {
             StatusFilter.OPEN -> PositionStatus.OPEN
             StatusFilter.CLOSED -> PositionStatus.CLOSED
             StatusFilter.ALL -> PositionStatus.ALL
         }
         getPositionsUseCase(portfolioId, status)
             .onSuccess { positions ->
+                if (_selectedFilter.value != requestedFilter) return@onSuccess
                 _uiState.update {
                     PositionsUiState.Success(
                         positions = positions,
@@ -141,6 +172,7 @@ class PositionsViewModel @Inject constructor(
                 }
             }
             .onFailure { e ->
+                if (_selectedFilter.value != requestedFilter) return@onFailure
                 _uiState.update {
                     PositionsUiState.Error(e.localizedMessage ?: "Erreur")
                 }

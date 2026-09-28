@@ -144,6 +144,10 @@ private fun VpnStatusCard(
                         text = "Connexion en cours...",
                         color = extendedColors.statusWarning,
                     )
+                    is VpnState.SystemVpnActive -> StatusBadge(
+                        text = "VPN système",
+                        color = extendedColors.info,
+                    )
                     is VpnState.Error -> StatusBadge(
                         text = "Erreur",
                         color = MaterialTheme.colorScheme.error,
@@ -156,6 +160,7 @@ private fun VpnStatusCard(
                 is VpnState.Connected -> "Tunnel WireGuard actif. Toutes les communications avec le serveur passent par le tunnel chiffré."
                 is VpnState.Disconnected -> "Tunnel WireGuard inactif. Les appels API sont bloqués jusqu'à la connexion."
                 is VpnState.Connecting -> "Établissement du tunnel en cours..."
+                is VpnState.SystemVpnActive -> SYSTEM_VPN_ACTIVE_DESCRIPTION
                 is VpnState.Error -> "Erreur : ${vpnState.message}"
             }
 
@@ -181,10 +186,22 @@ private fun VpnActionButton(
     onDisconnect: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val isConnectedOrConnecting = vpnState is VpnState.Connected || vpnState is VpnState.Connecting
+    when (vpnState) {
+        // Un VPN tiers porte le trafic (D6) : le tunnel intégré n'est pas pilotable ici —
+        // Android n'autorise qu'un VPN à la fois, « Connecter » révoquerait l'autre app.
+        is VpnState.SystemVpnActive -> OutlinedButton(
+            onClick = {},
+            enabled = false,
+            modifier = modifier
+                .fillMaxWidth()
+                .semantics { contentDescription = "Actions VPN indisponibles : VPN système actif" },
+        ) {
+            Text("Géré par l'app VPN externe")
+        }
 
-    if (isConnectedOrConnecting) {
-        OutlinedButton(
+        is VpnState.Connected, is VpnState.Connecting -> OutlinedButton(
+            // Sûr pendant Connecting : WireGuardManager sérialise connect/disconnect (Mutex)
+            // et une déconnexion demandée pendant setState(UP) redescend le tunnel.
             onClick = onDisconnect,
             modifier = modifier
                 .fillMaxWidth()
@@ -195,9 +212,8 @@ private fun VpnActionButton(
         ) {
             Text("Déconnecter")
         }
-    } else {
-        // Disconnected or Error — show connect button
-        Button(
+
+        is VpnState.Disconnected, is VpnState.Error -> Button(
             onClick = onConnect,
             modifier = modifier
                 .fillMaxWidth()
@@ -232,3 +248,6 @@ private fun VpnInfoNote(
         )
     }
 }
+
+internal const val SYSTEM_VPN_ACTIVE_DESCRIPTION =
+    "VPN système actif (tunnel externe) — le tunnel WireGuard intégré n'est pas utilisé"

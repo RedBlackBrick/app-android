@@ -1,0 +1,200 @@
+package com.tradingplatform.app.vpn
+
+import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
+import com.wireguard.android.backend.Tunnel
+import io.mockk.mockk
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+/**
+ * JVM tests for [WireGuardManager] concurrency (audit C-vpn-conc-1, C-vpn-err-1).
+ * GoBackend is replaced by [FakeTunnelBackend]; the notification service by
+ * [FakeServiceController].
+ */
+@OptIn(ExperimentalCoroutinesApi::class)
+class WireGuardManagerTest {
+
+    private val config = WireGuardConfig(
+        privateKey = "cHJpdmF0ZWtleWZvcndpcmVndWFyZHRlc3Rpbmc=",
+        address = "10.42.0.5/32",
+        peer = WireGuardPeer(
+            publicKey = "dGVzdHB1YmxpY2tleWZvcndpcmVndWFyZA==",
+            endpoint = "vps.example.com:51820",
+        ),
+    )
+
+    /** Mimics GoBackend: synchronous onStateChange for each transition it performs. */
+    private class FakeTunnelBackend : TunnelBackend {
+        var state: Tunnel.State = Tunnel.State.DOWN
+        var lastTunnel: Tunnel? = null
+        val calls = mutableListOf<Tunnel.State>()
+
+        /** When set, setState(UP) suspends until completed (simulates a slow handshake). */
+        var upGate: CompletableDeferred<Unit>? = null
+
+        override suspend fun setState(
+            tunnel: Tunnel,
+            state: Tunnel.State,
+            config: WireGuardConfig?,
+        ): Tunnel.State {
+            calls += state
+            lastTunnel = tunnel
+            if (state == Tunnel.State.UP) upGate?.await()
+            if (state != this.state) {
+                this.state = state
+                tunnel.onStateChange(state)
+            }
+            return this.state
+        }
+
+        override suspend fun getState(tunnel: Tunnel): Tunnel.State = state
+
+        /** OS revoked the VPN: GoBackend$VpnService.onDestroy → onStateChange(DOWN). */
+        fun simulateRevocation() {
+            state = Tunnel.State.DOWN
+            lastTunnel!!.onStateChange(Tunnel.State.DOWN)
+        }
+    }
+
+    private class FakeServiceController : VpnServiceController {
+        var startCount = 0
+        var stopCount = 0
+        override fun startForeground() { startCount++ }
+        override fun stop() { stopCount++ }
+    }
+
+    private val backend = FakeTunnelBackend()
+    private val serviceController = FakeServiceController()
+    private var backendCreations = 0
+
+    // applicationScope = the TestScope itself, NOT backgroundScope: work launched from
+    // backgroundScope is flagged as background and advanceUntilIdle() stops as soon as only
+    // background tasks remain — the manager's coroutines would never run. Every job launched
+    // here completes within each test, so runTest's leak check is satisfied.
+    private fun TestScope.createManager(): WireGuardManager = WireGuardManager(
+        applicationScope = this,
+        dataStore = mockk<EncryptedDataStore>(relaxed = true),
+        backendFactory = { backendCreations++; backend },
+        serviceController = serviceController,
+        ioDispatcher = StandardTestDispatcher(testScheduler),
+    )
+
+    @Test
+    fun `connect brings tunnel UP and starts the notification service`() = runTest {
+        val manager = createManager()
+
+        manager.connect(config)
+        advanceUntilIdle()
+
+        assertEquals(VpnState.Connected(), manager.state.value)
+        assertEquals(Tunnel.State.UP, backend.state)
+        assertEquals(1, serviceController.startCount)
+        assertEquals(0, serviceController.stopCount)
+    }
+
+    @Test
+    fun `disconnect while connect is suspended ends Disconnected with tunnel DOWN`() = runTest {
+        val manager = createManager()
+        val gate = CompletableDeferred<Unit>()
+        backend.upGate = gate
+
+        manager.connect(config)
+        runCurrent()
+        // connect is blocked inside setState(UP), holding the lock
+        assertEquals(VpnState.Connecting, manager.state.value)
+
+        manager.disconnect()
+        runCurrent()
+        // disconnect is queued on the mutex, not lost
+        assertEquals(listOf(Tunnel.State.UP), backend.calls)
+
+        gate.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(VpnState.Disconnected, manager.state.value)
+        assertEquals(Tunnel.State.DOWN, backend.state)
+        assertEquals(listOf(Tunnel.State.UP, Tunnel.State.DOWN), backend.calls)
+        assertTrue("notification service must be stopped", serviceController.stopCount >= 1)
+    }
+
+    @Test
+    fun `connect superseded by disconnect before it runs never brings the tunnel UP`() = runTest {
+        val manager = createManager()
+
+        manager.connect(config)
+        manager.disconnect()
+        advanceUntilIdle()
+
+        assertEquals(VpnState.Disconnected, manager.state.value)
+        assertTrue("setState(UP) must not be called", Tunnel.State.UP !in backend.calls)
+        assertEquals(0, serviceController.startCount)
+    }
+
+    @Test
+    fun `external DOWN callback stops the notification service`() = runTest {
+        val manager = createManager()
+        manager.connect(config)
+        advanceUntilIdle()
+        assertEquals(VpnState.Connected(), manager.state.value)
+
+        backend.simulateRevocation()
+
+        assertEquals(VpnState.Disconnected, manager.state.value)
+        assertEquals(1, serviceController.stopCount)
+
+        // A later disconnect() is a no-op on the backend (currentTunnel was cleared)
+        backend.calls.clear()
+        manager.disconnect()
+        advanceUntilIdle()
+        assertTrue(backend.calls.isEmpty())
+    }
+
+    @Test
+    fun `backend is created once across connect cycles`() = runTest {
+        val manager = createManager()
+
+        manager.connect(config)
+        advanceUntilIdle()
+        manager.disconnect()
+        advanceUntilIdle()
+        manager.connect(config)
+        advanceUntilIdle()
+
+        assertEquals(1, backendCreations)
+        assertEquals(VpnState.Connected(), manager.state.value)
+    }
+
+    @Test
+    fun `connect failure publishes Error and stops the notification service`() = runTest {
+        val failing = object : TunnelBackend {
+            override suspend fun setState(
+                tunnel: Tunnel,
+                state: Tunnel.State,
+                config: WireGuardConfig?,
+            ): Tunnel.State = throw IllegalStateException("VPN_NOT_AUTHORIZED")
+
+            override suspend fun getState(tunnel: Tunnel): Tunnel.State = Tunnel.State.DOWN
+        }
+        val manager = WireGuardManager(
+            applicationScope = this,
+            dataStore = mockk<EncryptedDataStore>(relaxed = true),
+            backendFactory = { failing },
+            serviceController = serviceController,
+            ioDispatcher = StandardTestDispatcher(testScheduler),
+        )
+
+        manager.connect(config)
+        advanceUntilIdle()
+
+        assertEquals(VpnState.Error("VPN_NOT_AUTHORIZED"), manager.state.value)
+        assertEquals(1, serviceController.stopCount)
+    }
+}

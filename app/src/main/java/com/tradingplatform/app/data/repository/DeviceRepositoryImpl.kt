@@ -2,13 +2,16 @@ package com.tradingplatform.app.data.repository
 
 import com.tradingplatform.app.data.api.DeviceApi
 import com.tradingplatform.app.data.api.DeviceCommandRequestDto
+import com.tradingplatform.app.data.local.db.CacheTtl
 import com.tradingplatform.app.data.local.db.dao.DeviceDao
 import com.tradingplatform.app.data.model.toDomain
 import com.tradingplatform.app.data.model.toEntity
+import com.tradingplatform.app.domain.model.Cached
 import com.tradingplatform.app.domain.model.Device
 import com.tradingplatform.app.domain.repository.DeviceRepository
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.coroutines.cancellation.CancellationException
 
 @Singleton
 class DeviceRepositoryImpl @Inject constructor(
@@ -16,51 +19,56 @@ class DeviceRepositoryImpl @Inject constructor(
     private val deviceDao: DeviceDao,
 ) : DeviceRepository {
 
-    // TTL devices : 1 min (CLAUDE.md §2 — Stratégie cache Room)
-    private val DEVICE_TTL_MS = 60 * 1000L
-
     override suspend fun getDevices(): Result<List<Device>> = runCatching {
+        fetchAndCacheDevices(System.currentTimeMillis())
+    }
+
+    override suspend fun getDeviceStatus(
+        deviceId: String,
+        forceRefresh: Boolean,
+    ): Result<Cached<Device>> = runCatching {
+        val now = System.currentTimeMillis()
+        val cached = deviceDao.getById(deviceId)
+
+        // Cache servi uniquement s'il est frais (TTL devices — CacheTtl / CLAUDE.md §2)
+        if (cached != null && !forceRefresh && CacheTtl.isFresh(cached.syncedAt, CacheTtl.DEVICES_MS, now)) {
+            return@runCatching Cached(cached.toDomain(), cached.syncedAt)
+        }
+
+        // Pas d'endpoint GET /v1/edge/devices/{id} — fallback sur getDevices() complet
+        // puis filtre sur le deviceId demandé. Le résultat est upserted dans Room.
+        // NOTE : si l'API expose un jour GET /v1/edge/devices/{id}, l'utiliser ici.
+        val devices = try {
+            fetchAndCacheDevices(now)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Réseau indisponible : afficher la ligne périmée avec son vrai horodatage
+            // (CacheTimestamp la marque « offline ») plutôt qu'une erreur bloquante.
+            if (cached != null) return@runCatching Cached(cached.toDomain(), cached.syncedAt)
+            throw e
+        }
+
+        val device = devices.firstOrNull { it.id == deviceId }
+            ?: error("Device $deviceId not found")
+        Cached(device, now)
+    }
+
+    /**
+     * `GET /v1/edge/devices` puis upsert + purge Room (APRÈS sync réussie — transaction atomique).
+     */
+    private suspend fun fetchAndCacheDevices(now: Long): List<Device> {
         val response = deviceApi.getDevices()
         if (!response.isSuccessful) {
             error("Get devices failed: HTTP ${response.code()}")
         }
         val devices = response.body()?.devices?.map { it.toDomain() } ?: emptyList()
 
-        // Purge Room APRÈS sync réussie — transaction atomique
-        val now = System.currentTimeMillis()
         deviceDao.upsertAllAndPurge(
             devices.map { it.toEntity(syncedAt = now) },
-            cutoffMillis = now - DEVICE_TTL_MS,
+            cutoffMillis = now - CacheTtl.DEVICES_MS,
         )
-
-        devices
-    }
-
-    override suspend fun getDeviceStatus(deviceId: String): Result<Device> = runCatching {
-        // Tenter d'abord le cache Room (TTL 1 min — CLAUDE.md §2 stratégie cache)
-        val cached = deviceDao.getById(deviceId)
-        if (cached != null) return@runCatching cached.toDomain()
-
-        // Cache vide (getDevices() pas encore appelé, ou TTL expiré) :
-        // Pas d'endpoint GET /v1/edge/devices/{id} — fallback sur getDevices() complet
-        // puis filtre sur le deviceId demandé. Le résultat est upserted dans Room
-        // pour les prochains appels.
-        // NOTE : si l'API expose un jour GET /v1/edge/devices/{id}, ajouter
-        // deviceApi.getDeviceById(deviceId) dans DeviceApi et supprimer ce fallback.
-        val response = deviceApi.getDevices()
-        if (!response.isSuccessful) {
-            error("Get devices (fallback for status) failed: HTTP ${response.code()}")
-        }
-        val devices = response.body()?.devices?.map { it.toDomain() } ?: emptyList()
-
-        val now = System.currentTimeMillis()
-        deviceDao.upsertAllAndPurge(
-            devices.map { it.toEntity(syncedAt = now) },
-            cutoffMillis = now - DEVICE_TTL_MS,
-        )
-
-        devices.firstOrNull { it.id == deviceId }
-            ?: error("Device $deviceId not found")
+        return devices
     }
 
     override suspend fun unpairDevice(deviceId: String): Result<Unit> = runCatching {

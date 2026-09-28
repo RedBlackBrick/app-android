@@ -1,6 +1,7 @@
 package com.tradingplatform.app.data.repository
 
 import com.tradingplatform.app.data.api.MarketDataApi
+import com.tradingplatform.app.data.local.db.CacheTtl
 import com.tradingplatform.app.data.local.db.dao.QuoteDao
 import com.tradingplatform.app.data.model.toDomain
 import com.tradingplatform.app.data.model.toEntity
@@ -22,9 +23,6 @@ class MarketDataRepositoryImpl @Inject constructor(
     private val marketDataApi: MarketDataApi,
     private val quoteDao: QuoteDao,
 ) : MarketDataRepository {
-
-    // TTL quotes : 10 min — pour cohérence offline dans QuoteWidget (CLAUDE.md §2)
-    private val QUOTE_TTL_MS = 10 * 60 * 1000L
 
     /**
      * Déduplication des requêtes quote en vol (P5 fix).
@@ -71,7 +69,7 @@ class MarketDataRepositoryImpl @Inject constructor(
                 val now = System.currentTimeMillis()
                 quoteDao.upsertAndPurge(
                     quote.toEntity(syncedAt = now),
-                    cutoffMillis = now - QUOTE_TTL_MS,
+                    cutoffMillis = now - CacheTtl.QUOTES_MS,
                 )
 
                 quote

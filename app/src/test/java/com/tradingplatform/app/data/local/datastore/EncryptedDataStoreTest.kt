@@ -90,6 +90,51 @@ class EncryptedDataStoreTest {
         assertEquals("lt", ds.readLocalToken("dev-1"))
     }
 
+    // ── removeIfEquals (compare-and-remove, PR 4.5 / audit #19) ────────────────
+
+    @Test
+    fun `removeIfEquals removes the key when the value is unchanged`() = runTest {
+        val ds = store()
+        ds.writeString(DataStoreKeys.PENDING_FCM_TOKEN, "tok-1")
+
+        val removed = ds.removeIfEquals(DataStoreKeys.PENDING_FCM_TOKEN, "tok-1")
+
+        assertTrue(removed)
+        assertEquals(SecureReadResult.NotFound, ds.readStringSafe(DataStoreKeys.PENDING_FCM_TOKEN))
+    }
+
+    @Test
+    fun `removeIfEquals keeps the key when the value changed concurrently`() = runTest {
+        val ds = store()
+        ds.writeString(DataStoreKeys.PENDING_FCM_TOKEN, "tok-1")
+        // Simulates a token rotation (onNewToken called again) while a registration
+        // attempt for "tok-1" was in flight.
+        ds.writeString(DataStoreKeys.PENDING_FCM_TOKEN, "tok-2")
+
+        val removed = ds.removeIfEquals(DataStoreKeys.PENDING_FCM_TOKEN, "tok-1")
+
+        assertFalse(removed)
+        assertEquals(SecureReadResult.Found("tok-2"), ds.readStringSafe(DataStoreKeys.PENDING_FCM_TOKEN))
+    }
+
+    @Test
+    fun `removeIfEquals returns false when the key was never written`() = runTest {
+        val ds = store()
+
+        val removed = ds.removeIfEquals(DataStoreKeys.PENDING_FCM_TOKEN, "tok-1")
+
+        assertFalse(removed)
+    }
+
+    @Test
+    fun `removeIfEquals returns false when the store is unavailable`() = runTest {
+        val ds = store { throw IllegalStateException("tink alpha") }
+
+        val removed = ds.removeIfEquals(DataStoreKeys.PENDING_FCM_TOKEN, "tok-1")
+
+        assertFalse(removed)
+    }
+
     // ── Init failure / reset ────────────────────────────────────────────────────
 
     @Test

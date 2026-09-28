@@ -93,10 +93,11 @@ com.tradingplatform.app/
 │       ├── setup/         # SetupScreen + SetupViewModel (onboarding QR mobile)
 │       └── settings/      # VpnSettingsScreen, SecuritySettingsScreen, ProfileScreen, MyDevicesScreen + ViewModels
 ├── vpn/
-│   ├── WireGuardVpnService.kt   # VpnService Android — gère le tunnel
+│   ├── WireGuardVpnService.kt   # Service foreground — notification « VPN connecté » (tunnel tenu par GoBackend$VpnService)
+│   ├── TunnelBackend.kt         # Seam GoBackend (setState/getState) — fake en test JVM
 │   ├── WireGuardManager.kt      # API publique : connect(), disconnect(), state: StateFlow<VpnState>
 │   ├── WireGuardConfig.kt       # Modèle de config (interface, peer)
-│   └── VpnState.kt              # sealed class : Disconnected | Connecting | Connected | Error
+│   └── VpnState.kt              # sealed class : Disconnected | Connecting | Connected | SystemVpnActive | Error
 ├── security/
 │   ├── BiometricManager.kt      # Abstraction BiometricPrompt
 │   ├── RootDetector.kt          # Détection root (RootBeer)
@@ -223,32 +224,57 @@ Toutes les données affichées offline ou dans les widgets passent par Room. Le 
 (WorkManager 5 min, 15 min en Doze) met à jour le cache. Si le VPN est inactif, les écrans
 affichent le cache daté sans déclencher d'erreur bloquante.
 
-| Table Room | TTL indicatif | Utilisée par |
-|------------|---------------|-------------|
-| `positions` | 5 min | PositionsScreen offline, PositionsWidget |
-| `pnl_snapshots` | 5 min | PnlWidget — une ligne par période, forme `/pnl` (écrite par `getPnlSummary`) |
-| `alerts` | permanent | AlertListScreen (filtrable par type), AlertsWidget |
-| `devices` | 1 min | DeviceListScreen offline (admin) |
-| `quotes` | 10 min | QuoteWidget, MarketDataScreen (offline-first cohérent) |
-| `watchlist` | permanent | MarketDataScreen (symboles suivis par l'utilisateur) |
+**Source unique des TTL : `data/local/db/CacheTtl.kt`** — ne jamais redéclarer une constante
+de TTL privée dans un repository, un widget ou un composant UI.
+
+| Table Room | TTL (fraîcheur) | Utilisée par |
+|------------|-----------------|-------------|
+| `positions` | `CacheTtl.POSITIONS_MS` (5 min) | PositionsWidget, PositionDetail (`getPosition`) |
+| `pnl_snapshots` | `CacheTtl.PNL_MS` (5 min) | PnlWidget — une ligne par période, forme `/pnl` (écrite par `getPnlSummary`) |
+| `alerts` | permanent (`CacheTtl.ALERTS_RETENTION_MS`) | AlertListScreen (filtrable par type), AlertsWidget |
+| `devices` | `CacheTtl.DEVICES_MS` (1 min) | DeviceListScreen offline, détail device (`getDeviceStatus`), SystemStatusWidget |
+| `quotes` | `CacheTtl.QUOTES_MS` (10 min) | QuoteWidget, MarketDataScreen (offline-first cohérent) |
+| `watchlist` | permanent | MarketDataScreen, `WidgetUpdateWorker.syncQuotes` |
 
 Le timestamp de dernière sync est stocké avec chaque entité (`synced_at: Long`).
-L'UI affiche "Données du HH:mm" si le cache a plus de 10 min.
+
+**Lectures unitaires (`getDeviceStatus`, `getPosition`)** : renvoient `Result<Cached<T>>`
+(`domain/model/Cached` = valeur + vrai `syncedAt`). Le cache n'est servi que s'il est frais
+(`CacheTtl.isFresh`) et que `forceRefresh == false` ; le pull-to-refresh / retry des écrans
+passe `forceRefresh = true`. Si le réseau échoue et qu'une ligne périmée existe, elle est
+renvoyée avec son `syncedAt` réel (affichée « offline », pas d'erreur bloquante). Les
+ViewModels exposent ce `syncedAt`, jamais `System.currentTimeMillis()`.
+
+**UI — `CacheTimestamp(syncedAt, ttlMs = CacheTtl.DEFAULT_UI_MS /* 10 min */, warnMs = ttlMs / 2)`** :
+les appelants passent le TTL de l'entité affichée. « À jour » (neutre) < 1 min ; « Données du
+HH:mm » (neutre) < `warnMs` ; couleur warning < `ttlMs` ; couleur offline ≥ `ttlMs`. Date
+`dd/MM HH:mm` si la donnée n'est pas du jour. Logique pure : `cacheTimestampLabel()` (testée).
 
 **Widgets** : le timestamp `synced_at` est affiché dans tous les widgets sans exception —
 pas uniquement dans l'UI principale. Pour un app de trading, afficher un cours de 10 min
-sans indication est trompeur.
+sans indication est trompeur. `formatWidgetSyncTime(syncedAt, ttlMs)` → `SyncLabel(text, isStale)` :
+« maintenant » / « il y a Nmin » / « HH:mm » (même jour) / « dd/MM HH:mm » ; au-delà du seuil
+widget `widgetStaleThreshold(ttl) = maxOf(TTL entité, CacheTtl.WIDGET_STALE_GRACE_MS /* 20 min =
+période Worker 15 min + 5 min de grâce */)`, préfixe **« périmé · »** et libellé coloré ambre
+(`syncLabelColor`, badge périmé). Le plancher évite un badge quasi permanent entre deux cycles du
+Worker ; l'UI in-app (`CacheTimestamp`) garde les TTL d'entité.
 
 ### Politique de rétention Room
 
 | Table | Politique |
 |-------|-----------|
-| `alerts` | 30 jours **ou** 500 entrées max (whichever first) — purge au démarrage du Worker |
-| `quotes` | Supprimer les entrées dont `synced_at < now - 10 min` |
-| `positions` | Supprimer les entrées dont `synced_at < now - 5 min` (remplacées à chaque sync) |
-| `pnl_snapshots` | Supprimer les entrées dont `synced_at < now - 5 min` |
-| `devices` | Supprimer les entrées dont `synced_at < now - 1 min` |
+| `alerts` | 30 jours (`CacheTtl.ALERTS_RETENTION_MS`) **ou** 500 entrées max (whichever first) — purge par le Worker |
+| `quotes` | Supprimer les entrées dont `synced_at < now - CacheTtl.QUOTES_MS` |
+| `positions` | Supprimer les entrées dont `synced_at < now - CacheTtl.POSITIONS_MS` (remplacées à chaque sync) |
+| `pnl_snapshots` | Supprimer les entrées dont `synced_at < now - CacheTtl.PNL_RETENTION_MS` (**24 h**, pas 5 min : une ligne par période — une purge à 5 min après la sync d'une période supprimerait les lignes des autres périodes configurées par d'autres widgets) |
+| `devices` | Supprimer les entrées dont `synced_at < now - CacheTtl.DEVICES_MS` |
 | `watchlist` | Pas de purge — persistance permanente (symboles gérés par l'utilisateur) |
+
+**`WidgetUpdateWorker.syncQuotes`** rafraîchit tickers `QuoteWidget` configurés ∪ watchlist ∪
+symboles déjà en cache `quotes` (majuscules, dédupliqués, plafond 50, tickers widgets en
+premier), fan-out borné par `withTimeout(60 s)` — un dépassement compte comme un échec IO.
+Les prefs de configuration des widgets (`ticker_*`, `period_*`) sont nettoyées dans
+`onDeleted` des receivers.
 
 La purge est exécutée **après** chaque sync réussie — jamais avant. Purger avant les appels
 réseau crée un gap : si le Worker est tué pendant la sync, les tables sont vides. Utiliser
@@ -385,6 +411,8 @@ val quoteState by viewModel.quoteState.collectAsStateWithLifecycle()
 
 Le token WS est distinct de l'access token — obtenir via `POST /v1/auth/ws-token` avant chaque connexion. `WebSocketModule` dans `di/` fournit les bindings Hilt.
 
+**Connexion / déconnexion pilotées par la session (`SessionManager`).** Aucun ViewModel n'appelle `connect()`/`disconnect()`. `AuthRepositoryImpl` émet `notifySessionStarted()` juste après `tokenHolder.setToken` (login et vérification 2FA) : `PrivateWsClient` abandonne toute connexion de la session précédente, remet le backoff à zéro et se connecte immédiatement. Tout `forcedLogoutEvents` (logout utilisateur via `SettingsViewModel`, logout forcé `TokenAuthenticator`/`AuthInterceptor`, escape hatch biométrique) → `disconnect()` (close 1000, sans reconnexion). Garde `TokenHolder` : sans access token en mémoire, `connect()`/`scheduleReconnect()`/`openWebSocket()` ne font rien — la boucle de backoff s'arrête au logout. Un compteur de génération, incrémenté par `disconnect()`, rend périmée toute tentative en vol (`getWsToken()` ou handshake) : elle ne peut ni rouvrir un socket authentifié ni modifier l'état. Au démarrage à froid, `TradingApplication` appelle `connect()` après le préchargement du token (sans écraser un token déjà présent dans `TokenHolder`). Tests : `PrivateWsClientTest` (Robolectric + MockWebServer).
+
 ### Alertes — source de données (FCM → Room)
 
 Les alertes proviennent exclusivement de notifications FCM persistées localement :
@@ -437,6 +465,7 @@ viewModelScope.launch {
 - `WireGuardManager` est injecté par Hilt comme `@Singleton`
 - **Avant chaque appel Retrofit** : vérifier `vpnManager.state.value is VpnState.Connected`
   → via un `OkHttp Interceptor` dédié (`VpnRequiredInterceptor`)
+- `VpnState.SystemVpnActive` = VPN tiers actif, tunnel intégré coupé (D6 : autorisé par `VpnRequiredInterceptor`, affiché distinctement, jamais émis par `WireGuardManager`) ; `WireGuardManager` sérialise `connect()`/`disconnect()` par un `Mutex` (dernière intention gagne) et, sur un DOWN non initié (révocation OS), arrête `WireGuardVpnService` (qui ne porte que la notification — le tunnel est tenu par `GoBackend$VpnService`).
 - La clé privée WireGuard est générée une seule fois, stockée dans `EncryptedDataStore`,
   protégée par Android Keystore. Elle ne sort jamais de l'app.
 - La clé publique est partagée avec le VPS lors du pairing uniquement.
@@ -994,14 +1023,12 @@ Si le VPS déploie un breaking change, les anciennes apps cassent silencieusemen
 
 ```xml
 <!-- WireGuardVpnService — foregroundServiceType="specialUse" obligatoire Android 14+ (API 34) -->
+<!-- Pas de BIND_VPN_SERVICE ni d'intent-filter VpnService : ce service ne porte que la
+     notification ; GoBackend$VpnService (déclaré par l'AAR wireguard) tient le tunnel. -->
 <service
     android:name=".vpn.WireGuardVpnService"
-    android:permission="android.permission.BIND_VPN_SERVICE"
     android:foregroundServiceType="specialUse"
     android:exported="false">
-    <intent-filter>
-        <action android:name="android.net.VpnService" />
-    </intent-filter>
     <property
         android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
         android:value="VPN tunnel WireGuard — toutes les requêtes API passent par ce tunnel" />
@@ -1019,6 +1046,8 @@ Si le VPS déploie un breaking change, les anciennes apps cassent silencieusemen
      SharedPreferences keyed sur appWidgetId (pas GlanceStateDefinition — plus simple
      pour une valeur scalaire configurée une seule fois) :
      prefs.edit().putString("ticker_$appWidgetId", symbol).apply() -->
+<!-- PnlWidgetConfigureActivity : même pattern (période day/week/month, clé "period_$appWidgetId"),
+     référencée par android:configure dans pnl_widget_info.xml -->
 <!-- WorkManager : ne pas déclarer manuellement, géré par la lib -->
 ```
 

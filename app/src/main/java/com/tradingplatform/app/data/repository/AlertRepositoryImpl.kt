@@ -1,5 +1,6 @@
 package com.tradingplatform.app.data.repository
 
+import com.tradingplatform.app.data.local.db.CacheTtl
 import com.tradingplatform.app.data.local.db.dao.AlertDao
 import com.tradingplatform.app.data.model.toDomain
 import com.tradingplatform.app.data.model.toEntity
@@ -8,7 +9,6 @@ import com.tradingplatform.app.domain.model.AlertType
 import com.tradingplatform.app.domain.repository.AlertRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
-import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -16,9 +16,6 @@ import javax.inject.Singleton
 class AlertRepositoryImpl @Inject constructor(
     private val alertDao: AlertDao,
 ) : AlertRepository {
-
-    // Rétention alertes : 30 jours OU 500 entrées max (CLAUDE.md §2 Politique de rétention)
-    private val ALERT_RETENTION_MS = TimeUnit.DAYS.toMillis(30)
 
     /**
      * Flow des alertes depuis Room — source unique (FCM → Room).
@@ -52,7 +49,8 @@ class AlertRepositoryImpl @Inject constructor(
      * Les deux DELETE sont atomiques via [AlertDao.purgeExpired] (@Transaction).
      */
     override suspend fun purgeExpired(): Result<Unit> = runCatching {
-        val cutoff = System.currentTimeMillis() - ALERT_RETENTION_MS
+        // Rétention : 30 jours OU 500 entrées max (CacheTtl / CLAUDE.md §2 Politique de rétention)
+        val cutoff = System.currentTimeMillis() - CacheTtl.ALERTS_RETENTION_MS
         alertDao.purgeExpired(cutoff)
     }
 }

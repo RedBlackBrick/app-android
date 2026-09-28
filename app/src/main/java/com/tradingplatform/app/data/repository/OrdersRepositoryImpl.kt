@@ -6,6 +6,7 @@ import com.tradingplatform.app.domain.model.Order
 import com.tradingplatform.app.domain.model.OrderSide
 import com.tradingplatform.app.domain.model.OrderStatus
 import com.tradingplatform.app.domain.model.OrderType
+import com.tradingplatform.app.domain.model.Page
 import com.tradingplatform.app.domain.repository.OrdersRepository
 import java.time.Instant
 import java.time.format.DateTimeParseException
@@ -29,12 +30,16 @@ class OrdersRepositoryImpl @Inject constructor(
         portfolioId: String,
         limit: Int,
         offset: Int,
-    ): Result<List<Order>> = runCatching {
+    ): Result<Page<Order>> = runCatching {
         val response = api.listOrderHistory(portfolioId, limit, offset)
         if (!response.isSuccessful) {
             error("List order history failed: HTTP ${response.code()}")
         }
-        response.body()?.orders.orEmpty().map(::toDomain)
+        val body = response.body()
+        Page(
+            items = body?.orders.orEmpty().map(::toDomain),
+            total = body?.count ?: 0,
+        )
     }
 
     private fun toDomain(dto: OrderDto): Order = Order(

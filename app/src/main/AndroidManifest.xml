@@ -59,15 +59,13 @@
             </intent-filter>
         </activity>
 
-        <!-- WireGuard VPN Service -->
+        <!-- WireGuard notification service (foreground, "VPN connecté").
+             Not a VpnService: the tunnel is held by GoBackend$VpnService, declared with
+             BIND_VPN_SERVICE + android.net.VpnService filter by the wireguard tunnel AAR. -->
         <service
             android:name=".vpn.WireGuardVpnService"
-            android:permission="android.permission.BIND_VPN_SERVICE"
             android:foregroundServiceType="specialUse"
             android:exported="false">
-            <intent-filter>
-                <action android:name="android.net.VpnService" />
-            </intent-filter>
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="VPN tunnel WireGuard — toutes les requêtes API passent par ce tunnel" />
@@ -146,6 +144,15 @@
         <!-- QuoteWidget configuration activity -->
         <activity
             android:name=".widget.QuoteWidgetConfigureActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
+
+        <!-- PnlWidget configuration activity (période jour/semaine/mois par instance) -->
+        <activity
+            android:name=".widget.PnlWidgetConfigureActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />

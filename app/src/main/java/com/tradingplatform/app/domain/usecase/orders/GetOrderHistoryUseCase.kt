@@ -1,16 +1,16 @@
 package com.tradingplatform.app.domain.usecase.orders
 
 import com.tradingplatform.app.domain.model.Order
+import com.tradingplatform.app.domain.model.Page
 import com.tradingplatform.app.domain.repository.OrdersRepository
 import javax.inject.Inject
 
 /**
- * List the user's terminal orders for the given portfolio.
+ * List the user's terminal orders for the given portfolio, one page at a time.
  * Backend filters to FILLED / CANCELLED / REJECTED / EXPIRED.
  *
- * The default page size matches the screen's typical first-load needs;
- * the use case stays paginated so a future "Charger plus" button can be
- * wired without changing the contract.
+ * [Page.total] carries the backend `count` so callers can derive `hasMore`
+ * for a "Charger plus" button without guessing from page fullness.
  */
 class GetOrderHistoryUseCase @Inject constructor(
     private val repository: OrdersRepository,
@@ -19,5 +19,5 @@ class GetOrderHistoryUseCase @Inject constructor(
         portfolioId: String,
         limit: Int = 50,
         offset: Int = 0,
-    ): Result<List<Order>> = repository.listOrderHistory(portfolioId, limit, offset)
+    ): Result<Page<Order>> = repository.listOrderHistory(portfolioId, limit, offset)
 }

@@ -38,9 +38,12 @@ class VpnRequiredInterceptor @Inject constructor(
         if (chain.request().url.encodedPath in AuthPaths.VPN_EXCLUDED) {
             return chain.proceed(chain.request())
         }
-        if (vpnManager.state.value is VpnState.Connected) {
+        val inAppState = vpnManager.state.value
+        if (inAppState is VpnState.Connected || inAppState is VpnState.SystemVpnActive) {
             return chain.proceed(chain.request())
         }
+        // Décision D6 (commit 7da1974) : un VPN système tiers est accepté — même politique
+        // que VpnState.SystemVpnActive côté UI (voir docs/security-model.md §1 MitM).
         if (systemVpnMonitor.active.value) {
             return chain.proceed(chain.request())
         }

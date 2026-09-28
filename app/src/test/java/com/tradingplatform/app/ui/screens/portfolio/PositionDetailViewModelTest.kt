@@ -1,6 +1,7 @@
 package com.tradingplatform.app.ui.screens.portfolio
 
 import androidx.lifecycle.SavedStateHandle
+import com.tradingplatform.app.domain.model.Cached
 import com.tradingplatform.app.domain.model.Position
 import com.tradingplatform.app.domain.model.PositionStatus
 import com.tradingplatform.app.domain.model.Transaction
@@ -34,6 +35,9 @@ class PositionDetailViewModelTest {
 
     private val fakePositionId = 42
 
+    /** Horodatage réel de la donnée (cache Room) — distinct de l'instant d'affichage. */
+    private val fakeSyncedAt = 1_700_000_000_000L
+
     private val fakePosition = Position(
         id = fakePositionId,
         symbol = "TSLA",
@@ -62,7 +66,7 @@ class PositionDetailViewModelTest {
     @Before
     fun setUp() {
         coEvery { getPortfolioIdUseCase() } returns "1"
-        coEvery { getPositionUseCase(any(), any()) } returns Result.success(fakePosition)
+        coEvery { getPositionUseCase(any(), any(), any()) } returns Result.success(Cached(fakePosition, fakeSyncedAt))
         coEvery { getTransactionsUseCase(any(), any(), any(), any()) } returns
             Result.success(listOf(fakeTransaction))
     }
@@ -104,12 +108,33 @@ class PositionDetailViewModelTest {
         assertTrue("syncedAt should be positive", state!!.syncedAt > 0L)
     }
 
+    @Test
+    fun `uiState Success exposes the real syncedAt of the cached position, not now`() = runTest {
+        val viewModel = createViewModel()
+
+        val state = viewModel.uiState.value as? PositionDetailUiState.Success
+        assertNotNull("Expected Success state", state)
+        assertEquals(fakeSyncedAt, state!!.syncedAt)
+    }
+
+    @Test
+    fun `uiState Success keeps the real syncedAt when transactions fail`() = runTest {
+        coEvery { getTransactionsUseCase(any(), any(), any(), any()) } returns
+            Result.failure(RuntimeException("Transactions unavailable"))
+
+        val viewModel = createViewModel()
+
+        val state = viewModel.uiState.value as? PositionDetailUiState.Success
+        assertNotNull("Expected Success state", state)
+        assertEquals(fakeSyncedAt, state!!.syncedAt)
+    }
+
     // ── Error — position not found ─────────────────────────────────────────────
 
     @Test
     fun `uiState emits Error when position is not found`() = runTest {
         // GetPositionUseCase returns Result<Position> — failure means position not found
-        coEvery { getPositionUseCase(any(), any()) } returns
+        coEvery { getPositionUseCase(any(), any(), any()) } returns
             Result.failure(NoSuchElementException("Position introuvable"))
 
         val viewModel = createViewModel()
@@ -122,7 +147,7 @@ class PositionDetailViewModelTest {
 
     @Test
     fun `uiState emits Error when getPositionUseCase fails`() = runTest {
-        coEvery { getPositionUseCase(any(), any()) } returns
+        coEvery { getPositionUseCase(any(), any(), any()) } returns
             Result.failure(RuntimeException("Network error"))
 
         val viewModel = createViewModel()
@@ -158,14 +183,26 @@ class PositionDetailViewModelTest {
         viewModel.refresh()
 
         // Use case should have been called at least twice: once on init, once on refresh
-        coVerify(atLeast = 2) { getPositionUseCase(any(), any()) }
+        coVerify(atLeast = 2) { getPositionUseCase(any(), any(), any()) }
+    }
+
+    @Test
+    fun `initial load may use the cache and refresh forces a network fetch`() = runTest {
+        val viewModel = createViewModel()
+
+        coVerify(exactly = 1) { getPositionUseCase("1", fakePositionId, false) }
+        coVerify(exactly = 0) { getPositionUseCase(any(), any(), true) }
+
+        viewModel.refresh()
+
+        coVerify(exactly = 1) { getPositionUseCase("1", fakePositionId, true) }
     }
 
     @Test
     fun `refresh recovers from previous error`() = runTest {
-        coEvery { getPositionUseCase(any(), any()) } returnsMany listOf(
+        coEvery { getPositionUseCase(any(), any(), any()) } returnsMany listOf(
             Result.failure(RuntimeException("First error")),
-            Result.success(fakePosition),
+            Result.success(Cached(fakePosition, fakeSyncedAt)),
         )
 
         val viewModel = createViewModel()
@@ -189,7 +226,7 @@ class PositionDetailViewModelTest {
         coEvery { getPortfolioIdUseCase() } returns "7"
         val viewModel = createViewModel()
 
-        coVerify { getPositionUseCase("7", any()) }
+        coVerify { getPositionUseCase("7", any(), any()) }
     }
 
     @Test
@@ -197,6 +234,6 @@ class PositionDetailViewModelTest {
         coEvery { getPortfolioIdUseCase() } returns ""
         val viewModel = createViewModel()
 
-        coVerify { getPositionUseCase("", any()) }
+        coVerify { getPositionUseCase("", any(), any()) }
     }
 }

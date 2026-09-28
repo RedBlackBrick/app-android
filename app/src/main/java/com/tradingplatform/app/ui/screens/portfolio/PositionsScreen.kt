@@ -35,6 +35,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.tradingplatform.app.data.local.db.CacheTtl
 import com.tradingplatform.app.domain.model.Position
 import com.tradingplatform.app.domain.model.PositionStatus
 import com.tradingplatform.app.ui.components.AnimatedPnlText
@@ -192,7 +193,7 @@ private fun PositionsList(
             }
         }
         item {
-            CacheTimestamp(syncedAt = syncedAt)
+            CacheTimestamp(syncedAt = syncedAt, ttlMs = CacheTtl.POSITIONS_MS)
         }
         items(positions, key = { it.id }) { position ->
             PositionCard(

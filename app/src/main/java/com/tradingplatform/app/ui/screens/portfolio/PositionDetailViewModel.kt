@@ -41,55 +41,45 @@ class PositionDetailViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            loadDetail()
+            loadDetail(forceRefresh = false)
         }
     }
 
+    /** Retry / refresh : contourne toujours le cache Room de la position. */
     fun refresh() {
-        viewModelScope.launch { loadDetail() }
+        viewModelScope.launch { loadDetail(forceRefresh = true) }
     }
 
-    private suspend fun loadDetail() {
+    private suspend fun loadDetail(forceRefresh: Boolean) {
         _uiState.update { PositionDetailUiState.Loading }
         val portfolioId = getPortfolioIdUseCase()
 
-        // Fetch only the single position by ID — no longer loads all positions
-        val positionFetchedAt = System.currentTimeMillis()
-        val positionResult = getPositionUseCase(portfolioId, positionId)
+        // Une seule position par ID — cache Room servi s'il est frais (< CacheTtl.POSITIONS_MS)
+        val positionResult = getPositionUseCase(portfolioId, positionId, forceRefresh)
 
-        val position = positionResult.getOrNull()
-        if (position == null) {
+        val cached = positionResult.getOrNull()
+        if (cached == null) {
             val errorMsg = positionResult.exceptionOrNull()?.localizedMessage
                 ?: "Position introuvable"
             _uiState.update { PositionDetailUiState.Error(errorMsg) }
             return
         }
+        val position = cached.value
 
-        // Fetch transactions filtered by symbol
-        getTransactionsUseCase(
+        // Transactions filtrées par symbole — un échec n'empêche pas d'afficher la position.
+        // syncedAt = horodatage réel de la position (cache ou réseau), pas l'instant d'affichage.
+        val transactions = getTransactionsUseCase(
             portfolioId = portfolioId,
             limit = 50,
             symbol = position.symbol,
-        )
-            .onSuccess { transactions ->
-                _uiState.update {
-                    PositionDetailUiState.Success(
-                        position = position,
-                        transactions = transactions,
-                        syncedAt = System.currentTimeMillis(),
-                    )
-                }
-            }
-            .onFailure {
-                // Still show position even if transactions fail — use positionFetchedAt
-                // so syncedAt reflects when the position data was actually retrieved
-                _uiState.update {
-                    PositionDetailUiState.Success(
-                        position = position,
-                        transactions = emptyList(),
-                        syncedAt = positionFetchedAt,
-                    )
-                }
-            }
+        ).getOrDefault(emptyList())
+
+        _uiState.update {
+            PositionDetailUiState.Success(
+                position = position,
+                transactions = transactions,
+                syncedAt = cached.syncedAt,
+            )
+        }
     }
 }

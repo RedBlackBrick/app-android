@@ -41,8 +41,18 @@ de l'app et le bypass des controles client.
 **Risque** : interception du trafic TLS entre l'app et le VPS.
 
 **Mitigations** :
-- Tout le trafic VPS transite par le tunnel WireGuard (`VpnRequiredInterceptor` bloque si
-  `VpnState != Connected`).
+- Tout le trafic VPS transite par un tunnel VPN : `VpnRequiredInterceptor` bloque sauf si le
+  tunnel WireGuard intégré est `Connected` **ou** si un VPN système est actif.
+- **VPN système tiers accepté (décision D6, commit 7da1974).** Si un VPN monté par une autre
+  app (client WireGuard officiel, OpenVPN, WARP…) est actif — détecté par `SystemVpnMonitor`
+  (`NetworkCapabilities.TRANSPORT_VPN`) — les requêtes sont autorisées même tunnel intégré
+  coupé. Motif : les utilisateurs qui montent le tunnel VPS depuis l'app WireGuard officielle
+  étaient bloqués alors que le trafic passait bien par le tunnel. Limite assumée : l'app ne
+  peut pas vérifier que ce VPN tiers route vers le VPS ; la confidentialité repose alors sur
+  TLS + certificate pinning (ci-dessous), qui restent obligatoires quel que soit le tunnel.
+  Côté UI, cet état est exposé distinctement comme `VpnState.SystemVpnActive` (écran VPN :
+  « VPN système actif (tunnel externe) — le tunnel WireGuard intégré n'est pas utilisé »,
+  boutons connecter/déconnecter désactivés) — jamais présenté comme « Tunnel WireGuard actif ».
 - Certificate pinning OkHttp sur le SPKI hash de la Root CA Caddy (voir section 5).
 - Le `network_security_config.xml` bloque le cleartext par defaut (`cleartextTrafficPermitted="false"`
   dans `<base-config>`), avec une exception limitee aux prefixes LAN RFC-1918 pour le pairing Radxa.
@@ -114,8 +124,9 @@ Certificate Pinning OkHttp (Root CA SPKI SHA-256)
     v
 WireGuard VPN Tunnel (GoBackend, wireguard-android)
     |-- Cle privee : lue depuis EncryptedDataStore, jamais loggee
-    |-- Tunnel : foreground service (WireGuardVpnService)
+    |-- Tunnel : GoBackend$VpnService (AAR wireguard) ; notification : WireGuardVpnService (foreground)
     |-- Etat : StateFlow<VpnState> immutable (Disconnected | Connecting | Connected | Error)
+    |          + SystemVpnActive (derive par l'UI : VPN tiers actif, tunnel integre coupe — D6)
     |
     v
 VPS (HTTPS via tunnel, 10.42.0.1:443)
@@ -125,9 +136,14 @@ VPS (HTTPS via tunnel, 10.42.0.1:443)
 
 - La cle privee WireGuard est generee une seule fois, stockee dans `EncryptedDataStore`,
   protegee par Android Keystore. Elle ne sort jamais de l'app.
-- Toute requete API vers le VPS est conditionnee par `VpnState.Connected`
-  (`VpnRequiredInterceptor`), sauf les endpoints exempts : `/v1/auth/login`,
-  `/v1/auth/refresh`, `/v1/auth/2fa/verify`, `/csrf-token`.
+- Toute requete API vers le VPS est conditionnee par un tunnel actif (`VpnRequiredInterceptor`) :
+  tunnel integre `VpnState.Connected`, ou VPN systeme tiers actif (`SystemVpnMonitor` /
+  `VpnState.SystemVpnActive`, decision D6 — voir §1 MitM), sauf les endpoints exempts :
+  `/v1/auth/login`, `/v1/auth/refresh`, `/v1/auth/2fa/verify`, `/csrf-token`.
+- `WireGuardManager` serialise `connect()`/`disconnect()` par un `Mutex` (la derniere
+  intention gagne : un disconnect pendant `setState(UP)` redescend le tunnel). Une transition
+  DOWN non initiee par l'app (revocation OS) efface le tunnel courant et arrete
+  `WireGuardVpnService` — pas de notification « VPN connecte » residuelle.
 - Le `MutableStateFlow<VpnState>` est interne a `WireGuardManager` — l'API publique expose
   un `StateFlow<VpnState>` immutable (`asStateFlow()`).
 - `VpnNotConnectedException` etend `Exception` (pas `IOException`) pour permettre un catch

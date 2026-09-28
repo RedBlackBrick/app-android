@@ -4,28 +4,33 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.app.Service
 import android.content.Intent
-import android.net.VpnService
+import android.os.IBinder
 import com.tradingplatform.app.MainActivity
 import timber.log.Timber
 
 /**
- * Foreground service that keeps the WireGuard tunnel alive.
+ * Foreground service carrying the persistent "VPN connecté" notification while the in-app
+ * WireGuard tunnel is requested UP.
  *
- * This service is declared in AndroidManifest.xml with:
+ * It does NOT hold the tunnel: it never calls `VpnService.Builder.establish()`. The TUN
+ * interface is owned by `com.wireguard.android.backend.GoBackend$VpnService`, declared (with
+ * `BIND_VPN_SERVICE` and the `android.net.VpnService` intent-filter) by the wireguard `tunnel`
+ * AAR manifest and driven by [WireGuardManager] through [GoTunnelBackend]. Hence a plain
+ * [Service] — no `BIND_VPN_SERVICE` permission nor VpnService intent-filter in our manifest.
+ *
+ * Declared in AndroidManifest.xml with:
  *   - `android:foregroundServiceType="specialUse"` (required Android 14+/API 34)
  *   - `android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE` property explaining the VPN use case
- *   - `android.permission.BIND_VPN_SERVICE` permission
  *
  * Lifecycle:
  *   - [ACTION_CONNECT] → calls [startForeground] with a persistent VPN notification
- *   - [ACTION_DISCONNECT] → removes the foreground notification and stops the service
- *
- * The actual tunnel setup (key exchange, routing) is handled by [WireGuardManager]
- * via the wireguard-android GoBackend. This service provides the Android VPN framework
- * lifecycle wrapper required by the OS.
+ *   - [ACTION_DISCONNECT] → removes the foreground notification and stops the service.
+ *     Sent by [WireGuardManager] on explicit disconnect, on connect failure, and on any
+ *     DOWN transition it did not initiate (OS revocation) — no stale notification.
  */
-class WireGuardVpnService : VpnService() {
+class WireGuardVpnService : Service() {
 
     companion object {
         private const val TAG = "WireGuardVpnService"
@@ -61,6 +66,8 @@ class WireGuardVpnService : VpnService() {
             }
         }
     }
+
+    override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
         super.onDestroy()

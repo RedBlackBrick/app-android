@@ -19,6 +19,7 @@ import com.tradingplatform.app.domain.model.AuthTokens
 import com.tradingplatform.app.domain.model.Portfolio
 import com.tradingplatform.app.domain.model.User
 import com.tradingplatform.app.domain.model.WsTokenInfo
+import com.tradingplatform.app.data.session.SessionManager
 import com.tradingplatform.app.data.session.TokenHolder
 import com.tradingplatform.app.domain.repository.AuthRepository
 import java.time.Instant
@@ -37,6 +38,7 @@ class AuthRepositoryImpl @Inject constructor(
     private val csrfInterceptor: CsrfInterceptor,
     private val cookieJar: EncryptedCookieJar,
     private val okHttpClient: OkHttpClient,
+    private val sessionManager: SessionManager,
 ) : AuthRepository {
 
     companion object {
@@ -75,6 +77,9 @@ class AuthRepositoryImpl @Inject constructor(
             // Peupler le cache mémoire AVANT le DataStore (disque) — si le process est tué
             // entre les deux, le fallback DataStore relira l'ancien token → nouveau 401 → refresh.
             tokenHolder.setToken(tokens.accessToken)
+            // Nouvelle session : PrivateWsClient se (re)connecte immédiatement, backoff remis à
+            // zéro (sans cet événement, il attendait le prochain palier de backoff, ≤ 300 s).
+            sessionManager.notifySessionStarted()
             dataStore.writeString(DataStoreKeys.ACCESS_TOKEN, tokens.accessToken)
             dataStore.writeLong(DataStoreKeys.USER_ID, user.id)
             dataStore.writeBoolean(DataStoreKeys.IS_ADMIN, user.isAdmin)
@@ -130,6 +135,9 @@ class AuthRepositoryImpl @Inject constructor(
 
             // Persist user data and tokens after successful 2FA (same as login)
             tokenHolder.setToken(tokens.accessToken)
+            // Nouvelle session : PrivateWsClient se (re)connecte immédiatement, backoff remis à
+            // zéro (sans cet événement, il attendait le prochain palier de backoff, ≤ 300 s).
+            sessionManager.notifySessionStarted()
             dataStore.writeString(DataStoreKeys.ACCESS_TOKEN, tokens.accessToken)
             dataStore.writeLong(DataStoreKeys.USER_ID, user.id)
             dataStore.writeBoolean(DataStoreKeys.IS_ADMIN, user.isAdmin)

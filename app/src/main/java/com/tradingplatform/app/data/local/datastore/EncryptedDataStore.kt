@@ -395,6 +395,41 @@ class EncryptedDataStore internal constructor(
         prefs.edit { remove(key.name) }
     }
 
+    /**
+     * Supprime [key] uniquement si sa valeur actuelle est toujours [expected] (compare-and-remove).
+     *
+     * Utilisé après un enregistrement FCM réussi pour nettoyer le token "pending" écrit en
+     * write-ahead (voir [DataStoreKeys.PENDING_FCM_TOKEN]) : si un nouveau token a été reçu
+     * (rotation) pendant que l'ancien était en cours d'enregistrement, la valeur en base ne
+     * correspond plus à celle qu'on vient de confirmer — on ne doit pas l'effacer, sous peine
+     * de perdre la trace du nouveau token en attente.
+     *
+     * `synchronized(initLock)` : même verrou que [prefs] — la lecture-comparaison-suppression
+     * est atomique vis-à-vis des autres accès qui passent par ce lock (double-checked locking
+     * de [prefs]), évitant une race avec une écriture concurrente sur la même clé.
+     *
+     * @return true si la clé a été supprimée (valeur inchangée), false sinon (valeur différente,
+     *         absente, ou stockage indisponible).
+     */
+    suspend fun removeIfEquals(key: Preferences.Key<String>, expected: String): Boolean =
+        withContext(Dispatchers.IO) {
+            val prefs = prefs() ?: return@withContext false
+            synchronized(initLock) {
+                val current = try {
+                    prefs.getString(key.name, null)
+                } catch (e: Exception) {
+                    Timber.e(e, "EncryptedDataStore removeIfEquals — read failed")
+                    return@synchronized false
+                }
+                if (current != expected) {
+                    false
+                } else {
+                    prefs.edit { remove(key.name) }
+                    true
+                }
+            }
+        }
+
     /** Efface toutes les données (reset device complet — pas utilisé par le logout normal). */
     suspend fun clearAll() = withContext(Dispatchers.IO) {
         val prefs = prefs() ?: return@withContext

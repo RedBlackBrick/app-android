@@ -1,6 +1,7 @@
 package com.tradingplatform.app.ui.screens.devices
 
 import app.cash.turbine.test
+import com.tradingplatform.app.domain.model.Cached
 import com.tradingplatform.app.domain.model.Device
 import com.tradingplatform.app.domain.model.DeviceStatus
 import com.tradingplatform.app.domain.usecase.device.GetBrokerConnectionsUseCase
@@ -203,6 +204,9 @@ class DeviceDetailViewModelTest {
         lastHeartbeat = Instant.parse("2026-03-01T10:00:00Z"),
     )
 
+    /** Horodatage réel de la ligne Room — distinct de l'instant d'affichage. */
+    private val fakeSyncedAt = 1_700_000_000_000L
+
     @Before
     fun setUp() {
         viewModel = DeviceDetailViewModel(
@@ -223,7 +227,7 @@ class DeviceDetailViewModelTest {
 
     @Test
     fun `loadDevice emits Success with correct device`() = runTest {
-        coEvery { getDeviceStatusUseCase("device-1") } returns Result.success(fakeDevice)
+        coEvery { getDeviceStatusUseCase("device-1", any()) } returns Result.success(Cached(fakeDevice, fakeSyncedAt))
 
         viewModel.loadDevice("device-1")
 
@@ -242,7 +246,7 @@ class DeviceDetailViewModelTest {
 
     @Test
     fun `loadDevice emits Error on repository failure`() = runTest {
-        coEvery { getDeviceStatusUseCase("device-99") } returns
+        coEvery { getDeviceStatusUseCase("device-99", any()) } returns
             Result.failure(RuntimeException("Device not found"))
 
         viewModel.loadDevice("device-99")
@@ -257,18 +261,41 @@ class DeviceDetailViewModelTest {
 
     @Test
     fun `refresh calls loadDevice again`() = runTest {
-        coEvery { getDeviceStatusUseCase("device-1") } returns Result.success(fakeDevice)
+        coEvery { getDeviceStatusUseCase("device-1", any()) } returns Result.success(Cached(fakeDevice, fakeSyncedAt))
 
         viewModel.loadDevice("device-1")
         viewModel.refresh("device-1")
 
-        coVerify(exactly = 2) { getDeviceStatusUseCase("device-1") }
+        coVerify(exactly = 2) { getDeviceStatusUseCase("device-1", any()) }
+    }
+
+    @Test
+    fun `loadDevice may serve the cache while refresh forces a network fetch`() = runTest {
+        coEvery { getDeviceStatusUseCase("device-1", any()) } returns Result.success(Cached(fakeDevice, fakeSyncedAt))
+
+        viewModel.loadDevice("device-1")
+        coVerify(exactly = 1) { getDeviceStatusUseCase("device-1", false) }
+        coVerify(exactly = 0) { getDeviceStatusUseCase("device-1", true) }
+
+        viewModel.refresh("device-1")
+        coVerify(exactly = 1) { getDeviceStatusUseCase("device-1", true) }
+    }
+
+    @Test
+    fun `loadDevice exposes the real syncedAt of the data, not the display time`() = runTest {
+        coEvery { getDeviceStatusUseCase("device-1", any()) } returns Result.success(Cached(fakeDevice, fakeSyncedAt))
+
+        viewModel.loadDevice("device-1")
+
+        val state = viewModel.uiState.value
+        assertIs<DeviceDetailUiState.Success>(state)
+        assertEquals(fakeSyncedAt, state.syncedAt)
     }
 
     @Test
     fun `loadDevice with different id loads correct device`() = runTest {
         val anotherDevice = fakeDevice.copy(id = "device-2", name = "Radxa Edge V2")
-        coEvery { getDeviceStatusUseCase("device-2") } returns Result.success(anotherDevice)
+        coEvery { getDeviceStatusUseCase("device-2", any()) } returns Result.success(Cached(anotherDevice, fakeSyncedAt))
 
         viewModel.loadDevice("device-2")
 

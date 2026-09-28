@@ -45,8 +45,9 @@ class TradingApplication : Application(), Configuration.Provider {
      * Injecté par Hilt après super.onCreate() (garantie @HiltAndroidApp).
      * Démarre la connexion WS uniquement si un access token est présent,
      * ce qui indique que l'utilisateur est déjà authentifié.
-     * Si l'utilisateur n'est pas connecté, [PrivateWsClient] sera connecté
-     * après le login réussi (via [PrivateWsClient.connect] appelé par le LoginViewModel).
+     * Si l'utilisateur n'est pas connecté, [PrivateWsClient] se connecte de lui-même après le
+     * login / la vérification 2FA réussis : AuthRepositoryImpl émet
+     * [SessionManager.notifySessionStarted], que [PrivateWsClient] collecte.
      */
     @Inject lateinit var privateWsClient: PrivateWsClient
     @Inject lateinit var encryptedDataStore: EncryptedDataStore
@@ -82,8 +83,14 @@ class TradingApplication : Application(), Configuration.Provider {
             val hasToken = when (tokenResult) {
                 is SecureReadResult.Found -> {
                     biometricLockManager.restorePersistedState()
-                    tokenHolder.setToken(tokenResult.value)
-                    Timber.d("TradingApplication: access token preloaded into TokenHolder")
+                    // Ne jamais écraser un token plus frais : un refresh (TokenAuthenticator) ou
+                    // GetAuthContextUseCase a pu peupler le holder avant la fin de cette lecture.
+                    if (tokenHolder.accessToken == null) {
+                        tokenHolder.setToken(tokenResult.value)
+                        Timber.d("TradingApplication: access token preloaded into TokenHolder")
+                    } else {
+                        Timber.d("TradingApplication: TokenHolder already populated — preload skipped")
+                    }
                     true
                 }
                 is SecureReadResult.NotFound -> {

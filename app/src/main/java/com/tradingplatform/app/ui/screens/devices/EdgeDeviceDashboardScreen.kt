@@ -42,6 +42,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.tradingplatform.app.data.local.db.CacheTtl
 import com.tradingplatform.app.domain.model.BrokerConnection
 import com.tradingplatform.app.domain.model.BrokerGatewayStatus
 import com.tradingplatform.app.domain.model.Device
@@ -715,6 +716,7 @@ private fun DashboardContent(
             CacheTimestamp(
                 syncedAt = syncedAt,
                 modifier = Modifier.fillMaxWidth(),
+                ttlMs = CacheTtl.DEVICES_MS,
             )
         }
 

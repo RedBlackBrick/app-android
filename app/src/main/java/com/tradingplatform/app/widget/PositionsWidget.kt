@@ -26,8 +26,10 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import com.tradingplatform.app.MainActivity
 import com.tradingplatform.app.data.local.datastore.DataStoreKeys
+import com.tradingplatform.app.data.local.db.CacheTtl
 import com.tradingplatform.app.data.local.db.entity.PositionEntity
 import com.tradingplatform.app.di.WidgetEntryPoint
+import com.tradingplatform.app.domain.model.PositionStatus
 import dagger.hilt.android.EntryPointAccessors
 import java.math.BigDecimal
 
@@ -35,7 +37,7 @@ import java.math.BigDecimal
  * Widget Positions (2x2 minimum).
  *
  * Affiche :
- * - Top 5 positions depuis Room (positions)
+ * - Top 5 positions ouvertes depuis Room (positions), par exposition absolue ([topPositionsByExposure])
  * - Symbole + P&L coloré (vert/rouge selon signe)
  * - Timestamp synced_at (obligatoire — données de trading)
  * - Tap → ouvre l'app sur PositionsScreen
@@ -53,7 +55,7 @@ class PositionsWidget : GlanceAppWidget() {
 
         // Lecture depuis Room — pas d'appel réseau depuis un widget
         val portfolioId = dataStore.readString(DataStoreKeys.PORTFOLIO_ID)
-        val positions = positionDao.getAll().take(5)  // Top 5
+        val positions = topPositionsByExposure(positionDao.getAll())
 
         // Timestamp de la dernière tentative de sync (non sensible — SharedPreferences plain)
         val lastSyncAttempt = WidgetUpdateWorker.readLastSyncAttempt(context)
@@ -68,7 +70,34 @@ class PositionsWidget : GlanceAppWidget() {
             }
         }
     }
+
+    companion object {
+        const val TOP_N = 5
+    }
 }
+
+/**
+ * « Top 5 » du widget : positions ouvertes triées par exposition absolue décroissante,
+ * |quantity × (currentPrice ?: avgPrice)|. La table `positions` peut contenir des positions
+ * fermées (écrites par les filtres « Fermées »/« Toutes » ou par le détail d'une position) :
+ * elles sont exclues. Une ligne dont les montants ne se parsent pas n'est pas écartée mais
+ * classée en dernier (exposition 0) — `runCatching` par ligne, jamais d'exception.
+ */
+internal fun topPositionsByExposure(
+    positions: List<PositionEntity>,
+    limit: Int = PositionsWidget.TOP_N,
+): List<PositionEntity> =
+    positions
+        .filterNot { it.status.equals(PositionStatus.CLOSED.toApiString(), ignoreCase = true) }
+        .map { it to exposureOf(it) }
+        .sortedWith(compareByDescending<Pair<PositionEntity, BigDecimal>> { it.second }.thenBy { it.first.symbol })
+        .take(limit)
+        .map { it.first }
+
+private fun exposureOf(position: PositionEntity): BigDecimal = runCatching {
+    val price = position.currentPrice?.let { BigDecimal(it) } ?: BigDecimal(position.avgPrice)
+    BigDecimal(position.quantity).multiply(price).abs()
+}.getOrDefault(BigDecimal.ZERO)
 
 @Composable
 private fun PositionsWidgetContent(
@@ -97,18 +126,21 @@ private fun PositionsWidgetContent(
                 ),
                 modifier = GlanceModifier.defaultWeight(),
             )
+            // Timestamp synced_at — obligatoire ; « périmé » au-delà de maxOf(POSITIONS_MS, WIDGET_STALE_GRACE_MS)
             val syncLabel = if (positions.isNotEmpty()) {
-                "Sync ${formatWidgetSyncTime(positions.maxOf { it.syncedAt })}"
+                val label = formatWidgetSyncTime(positions.maxOf { it.syncedAt }, widgetStaleThreshold(CacheTtl.POSITIONS_MS))
+                label.copy(text = label.withSyncPrefix())
             } else if (lastSyncAttempt > 0L) {
-                "Tentative ${formatWidgetSyncTime(lastSyncAttempt)}"
+                val label = formatWidgetSyncTime(lastSyncAttempt, ttlMs = Long.MAX_VALUE)
+                label.copy(text = "Tentative ${label.text}")
             } else {
                 null
             }
             if (syncLabel != null) {
                 Text(
-                    text = syncLabel,
+                    text = syncLabel.text,
                     style = TextStyle(
-                        color = GlanceTheme.colors.onSurfaceVariant,
+                        color = syncLabelColor(syncLabel),
                         fontSize = 10.sp,
                     ),
                 )

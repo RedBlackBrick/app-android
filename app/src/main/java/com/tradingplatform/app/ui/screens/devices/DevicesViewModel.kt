@@ -144,14 +144,18 @@ class DeviceDetailViewModel @Inject constructor(
     private val _brokerState = MutableStateFlow<BrokerUiState>(BrokerUiState.Idle)
     val brokerState: StateFlow<BrokerUiState> = _brokerState.asStateFlow()
 
-    fun loadDevice(deviceId: String) {
+    /**
+     * Charge l'état du device. Sans [forceRefresh], le cache Room est servi s'il est frais
+     * (< `CacheTtl.DEVICES_MS`) ; `syncedAt` est l'horodatage réel de la donnée affichée.
+     */
+    fun loadDevice(deviceId: String, forceRefresh: Boolean = false) {
         viewModelScope.launch {
             _uiState.value = DeviceDetailUiState.Loading
-            getDeviceStatusUseCase(deviceId)
-                .onSuccess { device ->
+            getDeviceStatusUseCase(deviceId, forceRefresh)
+                .onSuccess { cached ->
                     _uiState.value = DeviceDetailUiState.Success(
-                        device = device,
-                        syncedAt = System.currentTimeMillis(),
+                        device = cached.value,
+                        syncedAt = cached.syncedAt,
                     )
                 }
                 .onFailure { e ->
@@ -162,7 +166,8 @@ class DeviceDetailViewModel @Inject constructor(
         }
     }
 
-    fun refresh(deviceId: String) = loadDevice(deviceId)
+    /** Pull-to-refresh / retry : contourne toujours le cache Room. */
+    fun refresh(deviceId: String) = loadDevice(deviceId, forceRefresh = true)
 
     // ── Unpair ────────────────────────────────────────────────────────────────
 
