@@ -387,7 +387,7 @@ design). `testInstrumentationRunner` reste `androidx.test.runner.AndroidJUnitRun
 
 ### CI/CD — secrets non commites
 
-Le workflow reel vit dans `.github/workflows/android.yml` (JDK 17 temurin —
+Le workflow reel vit dans `.github/workflows/android.yml` (JDK 21 (daemon Gradle ; la toolchain de compilation 17 est provisionnée par Foojay) temurin —
 aligne sur `compileOptions`/`kotlin { jvmToolchain(17) }` dans `app/build.gradle.kts` et sur
 la compatibilite AGP 9.0.1 / Gradle 9.2.1), avec deux jobs :
 
