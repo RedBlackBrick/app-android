@@ -30,6 +30,9 @@ object DataStoreKeys {
     val WG_SERVER_PUBKEY = stringPreferencesKey("wg_server_pubkey")
     val WG_TUNNEL_IP = stringPreferencesKey("wg_tunnel_ip")
     val WG_DNS = stringPreferencesKey("wg_dns")
+    // Routes du peer VPS provisionnées par le serveur (`allowed_ips` de /register) — relues par
+    // WireGuardManager.reconnect() ; absentes (install antérieure) → full tunnel par défaut.
+    val WG_ALLOWED_IPS = stringPreferencesKey("wg_allowed_ips")
     val SETUP_COMPLETED = booleanPreferencesKey("setup_completed")
     val CSRF_TOKEN = stringPreferencesKey("csrf_token")
     // FCM token registration retry (write-ahead)
@@ -165,6 +168,7 @@ class EncryptedDataStore internal constructor(
         DataStoreKeys.WG_SERVER_PUBKEY.name,
         DataStoreKeys.WG_TUNNEL_IP.name,
         DataStoreKeys.WG_DNS.name,
+        DataStoreKeys.WG_ALLOWED_IPS.name,
         DataStoreKeys.SETUP_COMPLETED.name,
         // Verrou biométrique : un apply() perdu au kill ferait redémarrer déverrouillé.
         DataStoreKeys.BIOMETRIC_LOCKED.name,
@@ -179,6 +183,7 @@ class EncryptedDataStore internal constructor(
         DataStoreKeys.WG_SERVER_PUBKEY.name,
         DataStoreKeys.WG_TUNNEL_IP.name,
         DataStoreKeys.WG_DNS.name,
+        DataStoreKeys.WG_ALLOWED_IPS.name,
         DataStoreKeys.SETUP_COMPLETED.name,
         DataStoreKeys.DEFAULT_QUOTE_SYMBOL.name,
     )

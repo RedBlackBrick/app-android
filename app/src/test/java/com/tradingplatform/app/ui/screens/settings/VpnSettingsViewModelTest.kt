@@ -7,11 +7,13 @@ import com.tradingplatform.app.ui.screens.setup.VPN_CONSENT_DENIED_MESSAGE
 import com.tradingplatform.app.util.MainDispatcherRule
 import com.tradingplatform.app.vpn.SystemVpnMonitor
 import com.tradingplatform.app.vpn.VpnState
+import com.tradingplatform.app.vpn.WireGuardConfig
 import com.tradingplatform.app.vpn.WireGuardManager
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.slot
 import io.mockk.verify
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -195,6 +197,21 @@ class VpnSettingsViewModelTest {
 
         coVerify(exactly = 0) { wireGuardManager.connect(any()) }
         verify(exactly = 1) { wireGuardManager.reconnect() }
+    }
+
+    @Test
+    fun `connect uses persisted provisioned allowed IPs when the config JSON has none`() = runTest {
+        coEvery { dataStore.readString(DataStoreKeys.WG_CONFIG) } returns
+            validConfigJson.replace(Regex("""\s*"peer_allowed_ips": "[^"]*","""), "")
+        coEvery { dataStore.readString(DataStoreKeys.WG_ALLOWED_IPS) } returns "10.42.0.0/24"
+        every { wireGuardManager.state } returns MutableStateFlow(VpnState.Disconnected)
+        val config = slot<WireGuardConfig>()
+        every { wireGuardManager.connect(capture(config)) } returns Unit
+        val viewModel = createViewModel()
+
+        viewModel.connect()
+
+        assertEquals("10.42.0.0/24", config.captured.peer.allowedIPs)
     }
 
     // ── VPN consent (VpnService.prepare) ──────────────────────────────────────

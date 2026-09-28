@@ -460,7 +460,7 @@ Les cles suivantes utilisent `commit = true` (ecriture synchrone) pour eviter la
 en cas de kill du process entre `apply()` et la persistance asynchrone :
 
 - `auth_access_token`
-- `wg_private_key`, `wg_config`, `wg_endpoint`, `wg_server_pubkey`, `wg_tunnel_ip`, `wg_dns`
+- `wg_private_key`, `wg_config`, `wg_endpoint`, `wg_server_pubkey`, `wg_tunnel_ip`, `wg_dns`, `wg_allowed_ips`
 - `cookie_refresh_token` (via `saveCookie()`)
 - `local_token_{deviceId}` (via `writeLocalToken()`)
 
@@ -478,6 +478,7 @@ en cas de kill du process entre `apply()` et la persistance asynchrone :
 | `wg_server_pubkey` | String | Cle publique WireGuard du VPS |
 | `wg_tunnel_ip` | String | IP tunnel attribuee |
 | `wg_dns` | String | DNS du tunnel |
+| `wg_allowed_ips` | String | Routes du peer VPS provisionnees (`allowed_ips` de `/register`), relues par `reconnect()` ; absente → full tunnel `0.0.0.0/0, ::/0` |
 | `setup_completed` | Boolean | `true` apres onboarding QR + premier login |
 | `csrf_token` | String | Token CSRF en cache |
 | `pending_fcm_token` | String | Token FCM en attente d'enregistrement |

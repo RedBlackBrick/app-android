@@ -131,7 +131,9 @@ class WireGuardManager internal constructor(
     }
 
     /**
-     * Reconnects the tunnel using the configuration stored in EncryptedDataStore.
+     * Reconnects the tunnel using the configuration stored in EncryptedDataStore
+     * (`wg_*` keys written by `ProvisionMobileVpnUseCase`, including the provisioned
+     * [DataStoreKeys.WG_ALLOWED_IPS] routes).
      * Useful for manual retries from the UI when the tunnel is disconnected.
      * Does nothing if the private key or endpoint is missing from the store.
      */
@@ -142,6 +144,11 @@ class WireGuardManager internal constructor(
             val serverPubKey = dataStore.readString(DataStoreKeys.WG_SERVER_PUBKEY)
             val tunnelIp = dataStore.readString(DataStoreKeys.WG_TUNNEL_IP)
             val dns = dataStore.readString(DataStoreKeys.WG_DNS)
+            // Routes provisioned by the server; absent on installs provisioned before they were
+            // persisted → full-tunnel default (previous behaviour).
+            val allowedIps = dataStore.readString(DataStoreKeys.WG_ALLOWED_IPS)
+                ?.takeIf { it.isNotBlank() }
+                ?: WireGuardPeer.DEFAULT_ALLOWED_IPS
 
             if (privateKey != null && endpoint != null && serverPubKey != null && tunnelIp != null) {
                 Timber.tag(TAG).i("WireGuard: manual reconnection requested")
@@ -153,6 +160,7 @@ class WireGuardManager internal constructor(
                         peer = WireGuardPeer(
                             publicKey = serverPubKey,
                             endpoint = endpoint,
+                            allowedIPs = allowedIps,
                         ),
                     )
                 )

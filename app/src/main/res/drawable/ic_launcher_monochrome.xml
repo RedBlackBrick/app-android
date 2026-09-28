@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Adaptive icon foreground layer — upward trend-line glyph (trading app), white fill.
-     Glyph is Material Design's "trending_up" path (24x24 grid), scaled 2.5x and centred in
-     the 108x108 canvas so it stays well within the 66dp safe zone (bbox after transform:
-     x≈[29,79], y≈[39,69] — margin on every side of the 21..87 safe-zone box).
+<!-- Adaptive icon monochrome layer (themed icons, Android 13+ / API 33+). Same glyph and
+     transform as ic_launcher_foreground.xml — the system re-tints this layer using only its
+     alpha channel, so the fill color itself is not meaningful, but it is kept identical to the
+     foreground for consistency should the layer ever be rendered untinted.
      See docs/design-system.md "Icône launcher" for the safe-zone/regeneration notes. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"

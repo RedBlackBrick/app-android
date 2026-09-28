@@ -51,14 +51,15 @@
     <issue id="OldTargetApi" severity="informational" />
 
     <!--
-        Launcher icon asset warnings — TODO(design): rework the launcher icon asset (silhouette
-        shape, adaptive-icon monochrome layer, consistent per-density dip size, remove the
-        duplicate round/square icon files). This is launcher icon *asset* work for design, not a
-        code change, and out of scope for this lint-warning triage pass.
+        Icône launcher : les <adaptive-icon> vivent dans mipmap-anydpi-v26 sans PNG de repli
+        (100 % vecteur, minSdk 28). Lint juge le qualificatif -v26 inutile (minSdk >= 26), mais
+        AAPT2 ne résout @mipmap/ic_launcher depuis le manifest que si le dossier porte le
+        qualificatif -v26 quand aucune densité de repli n'existe (échec vérifié : "resource
+        mipmap/ic_launcher not found" avec un simple mipmap-anydpi). Ignoré pour ce dossier
+        uniquement.
     -->
-    <issue id="IconLauncherShape" severity="informational" />
-    <issue id="MonochromeLauncherIcon" severity="informational" />
-    <issue id="IconDipSize" severity="informational" />
-    <issue id="IconDuplicates" severity="informational" />
+    <issue id="ObsoleteSdkInt">
+        <ignore path="src/main/res/mipmap-anydpi-v26" />
+    </issue>
 
 </lint>

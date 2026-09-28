@@ -31,7 +31,16 @@ data class WireGuardConfig(
 data class WireGuardPeer(
     val publicKey: String,
     val presharedKey: String? = null,
-    val allowedIPs: String = "0.0.0.0/0, ::/0",
+    val allowedIPs: String = DEFAULT_ALLOWED_IPS,
     val endpoint: String,
     val persistentKeepalive: Int = 25,
-)
+) {
+    companion object {
+        /**
+         * Full-tunnel routes. Last-resort fallback only: the routes the server provisioned
+         * (`allowed_ips` of `/register`) are persisted under `DataStoreKeys.WG_ALLOWED_IPS`
+         * and take precedence whenever the config is rebuilt from the store.
+         */
+        const val DEFAULT_ALLOWED_IPS = "0.0.0.0/0, ::/0"
+    }
+}

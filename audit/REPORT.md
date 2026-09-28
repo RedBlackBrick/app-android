@@ -286,9 +286,9 @@ Gates : 597 tests unitaires verts (6 ignorés : variante JVM du sealed box, couv
 
 Traités dans la phase 6 (commit final de la branche) : `isLoggedIn` réactif aux événements de session, consentement VPN (`VpnService.prepare()` → `VpnState.ConsentRequired`, dialog depuis Setup et Réglages VPN), worker sous VPN système (déjà géré, tests ajoutés), triage lint (0 erreur ; les avertissements restants sont rétrogradés en informationnels dans `app/lint.xml` avec justification : versions de dépendances gelées, icônes launcher, trust manager LAN documenté).
 
+Traité ensuite : `allowedIps` du provisioning est désormais persisté (`wg_allowed_ips`, écrit par `ProvisionMobileVpnUseCase`) et relu par `WireGuardManager.reconnect()` et `VpnSettingsViewModel` — `reconnect()` ne retombe plus sur les routes full-tunnel (défaut conservé seulement si la clé est absente, installs antérieures).
+
 Restent, à ton appréciation :
 - Backend (optionnel, additif) : `position_id` dans `position_update`, suppression du temp token 2FA seulement sur succès TOTP, `executed_at` typé `datetime`, cible `make openapi-android`.
-- Assets : icônes launcher (forme adaptative, monochrome, tailles) signalées par lint.
 - ~~`SealedBoxHelperRealTest` réactivable quand la CI passera en JDK 21~~ — fait : les tests JVM tournent sur un launcher JDK 21, lazysodium-java aligné en 5.2.0, le test (libsodium réel) est actif.
-- `reconnect()` retombe sur les routes full-tunnel par défaut : `allowedIps` du provisioning n'est jamais persisté (pré-existant).
 - Vérification sur appareil recommandée : prompt biométrique API 28/29, escape hatch (attente `RESUMED`), dialog de consentement VPN, dark mode des composants retouchés. Les tests instrumentés (Gradle Managed Devices) n'ont pas tourné localement : le job CI `instrumented` les exécutera.

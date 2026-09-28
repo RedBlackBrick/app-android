@@ -77,6 +77,7 @@ class EncryptedDataStoreTest {
         ds.saveCookie("refresh_token", "rt")
         ds.writeString(DataStoreKeys.WG_PRIVATE_KEY, "wgkey")
         ds.writeString(DataStoreKeys.WG_ENDPOINT, "vps:51820")
+        ds.writeString(DataStoreKeys.WG_ALLOWED_IPS, "10.42.0.0/24")
         ds.writeBoolean(DataStoreKeys.SETUP_COMPLETED, true)
         ds.writeLocalToken("dev-1", "lt")
 
@@ -86,6 +87,7 @@ class EncryptedDataStoreTest {
         assertTrue(ds.loadCookies().isEmpty())
         assertEquals("wgkey", ds.readString(DataStoreKeys.WG_PRIVATE_KEY))
         assertEquals("vps:51820", ds.readString(DataStoreKeys.WG_ENDPOINT))
+        assertEquals("10.42.0.0/24", ds.readString(DataStoreKeys.WG_ALLOWED_IPS))
         assertEquals(SecureReadResult.Found(true), ds.readBooleanSafe(DataStoreKeys.SETUP_COMPLETED))
         assertEquals("lt", ds.readLocalToken("dev-1"))
     }

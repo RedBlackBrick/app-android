@@ -1451,6 +1451,7 @@ Les widgets Glance accèdent aux données via `WidgetUpdateWorker` (WorkManager 
 | `wg_server_pubkey` | Clé publique WireGuard du VPS |
 | `wg_tunnel_ip` | IP tunnel attribuée |
 | `wg_dns` | DNS du tunnel |
+| `wg_allowed_ips` | Routes du peer VPS provisionnées (`allowed_ips` de `/register`, écrit par `ProvisionMobileVpnUseCase`) — relu par `WireGuardManager.reconnect()` ; absent (install antérieure) → full tunnel `WireGuardPeer.DEFAULT_ALLOWED_IPS` |
 | `setup_completed` | `true` après onboarding QR + premier login |
 | `local_token_{device_id}` | local_token par device Radxa (persisté après pairing) |
 | `cookie_*` | Cookies auth (refresh token httpOnly) |

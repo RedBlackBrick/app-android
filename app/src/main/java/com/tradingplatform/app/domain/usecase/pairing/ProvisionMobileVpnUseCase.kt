@@ -78,6 +78,9 @@ class ProvisionMobileVpnUseCase @Inject constructor(
         dataStore.writeString(DataStoreKeys.WG_SERVER_PUBKEY, result.serverPubkey)
         dataStore.writeString(DataStoreKeys.WG_TUNNEL_IP, result.tunnelIp)
         dataStore.writeString(DataStoreKeys.WG_DNS, result.dns)
+        // Provisioned routes: without them WireGuardManager.reconnect() would rebuild the
+        // tunnel with the full-tunnel default instead of the server's allowed_ips.
+        dataStore.writeString(DataStoreKeys.WG_ALLOWED_IPS, result.allowedIps)
 
         // 5. Bring the tunnel up. WireGuardManager.connect runs asynchronously
         //    on Dispatchers.IO; the caller observes wireGuardManager.state to

@@ -191,7 +191,9 @@ class VpnSettingsViewModel @Inject constructor(
             val dns = extractJsonString(configJson, "dns") ?: "1.1.1.1"
             val peerPublicKey = extractJsonString(configJson, "peer_public_key") ?: return null
             val peerEndpoint = extractJsonString(configJson, "peer_endpoint") ?: return null
-            val peerAllowedIPs = extractJsonString(configJson, "peer_allowed_ips") ?: "0.0.0.0/0, ::/0"
+            val peerAllowedIPs = extractJsonString(configJson, "peer_allowed_ips")
+                ?: dataStore.readString(DataStoreKeys.WG_ALLOWED_IPS)?.takeIf { it.isNotBlank() }
+                ?: WireGuardPeer.DEFAULT_ALLOWED_IPS
             val peerKeepalive = extractJsonInt(configJson, "peer_keepalive") ?: 25
 
             WireGuardConfig(

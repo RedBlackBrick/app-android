@@ -2,6 +2,7 @@ package com.tradingplatform.app.vpn
 
 import android.content.Intent
 import androidx.datastore.preferences.core.Preferences
+import com.tradingplatform.app.data.local.datastore.DataStoreKeys
 import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
 import com.wireguard.android.backend.Tunnel
 import io.mockk.coEvery
@@ -41,6 +42,7 @@ class WireGuardManagerTest {
         var state: Tunnel.State = Tunnel.State.DOWN
         var lastTunnel: Tunnel? = null
         val calls = mutableListOf<Tunnel.State>()
+        var lastUpConfig: WireGuardConfig? = null
 
         /** When set, setState(UP) suspends until completed (simulates a slow handshake). */
         var upGate: CompletableDeferred<Unit>? = null
@@ -52,6 +54,7 @@ class WireGuardManagerTest {
         ): Tunnel.State {
             calls += state
             lastTunnel = tunnel
+            if (state == Tunnel.State.UP) lastUpConfig = config
             if (state == Tunnel.State.UP) upGate?.await()
             if (state != this.state) {
                 this.state = state
@@ -301,5 +304,68 @@ class WireGuardManagerTest {
         advanceUntilIdle()
         assertEquals(VpnState.Disconnected, manager.state.value)
         assertTrue(Tunnel.State.UP !in backend.calls)
+    }
+
+    // ── reconnect() from the wg_* keys (audit REPORT §10: provisioned allowed_ips) ──
+
+    private fun TestScope.createManager(store: Map<String, String>): WireGuardManager =
+        WireGuardManager(
+            applicationScope = this,
+            dataStore = mockk<EncryptedDataStore> {
+                coEvery { readString(any<Preferences.Key<String>>()) } answers {
+                    store[firstArg<Preferences.Key<String>>().name]
+                }
+            },
+            backendFactory = { backendCreations++; backend },
+            serviceController = serviceController,
+            consentChecker = consentChecker,
+            ioDispatcher = StandardTestDispatcher(testScheduler),
+        )
+
+    private val provisionedStore = mapOf(
+        DataStoreKeys.WG_PRIVATE_KEY.name to "cHJpdmF0ZWtleWZvcndpcmVndWFyZHRlc3Rpbmc=",
+        DataStoreKeys.WG_ENDPOINT.name to "vps.example.com:51820",
+        DataStoreKeys.WG_SERVER_PUBKEY.name to "dGVzdHB1YmxpY2tleWZvcndpcmVndWFyZA==",
+        DataStoreKeys.WG_TUNNEL_IP.name to "10.42.0.12",
+        DataStoreKeys.WG_DNS.name to "10.42.0.1",
+    )
+
+    @Test
+    fun `reconnect rebuilds the tunnel with the persisted provisioned allowed IPs`() = runTest {
+        val manager = createManager(
+            provisionedStore + (DataStoreKeys.WG_ALLOWED_IPS.name to "10.42.0.0/24"),
+        )
+
+        manager.reconnect()
+        advanceUntilIdle()
+
+        assertEquals(VpnState.Connected(), manager.state.value)
+        val up = backend.lastUpConfig!!
+        assertEquals("10.42.0.0/24", up.peer.allowedIPs)
+        assertEquals("10.42.0.12", up.address)
+        assertEquals("10.42.0.1", up.dns)
+        assertEquals("vps.example.com:51820", up.peer.endpoint)
+    }
+
+    @Test
+    fun `reconnect falls back to full tunnel when no allowed IPs were persisted`() = runTest {
+        // Install provisioned before wg_allowed_ips existed.
+        val manager = createManager(provisionedStore)
+
+        manager.reconnect()
+        advanceUntilIdle()
+
+        assertEquals(VpnState.Connected(), manager.state.value)
+        assertEquals(WireGuardPeer.DEFAULT_ALLOWED_IPS, backend.lastUpConfig!!.peer.allowedIPs)
+    }
+
+    @Test
+    fun `reconnect treats blank persisted allowed IPs as absent`() = runTest {
+        val manager = createManager(provisionedStore + (DataStoreKeys.WG_ALLOWED_IPS.name to " "))
+
+        manager.reconnect()
+        advanceUntilIdle()
+
+        assertEquals(WireGuardPeer.DEFAULT_ALLOWED_IPS, backend.lastUpConfig!!.peer.allowedIPs)
     }
 }

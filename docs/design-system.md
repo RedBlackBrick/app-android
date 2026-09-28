@@ -343,6 +343,36 @@ Les quatre règles critiques qui cassent en dark et pas en light :
 - **Notifications FCM** : `NotificationCompat.Builder` utilise la couleur d'accentuation
   du launcher — ne pas essayer de forcer un thème. L'icône `ic_dialog_info` est neutre.
 
+### Icône launcher
+
+Icône adaptative (`minSdk = 28` ≥ 26 : pas de fallback PNG legacy, uniquement
+`mipmap-anydpi-v26/`) — 100% vecteur, pas de PNG dans le repo.
+
+| Fichier | Rôle |
+|---------|------|
+| `res/mipmap-anydpi-v26/ic_launcher.xml` / `ic_launcher_round.xml` | `<adaptive-icon>` : référencent les 3 couches ci-dessous |
+| `res/drawable/ic_launcher_background.xml` | Couche fond — vecteur plein 108x108, couleur `@color/ic_launcher_background` |
+| `res/drawable/ic_launcher_foreground.xml` | Couche avant-plan — glyphe (courbe ascendante), blanc |
+| `res/drawable/ic_launcher_monochrome.xml` | Couche themed icon (Android 13+) — même glyphe ; le système la retinte via son canal alpha uniquement |
+
+- **Couleur de fond** : `@color/ic_launcher_background` = `#1E1B4B` (`res/values/colors.xml`),
+  soit exactement `Indigo950` (`ui/theme/Color.kt`, `DarkColorScheme.onPrimary` — voir tableau
+  « Tokens sémantiques → Material 3 » plus haut). Pas de nouvelle teinte : le launcher reprend
+  l'indigo le plus foncé déjà défini, cohérent avec le thème principal sombre de l'app.
+- **Glyphe** : le path Material Design "trending_up" (grille 24x24), mis à l'échelle ×2.5 et
+  centré dans le canvas 108x108 (`<group android:translateX="24" android:translateY="24"
+  android:scaleX="2.5" android:scaleY="2.5">`). Bbox résultante ≈ x:[29,79] y:[39,69] — bien
+  à l'intérieur de la **zone de sécurité** (les 66dp centraux du canvas 108dp, soit la plage
+  [21,87] sur chaque axe) que les launchers peuvent recadrer en cercle/squircle/etc.
+- **Régénérer/modifier** : éditer directement les deux fichiers `drawable/ic_launcher_*.xml`
+  (vecteurs simples, pas d'outil de génération requis). Si le glyphe change, garder son bbox
+  dans [21,87]×[21,87] après transform, et répercuter le changement dans
+  `ic_launcher_foreground.xml` **et** `ic_launcher_monochrome.xml` (même géométrie).
+- Anciennement des PNG factices 69 octets identiques par densité (`mipmap-hdpi/`…
+  `mipmap-xxxhdpi/`) + un `mipmap-anydpi-v26/` sans layer `monochrome` — supprimés (finding lint
+  `IconLauncherShape` / `MonochromeLauncherIcon` / `IconDipSize` / `IconDuplicates`, downgrades
+  retirés d'`app/lint.xml`).
+
 ---
 
 ## Patterns UI spécifiques trading
