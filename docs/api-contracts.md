@@ -273,36 +273,69 @@ Auth : JWT Bearer. Appelé depuis `TradingFirebaseMessagingService.onNewToken()`
 
 ### GET /v1/market-data/symbols
 
-Retourne la liste de tous les symboles trackés par le backend.
+Catalogue paginé des symboles trackés par le backend, avec recherche serveur.
+`MarketDataViewModel` débounce la recherche (300 ms) et pagine par offset
+(`GetAvailableSymbolsUseCase(search, limit, offset)`) pour `SymbolPickerSheet`.
+
+**Query params :** `search` (optionnel), `exchange` (optionnel), `currency` (optionnel),
+`index_sid` (optionnel), `limit` (défaut 100, max 500), `offset` (défaut 0)
 
 **Response 200 :**
 ```json
-["CAC40", "SP500", "NASDAQ", "DOW", "SBF120"]
+{
+  "symbols": [
+    {"sid": 1, "ticker": "AAPL", "name": "Apple Inc.", "exchange": "NASDAQ", "currency": "USD", "is_active": true}
+  ],
+  "total": 4,
+  "limit": 100,
+  "offset": 0,
+  "has_more": false
+}
 ```
+
+Décodé en `SymbolListResponseDto` (`SymbolListItemDto` par entrée). Le repository filtre
+`is_active=false` et mappe vers `SymbolInfo(ticker, name, exchange?, currency?)` /
+`SymbolPage(items, hasMore, nextOffset)`. `MarketDataRepository.getAvailableSymbols()`
+(sans argument) reste disponible comme raccourci — première page, non filtrée par recherche —
+pour les appelants qui n'ont pas besoin de pagination (widgets).
 
 ---
 
 ### GET /v1/market-data/{symbol}/history
 
-Historique OHLCV pour les sparklines de la watchlist.
+Historique OHLCV pour les sparklines de la watchlist (30 derniers points close).
+Utilise `get_range` (et non `GET /v1/market-data/` = `get_latest`, qui est trié DESC) :
+la réponse est déjà chronologique (plus ancien en premier), donc **aucun** `asReversed()`
+n'est appliqué côté app.
 
-**Query params :** `interval` (défaut `1d`), `limit` (défaut 30)
+**Query params :** `start`, `end` (ISO-8601, **requis** côté backend — l'app envoie une
+fenêtre glissante `now - 45 jours` à `now`), `timeframe` (défaut `1d`), `limit` (défaut 1000,
+l'app passe la valeur de `GetSymbolHistoryUseCase`, défaut 30), `cursor` (optionnel),
+`adjusted` (optionnel, défaut `false`)
 
 **Response 200 :**
 ```json
-[
-  {
-    "timestamp": "2026-03-01T00:00:00Z",
-    "open": "7800.00",
-    "high": "7900.00",
-    "low": "7750.00",
-    "close": "7850.50",
-    "volume": 1234500
-  }
-]
+{
+  "symbol": "AAPL",
+  "data": [
+    {
+      "timestamp": "2026-09-23T00:00:00Z",
+      "open": "226.1000",
+      "high": "229.4500",
+      "low": "225.8000",
+      "close": "228.9200",
+      "volume": 51234567
+    }
+  ],
+  "count": 1,
+  "timeframe": "1d",
+  "next_cursor": null
+}
 ```
 
-Utilisé par `MarketDataScreen` via `GetSymbolHistoryUseCase` (extraction du champ `close` pour sparklines).
+Décodé en `MarketDataResponseDto` (`data: List<MarketDataPointDto>`). Utilisé par
+`MarketDataScreen` via `GetSymbolHistoryUseCase` (extraction du champ `close` pour
+sparklines, ordre préservé tel quel).
 
 ### GET /v1/portfolios/{portfolio_id}/performance
 

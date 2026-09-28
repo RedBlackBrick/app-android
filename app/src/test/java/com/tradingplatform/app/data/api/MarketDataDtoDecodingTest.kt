@@ -1,8 +1,8 @@
 package com.tradingplatform.app.data.api
 
-import com.squareup.moshi.Types
 import com.tradingplatform.app.data.local.db.dao.QuoteDao
-import com.tradingplatform.app.data.model.MarketDataPointDto
+import com.tradingplatform.app.data.model.MarketDataResponseDto
+import com.tradingplatform.app.data.model.SymbolListResponseDto
 import com.tradingplatform.app.data.repository.MarketDataRepositoryImpl
 import com.tradingplatform.app.di.NetworkModule
 import io.mockk.mockk
@@ -33,11 +33,12 @@ import java.util.concurrent.CopyOnWriteArrayList
  *   (pydantic v2 serializes Decimal as JSON strings, datetimes as ISO-8601 "...Z").
  *
  * Two layers of tests:
- * - direct Moshi decoding into the type the current Retrofit interface declares — RED today
- *   (BEGIN_OBJECT vs BEGIN_ARRAY); these must be re-pointed at the new DTOs by the fix;
+ * - direct Moshi decoding into the type `MarketDataApi` declares — now `SymbolListResponseDto`
+ *   / `MarketDataResponseDto` (re-pointed by the fix; used to be `List<String>` /
+ *   `List<MarketDataPointDto>`, which threw BEGIN_OBJECT vs BEGIN_ARRAY on these fixtures);
  * - repository-level tests (Retrofit + MockWebServer serving the fixture) that go through
  *   the domain API (`Result<List<String>>` / `Result<List<BigDecimal>>`). Their signatures
- *   survive the fix unchanged, so they are the durable regression guard. RED today.
+ *   survive the fix unchanged, so they are the durable regression guard.
  */
 class MarketDataDtoDecodingTest {
 
@@ -48,38 +49,39 @@ class MarketDataDtoDecodingTest {
             "missing fixture fixtures/backend/$name"
         }.readText()
 
-    // ── Direct decoding (to re-point at the new DTOs) ─────────────────────────
+    // ── Direct decoding (re-pointed at the new DTOs) ──────────────────────────
 
     @Test
     fun `symbols list fixture decodes into the type MarketDataApi getSymbols declares`() {
-        // TODO(audit #6): after the fix, decode into SymbolListResponseDto and assert
-        //  symbols.map { it.ticker } == listOf("AAPL", "MSFT", "MC.PA", "BTC-USD").
-        val adapter = moshi.adapter<List<String>>(
-            Types.newParameterizedType(List::class.java, String::class.java)
-        )
+        val adapter = moshi.adapter(SymbolListResponseDto::class.java)
 
         val decoded = runCatching { adapter.fromJson(fixture("symbols_list.json")) }
 
         assertTrue(
-            "GET /v1/market-data/symbols body does not decode as List<String>: ${decoded.exceptionOrNull()}",
+            "GET /v1/market-data/symbols body does not decode as SymbolListResponseDto: " +
+                "${decoded.exceptionOrNull()}",
             decoded.isSuccess,
+        )
+        assertEquals(
+            listOf("AAPL", "MSFT", "MC.PA", "BTC-USD"),
+            decoded.getOrNull()?.symbols?.map { it.ticker },
         )
     }
 
     @Test
     fun `history fixture decodes into the type MarketDataApi getHistory declares`() {
-        // TODO(audit #7): after the fix, decode into MarketDataResponseDto and assert
-        //  data.map { it.close } == [228.9200, 230.4100, 231.8800].
-        val adapter = moshi.adapter<List<MarketDataPointDto>>(
-            Types.newParameterizedType(List::class.java, MarketDataPointDto::class.java)
-        )
+        val adapter = moshi.adapter(MarketDataResponseDto::class.java)
 
         val decoded = runCatching { adapter.fromJson(fixture("market_data_1d.json")) }
 
         assertTrue(
-            "GET /v1/market-data/{symbol}/history body does not decode as List<MarketDataPointDto>: " +
+            "GET /v1/market-data/{symbol}/history body does not decode as MarketDataResponseDto: " +
                 "${decoded.exceptionOrNull()}",
             decoded.isSuccess,
+        )
+        assertEquals(
+            listOf(BigDecimal("228.9200"), BigDecimal("230.4100"), BigDecimal("231.8800")),
+            decoded.getOrNull()?.data?.map { it.close },
         )
     }
 

@@ -90,6 +90,8 @@ fun MarketDataScreen(
             symbolPickerState = symbolPickerState,
             watchlistSymbols = watchlistSymbols,
             onRefresh = { viewModel.refreshSymbols() },
+            onSearchQueryChange = { viewModel.onSymbolSearchQueryChanged(it) },
+            onLoadMore = { viewModel.loadMoreSymbols() },
             onAddSymbol = { viewModel.addSymbol(it) },
             onRemoveSymbol = { viewModel.removeSymbol(it) },
             onDismiss = { showSymbolPicker = false },

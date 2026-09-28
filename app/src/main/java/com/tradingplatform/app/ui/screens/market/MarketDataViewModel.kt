@@ -3,6 +3,7 @@ package com.tradingplatform.app.ui.screens.market
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tradingplatform.app.domain.model.Quote
+import com.tradingplatform.app.domain.model.SymbolInfo
 import com.tradingplatform.app.domain.usecase.market.AddToWatchlistUseCase
 import com.tradingplatform.app.domain.usecase.market.GetAvailableSymbolsUseCase
 import com.tradingplatform.app.domain.usecase.market.GetQuoteStreamUseCase
@@ -46,13 +47,20 @@ sealed interface MarketDataUiState {
 sealed interface SymbolPickerUiState {
     data object Idle : SymbolPickerUiState
     data object Loading : SymbolPickerUiState
-    data class Success(val symbols: List<String>) : SymbolPickerUiState
+    data class Success(
+        val symbols: List<SymbolInfo>,
+        val hasMore: Boolean = false,
+        val isLoadingMore: Boolean = false,
+        val nextOffset: Int = 0,
+    ) : SymbolPickerUiState
     data class Error(val message: String) : SymbolPickerUiState
 }
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
 private const val QUOTE_POLL_INTERVAL_MS = 30_000L
+private const val SYMBOL_SEARCH_DEBOUNCE_MS = 300L
+private const val SYMBOLS_PAGE_SIZE = 50
 private const val TAG = "MarketDataViewModel"
 
 @HiltViewModel
@@ -87,6 +95,15 @@ class MarketDataViewModel @Inject constructor(
     /** Symbols whose last fetch failed — surfaced in [MarketDataUiState.Success.staleSymbols]. */
     private val staleSymbols = mutableSetOf<String>()
 
+    /** Debounced search-query job for the symbol picker — cancelled/relaunched on each keystroke. */
+    private var symbolSearchJob: Job? = null
+
+    /** "Load more" pagination job for the symbol picker. */
+    private var loadMoreSymbolsJob: Job? = null
+
+    /** Search term of the last symbol picker request — reused by [refreshSymbols] and [loadMoreSymbols]. */
+    private var currentSymbolSearch: String? = null
+
     init {
         viewModelScope.launch {
             getWatchlistUseCase().collect { symbols ->
@@ -115,18 +132,81 @@ class MarketDataViewModel @Inject constructor(
         }
     }
 
+    /**
+     * (Re)loads the first page of the symbol picker using [currentSymbolSearch] — called both
+     * when the picker is first opened (search still unset) and from its "Réessayer" retry.
+     */
     fun refreshSymbols() {
-        _symbolPickerState.value = SymbolPickerUiState.Loading
+        symbolSearchJob?.cancel()
+        loadMoreSymbolsJob?.cancel()
         viewModelScope.launch {
-            getAvailableSymbolsUseCase()
-                .onSuccess { symbols ->
-                    _symbolPickerState.value = SymbolPickerUiState.Success(symbols)
+            loadSymbols(search = currentSymbolSearch, offset = 0)
+        }
+    }
+
+    /**
+     * Server-side search — debounced 300 ms so each keystroke doesn't fire a request.
+     * Cancelling and relaunching the job on every call means only the last query in a
+     * burst survives long enough to fire.
+     */
+    fun onSymbolSearchQueryChanged(query: String) {
+        symbolSearchJob?.cancel()
+        symbolSearchJob = viewModelScope.launch {
+            delay(SYMBOL_SEARCH_DEBOUNCE_MS)
+            loadSymbols(search = query.trim().ifBlank { null }, offset = 0)
+        }
+    }
+
+    /** Fetches the next page (offset from the current [SymbolPickerUiState.Success]) and appends it. */
+    fun loadMoreSymbols() {
+        val current = _symbolPickerState.value
+        if (current !is SymbolPickerUiState.Success || !current.hasMore || current.isLoadingMore) {
+            return
+        }
+        _symbolPickerState.value = current.copy(isLoadingMore = true)
+        loadMoreSymbolsJob?.cancel()
+        loadMoreSymbolsJob = viewModelScope.launch {
+            getAvailableSymbolsUseCase(
+                search = currentSymbolSearch,
+                limit = SYMBOLS_PAGE_SIZE,
+                offset = current.nextOffset,
+            )
+                .onSuccess { page ->
+                    val existing = (_symbolPickerState.value as? SymbolPickerUiState.Success)
+                        ?.symbols
+                        ?: current.symbols
+                    _symbolPickerState.value = SymbolPickerUiState.Success(
+                        symbols = existing + page.items,
+                        hasMore = page.hasMore,
+                        isLoadingMore = false,
+                        nextOffset = page.nextOffset,
+                    )
                 }
                 .onFailure { e ->
-                    _symbolPickerState.value =
-                        SymbolPickerUiState.Error(e.localizedMessage ?: "Erreur")
+                    Timber.tag(TAG).w(e, "Failed to load more symbols")
+                    val stateNow = _symbolPickerState.value
+                    if (stateNow is SymbolPickerUiState.Success) {
+                        _symbolPickerState.value = stateNow.copy(isLoadingMore = false)
+                    }
                 }
         }
+    }
+
+    private suspend fun loadSymbols(search: String?, offset: Int) {
+        currentSymbolSearch = search
+        _symbolPickerState.value = SymbolPickerUiState.Loading
+        getAvailableSymbolsUseCase(search = search, limit = SYMBOLS_PAGE_SIZE, offset = offset)
+            .onSuccess { page ->
+                _symbolPickerState.value = SymbolPickerUiState.Success(
+                    symbols = page.items,
+                    hasMore = page.hasMore,
+                    nextOffset = page.nextOffset,
+                )
+            }
+            .onFailure { e ->
+                _symbolPickerState.value =
+                    SymbolPickerUiState.Error(e.localizedMessage ?: "Erreur")
+            }
     }
 
     fun refresh() {

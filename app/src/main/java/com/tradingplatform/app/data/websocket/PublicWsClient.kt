@@ -96,6 +96,78 @@ class PublicWsClient @Inject constructor(
 
     companion object {
         private const val TAG = "PublicWsClient"
+
+        /**
+         * Parse un message `market_data` en [PublicWsEvent.MarketData].
+         * Retourne null si le symbol est absent ou si le parsing du prix échoue.
+         *
+         * Champs fournis par MarketDataBridge (cf. TP2 market_data_bridge.py §_forward) :
+         * symbol, price, open, high, low, close, volume, bid (nullable), ask (nullable).
+         * Le timestamp est au niveau racine de l'enveloppe serveur.
+         *
+         * `internal` (et non `private`) pour être exercée directement par
+         * `PublicWsClientParseTest` sans construire un [PublicWsClient] (dont le `init`
+         * bloc a des dépendances Android).
+         */
+        internal fun parseMarketData(data: JSONObject, timestampStr: String): PublicWsEvent.MarketData? {
+            val symbol = data.optString("symbol", "").uppercase()
+            if (symbol.isEmpty()) {
+                Timber.tag(TAG).w("market_data message missing symbol — ignored")
+                return null
+            }
+
+            return try {
+                val price = data.optString("price", "0").let { BigDecimal(it) }
+                val open = data.optString("open", "0").let { BigDecimal(it) }
+                val high = data.optString("high", "0").let { BigDecimal(it) }
+                val low = data.optString("low", "0").let { BigDecimal(it) }
+                val close = data.optString("close", "0").let { BigDecimal(it) }
+                // Audit finding #E (plan-market-data.md §E) — volume can be serialized as a
+                // decimal string (e.g. "123456.0") by MarketDataBridge; toLongOrNull() would
+                // return null for that shape and silently default to 0. Parse as BigDecimal
+                // first, then truncate to Long.
+                val volume = data.optString("volume", "").toBigDecimalOrNull()?.toLong() ?: 0L
+                // bid/ask sont nullable côté serveur (champs optionnels du Redis Stream)
+                val bid = if (data.isNull("bid")) null else data.optString("bid", "").let {
+                    if (it.isNotEmpty()) BigDecimal(it) else null
+                }
+                val ask = if (data.isNull("ask")) null else data.optString("ask", "").let {
+                    if (it.isNotEmpty()) BigDecimal(it) else null
+                }
+                val timestamp = if (timestampStr.isNotEmpty()) {
+                    Instant.parse(timestampStr)
+                } else {
+                    Instant.now()
+                }
+
+                val sourceName = data.optString("source_name", "").ifEmpty { null }
+                val sourceType = data.optString("source_type", "").ifEmpty { null }
+                val quality = if (data.has("quality") && !data.isNull("quality")) {
+                    data.optInt("quality", -1).takeIf { it >= 0 }
+                } else null
+                val dataMode = data.optString("data_mode", "").ifEmpty { null }
+
+                PublicWsEvent.MarketData(
+                    symbol = symbol,
+                    price = price,
+                    open = open,
+                    high = high,
+                    low = low,
+                    close = close,
+                    volume = volume,
+                    bid = bid,
+                    ask = ask,
+                    timestamp = timestamp,
+                    sourceName = sourceName,
+                    sourceType = sourceType,
+                    quality = quality,
+                    dataMode = dataMode,
+                )
+            } catch (e: Exception) {
+                Timber.tag(TAG).w(e, "Failed to parse market_data for symbol=$symbol — ignored")
+                null
+            }
+        }
     }
 
     // ── Lifecycle app ──────────────────────────────────────────────────────────
@@ -330,70 +402,6 @@ class PublicWsClient @Inject constructor(
                     Timber.tag(TAG).v("Public WS unknown message type='$type' — ignored")
                 }
             }
-        }
-    }
-
-    /**
-     * Parse un message `market_data` en [PublicWsEvent.MarketData].
-     * Retourne null si le symbol est absent ou si le parsing du prix échoue.
-     *
-     * Champs fournis par MarketDataBridge (cf. TP2 market_data_bridge.py §_forward) :
-     * symbol, price, open, high, low, close, volume, bid (nullable), ask (nullable).
-     * Le timestamp est au niveau racine de l'enveloppe serveur.
-     */
-    private fun parseMarketData(data: JSONObject, timestampStr: String): PublicWsEvent.MarketData? {
-        val symbol = data.optString("symbol", "").uppercase()
-        if (symbol.isEmpty()) {
-            Timber.tag(TAG).w("market_data message missing symbol — ignored")
-            return null
-        }
-
-        return try {
-            val price = data.optString("price", "0").let { BigDecimal(it) }
-            val open = data.optString("open", "0").let { BigDecimal(it) }
-            val high = data.optString("high", "0").let { BigDecimal(it) }
-            val low = data.optString("low", "0").let { BigDecimal(it) }
-            val close = data.optString("close", "0").let { BigDecimal(it) }
-            val volume = data.optString("volume", "0").toLongOrNull() ?: 0L
-            // bid/ask sont nullable côté serveur (champs optionnels du Redis Stream)
-            val bid = if (data.isNull("bid")) null else data.optString("bid", "").let {
-                if (it.isNotEmpty()) BigDecimal(it) else null
-            }
-            val ask = if (data.isNull("ask")) null else data.optString("ask", "").let {
-                if (it.isNotEmpty()) BigDecimal(it) else null
-            }
-            val timestamp = if (timestampStr.isNotEmpty()) {
-                Instant.parse(timestampStr)
-            } else {
-                Instant.now()
-            }
-
-            val sourceName = data.optString("source_name", "").ifEmpty { null }
-            val sourceType = data.optString("source_type", "").ifEmpty { null }
-            val quality = if (data.has("quality") && !data.isNull("quality")) {
-                data.optInt("quality", -1).takeIf { it >= 0 }
-            } else null
-            val dataMode = data.optString("data_mode", "").ifEmpty { null }
-
-            PublicWsEvent.MarketData(
-                symbol = symbol,
-                price = price,
-                open = open,
-                high = high,
-                low = low,
-                close = close,
-                volume = volume,
-                bid = bid,
-                ask = ask,
-                timestamp = timestamp,
-                sourceName = sourceName,
-                sourceType = sourceType,
-                quality = quality,
-                dataMode = dataMode,
-            )
-        } catch (e: Exception) {
-            Timber.tag(TAG).w(e, "Failed to parse market_data for symbol=$symbol — ignored")
-            null
         }
     }
 

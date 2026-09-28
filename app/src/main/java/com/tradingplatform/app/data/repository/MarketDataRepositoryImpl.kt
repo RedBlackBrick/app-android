@@ -5,8 +5,12 @@ import com.tradingplatform.app.data.local.db.dao.QuoteDao
 import com.tradingplatform.app.data.model.toDomain
 import com.tradingplatform.app.data.model.toEntity
 import com.tradingplatform.app.domain.model.Quote
+import com.tradingplatform.app.domain.model.SymbolPage
 import com.tradingplatform.app.domain.repository.MarketDataRepository
 import java.math.BigDecimal
+import java.time.Instant
+import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.supervisorScope
 import java.util.concurrent.ConcurrentHashMap
@@ -81,19 +85,54 @@ class MarketDataRepositoryImpl @Inject constructor(
         return result
     }
 
-    override suspend fun getAvailableSymbols(): Result<List<String>> = runCatching {
-        val response = marketDataApi.getSymbols()
+    override suspend fun getAvailableSymbols(): Result<List<String>> =
+        getAvailableSymbols(search = null, limit = DEFAULT_SYMBOLS_PAGE_SIZE, offset = 0)
+            .map { page -> page.items.map { it.ticker } }
+
+    override suspend fun getAvailableSymbols(
+        search: String?,
+        limit: Int,
+        offset: Int,
+    ): Result<SymbolPage> = runCatching {
+        val response = marketDataApi.getSymbols(
+            search = search?.trim()?.ifBlank { null },
+            limit = limit,
+            offset = offset,
+        )
         if (!response.isSuccessful) {
             error("Get symbols failed: HTTP ${response.code()}")
         }
-        response.body() ?: emptyList()
+        val body = response.body() ?: error("Empty symbols response")
+        SymbolPage(
+            items = body.symbols.filter { it.isActive }.map { it.toDomain() },
+            hasMore = body.hasMore,
+            nextOffset = body.offset + body.symbols.size,
+        )
     }
 
     override suspend fun getHistory(symbol: String, limit: Int): Result<List<BigDecimal>> = runCatching {
-        val response = marketDataApi.getHistory(symbol.uppercase(), limit = limit)
+        val upperSymbol = symbol.uppercase()
+        val end = Instant.now()
+        val start = end.minus(HISTORY_LOOKBACK_DAYS, ChronoUnit.DAYS)
+        val response = marketDataApi.getHistory(
+            symbol = upperSymbol,
+            start = DateTimeFormatter.ISO_INSTANT.format(start),
+            end = DateTimeFormatter.ISO_INSTANT.format(end),
+            timeframe = "1d",
+            limit = limit,
+        )
         if (!response.isSuccessful) {
             error("Get history failed: HTTP ${response.code()}")
         }
-        response.body()?.map { it.close } ?: emptyList()
+        val body = response.body() ?: error("Empty history response")
+        // GET /{symbol}/history (get_range) returns ascending (oldest first) already —
+        // unlike GET /v1/market-data/ (get_latest), which is DESC and would need
+        // asReversed(). No reversal is applied here.
+        body.data.map { it.close }
+    }
+
+    private companion object {
+        const val DEFAULT_SYMBOLS_PAGE_SIZE = 100
+        const val HISTORY_LOOKBACK_DAYS = 45L
     }
 }
