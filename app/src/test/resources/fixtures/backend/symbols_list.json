@@ -1,0 +1,12 @@
+{
+  "symbols": [
+    {"sid": 1, "ticker": "AAPL", "name": "Apple Inc.", "exchange": "NASDAQ", "currency": "USD", "is_active": true},
+    {"sid": 2, "ticker": "MSFT", "name": "Microsoft Corporation", "exchange": "NASDAQ", "currency": "USD", "is_active": true},
+    {"sid": 3, "ticker": "MC.PA", "name": "LVMH Moet Hennessy Louis Vuitton", "exchange": "EPA", "currency": "EUR", "is_active": true},
+    {"sid": 4, "ticker": "BTC-USD", "name": "Bitcoin USD", "exchange": null, "currency": null, "is_active": true}
+  ],
+  "total": 4,
+  "limit": 100,
+  "offset": 0,
+  "has_more": false
+}

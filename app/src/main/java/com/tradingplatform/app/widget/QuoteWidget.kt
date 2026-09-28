@@ -23,6 +23,7 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import com.tradingplatform.app.MainActivity
+import com.tradingplatform.app.data.local.db.CacheTtl
 import com.tradingplatform.app.data.local.db.entity.QuoteEntity
 import com.tradingplatform.app.di.WidgetEntryPoint
 import dagger.hilt.android.EntryPointAccessors
@@ -92,10 +93,25 @@ class QuoteWidget : GlanceAppWidget() {
                 .edit { putString("ticker_$appWidgetId", symbol) }
         }
 
+        /** Nettoyage à la suppression d'une instance ([QuoteWidgetReceiver.onDeleted]). */
         fun clearConfiguredSymbol(context: Context, appWidgetId: Int) {
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .edit { remove("ticker_$appWidgetId") }
         }
+
+        /**
+         * Tous les tickers configurés par une instance de widget (clés `ticker_<appWidgetId>`),
+         * en majuscules, pour que [WidgetUpdateWorker] les synchronise même s'ils ne sont ni
+         * dans la watchlist ni déjà en cache `quotes`.
+         */
+        fun configuredSymbols(context: Context): Set<String> =
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).all
+                .filterKeys { it.startsWith("ticker_") }
+                .values
+                .filterIsInstance<String>()
+                .map { it.trim().uppercase() }
+                .filter { it.isNotEmpty() }
+                .toSet()
     }
 }
 
@@ -134,7 +150,7 @@ private fun QuoteWidgetContent(
                 ),
             )
             val waitingLabel = if (lastSyncAttempt > 0L) {
-                "Tentative ${formatWidgetSyncTime(lastSyncAttempt)}"
+                "Tentative ${formatWidgetSyncTime(lastSyncAttempt, ttlMs = Long.MAX_VALUE).text}"
             } else {
                 "En attente"
             }
@@ -184,11 +200,12 @@ private fun QuoteWidgetContent(
             ),
         )
 
-        // Timestamp synced_at — obligatoire (CLAUDE.md §2)
+        // Timestamp synced_at — obligatoire (CLAUDE.md §2) ; « périmé » au-delà de maxOf(QUOTES_MS, WIDGET_STALE_GRACE_MS)
+        val syncLabel = formatWidgetSyncTime(quote.syncedAt, widgetStaleThreshold(CacheTtl.QUOTES_MS))
         Text(
-            text = formatWidgetSyncTime(quote.syncedAt),
+            text = syncLabel.text,
             style = TextStyle(
-                color = GlanceTheme.colors.onSurfaceVariant,
+                color = syncLabelColor(syncLabel),
                 fontSize = 9.sp,
             ),
         )

@@ -20,17 +20,42 @@ import javax.inject.Singleton
  * [deepLinkEvents] est collecté par [AppNavViewModel] pour déclencher la navigation
  * vers une destination depuis un deep link FCM (onCreate ET onNewIntent).
  *
- * SharedFlow (replay=0) : un seul consommateur suffit (AppNavViewModel).
- * Les émetteurs n'attendent pas — tryEmit.
+ * [sessionStartedEvents] est collecté par [PrivateWsClient] pour se (re)connecter immédiatement
+ * après un login / une vérification 2FA réussis ; [forcedLogoutEvents] est aussi collecté par
+ * [PrivateWsClient] pour fermer le WS privé à la fin de session. [AppNavViewModel] collecte les
+ * deux pour tenir `isLoggedIn` à jour (true / false) pendant toute la vie du process.
+ *
+ * SharedFlow (replay=0) : les consommateurs sont des singletons / le ViewModel racine, abonnés
+ * avant toute émission. Les émetteurs n'attendent pas — tryEmit.
  */
 @Singleton
 class SessionManager @Inject constructor() {
+    /**
+     * Fin de session — émis par TokenAuthenticator / AuthInterceptor (logout forcé),
+     * SettingsViewModel (logout utilisateur) et l'escape hatch biométrique.
+     * Consommateurs : AppNavViewModel (navigation Login) et PrivateWsClient (disconnect).
+     */
     private val _forcedLogoutEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val forcedLogoutEvents: SharedFlow<Unit> = _forcedLogoutEvents.asSharedFlow()
 
     fun notifyForcedLogout() {
         FirebaseCrashlytics.getInstance().log("SessionManager: forced logout")
         _forcedLogoutEvents.tryEmit(Unit)
+    }
+
+    /**
+     * Début de session — émis par AuthRepositoryImpl juste après que l'access token d'un login
+     * ou d'une vérification 2FA réussis a été placé dans [TokenHolder].
+     * Consommateurs : PrivateWsClient (reset du backoff + connexion immédiate) et
+     * AppNavViewModel (`isLoggedIn = true` ; la navigation vers Dashboard reste faite par les
+     * callbacks Login/Totp). Émis AVANT l'écriture de `IS_ADMIN` dans le DataStore : un
+     * consommateur ne doit pas relire ce flag sur cet événement.
+     */
+    private val _sessionStartedEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val sessionStartedEvents: SharedFlow<Unit> = _sessionStartedEvents.asSharedFlow()
+
+    fun notifySessionStarted() {
+        _sessionStartedEvents.tryEmit(Unit)
     }
 
     private val _upgradeRequiredEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 1)

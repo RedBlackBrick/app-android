@@ -71,6 +71,7 @@ fun PairingProgressScreen(
 ) {
     val step by viewModel.step.collectAsStateWithLifecycle()
     val deviceInfo by viewModel.deviceInfo.collectAsStateWithLifecycle()
+    val sessionInfo by viewModel.sessionInfo.collectAsStateWithLifecycle()
 
     // Auto-start pairing when this screen is first shown
     LaunchedEffect(Unit) {
@@ -126,7 +127,7 @@ fun PairingProgressScreen(
         ) {
             // Device context card
             if (deviceInfo != null) {
-                DeviceContextCard(deviceInfo = deviceInfo!!)
+                DeviceContextCard(deviceInfo = deviceInfo!!, deviceWgIp = sessionInfo?.deviceWgIp)
                 Spacer(modifier = Modifier.height(Spacing.lg))
             }
 
@@ -314,10 +315,18 @@ private fun StepIndicator(
 
 // ── Device context card ──────────────────────────────────────────────────────
 
+/**
+ * Displays the device this pairing session is connecting to.
+ *
+ * [deviceWgIp] is the VPN tunnel IP the VPS pre-assigned to the device (from the VPS QR,
+ * `PairingSession.deviceWgIp`) — shown here **for user confirmation only** (CLAUDE.md §8):
+ * it is never sent to the Radxa or to the VPS by the app.
+ */
 @Composable
 private fun DeviceContextCard(
     deviceInfo: DevicePairingInfo,
     modifier: Modifier = Modifier,
+    deviceWgIp: String? = null,
 ) {
     val extendedColors = LocalExtendedColors.current
 
@@ -351,6 +360,17 @@ private fun DeviceContextCard(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                if (!deviceWgIp.isNullOrBlank()) {
+                    Text(
+                        text = "IP VPN attribuée : $deviceWgIp",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.semantics(mergeDescendants = true) {
+                            contentDescription =
+                                "IP VPN attribuée au device, pour confirmation : $deviceWgIp"
+                        },
+                    )
+                }
             }
         }
     }

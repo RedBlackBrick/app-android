@@ -20,11 +20,12 @@ import com.tradingplatform.app.domain.model.Portfolio
 import com.tradingplatform.app.domain.model.Position
 import com.tradingplatform.app.domain.model.PositionStatus
 import com.tradingplatform.app.domain.model.Quote
-import com.tradingplatform.app.domain.model.ScraperCircuitState
 import com.tradingplatform.app.domain.model.Transaction
 import com.tradingplatform.app.domain.model.User
 import com.tradingplatform.app.domain.model.VpnPeer
 import com.tradingplatform.app.domain.model.VpnPeerType
+import com.tradingplatform.app.domain.util.parseInstantLenient
+import com.tradingplatform.app.domain.util.parseInstantOrNull
 import java.math.BigDecimal
 import java.time.Instant
 
@@ -62,21 +63,31 @@ fun PortfolioDto.toDomain(): Portfolio = Portfolio(
 fun PositionDto.toDomain(): Position = Position(
     id = id,
     symbol = symbol,
-    quantity = quantity,
-    avgPrice = avgPrice,
+    // PR-5c FINDING / PR-2.5 fix: PositionResponse.quantity/average_price are
+    // Optional[str] server-side (app/portfolio/schemas.py:980-981) — the DB column
+    // is NOT NULL DEFAULT 0, but the response model does not guarantee it. Null
+    // coerced to ZERO rather than crashing Moshi or propagating a nullable amount.
+    quantity = quantity ?: BigDecimal.ZERO,
+    avgPrice = avgPrice ?: BigDecimal.ZERO,
     currentPrice = currentPrice,
     unrealizedPnl = unrealizedPnl,
     unrealizedPnlPercent = unrealizedPnlPercent,
     status = if (isActive) PositionStatus.OPEN else PositionStatus.CLOSED,
-    openedAt = openedAt?.let { Instant.parse(it) },
+    openedAt = openedAt.parseInstantOrNull(),
 )
 
+/**
+ * `/performance` → domaine. Le domaine exprime tous les ratios en **fractions**.
+ * Le backend renvoie déjà des fractions pour total_return_pct / volatility / cagr / win_rate,
+ * mais `max_drawdown` en **pourcentage positif** (calculators/performance.py `* 100`) :
+ * converti ici (8.3 → 0.083). PerformanceScreen multiplie par 100 à l'affichage.
+ */
 fun PerformanceResponseDto.toPerformanceMetrics(): PerformanceMetrics = PerformanceMetrics(
     totalReturn = totalReturn,
     totalReturnPct = totalReturnPct,
     sharpeRatio = sharpeRatio,
     sortinoRatio = sortinoRatio,
-    maxDrawdown = maxDrawdown,
+    maxDrawdown = maxDrawdown?.div(100.0),
     volatility = volatility,
     cagr = cagr,
     winRate = winRate,
@@ -84,19 +95,7 @@ fun PerformanceResponseDto.toPerformanceMetrics(): PerformanceMetrics = Performa
     avgTradeReturn = avgTradeReturn,
 )
 
-fun PerformanceResponseDto.toDomain(): PnlSummary = PnlSummary(
-    totalReturn = totalReturn,
-    totalReturnPct = totalReturnPct,
-    sharpeRatio = sharpeRatio,
-    sortinoRatio = sortinoRatio,
-    maxDrawdown = maxDrawdown,
-    volatility = volatility,
-    cagr = cagr,
-    winRate = winRate,
-    profitFactor = profitFactor,
-    avgTradeReturn = avgTradeReturn,
-)
-
+/** `/pnl` → domaine. `total_pnl_percent` est un pourcentage côté backend → fraction. */
 fun PnlResponseDto.toPnlSummary(): PnlSummary = PnlSummary(
     totalReturn = totalPnl,
     totalReturnPct = totalPnlPercent / 100.0,
@@ -128,7 +127,7 @@ fun TransactionDto.toDomain(): Transaction = Transaction(
     price = price,
     commission = commission,
     total = total,
-    executedAt = Instant.parse(executedAt),
+    executedAt = parseInstantLenient(executedAt),
 )
 
 fun QuoteDto.toDomain(): Quote = Quote(
@@ -139,7 +138,7 @@ fun QuoteDto.toDomain(): Quote = Quote(
     volume = volume,
     change = change,
     changePercent = changePercent,
-    timestamp = Instant.parse(timestamp),
+    timestamp = parseInstantLenient(timestamp),
     source = source,
     sourceName = sourceName,
     sourceType = sourceType,
@@ -152,14 +151,18 @@ fun DeviceDto.toDomain(): Device = Device(
     name = name,
     status = DeviceStatus.fromApiString(status),
     wgIp = wgIp,
-    lastHeartbeat = lastHeartbeat?.let { Instant.parse(it) },
+    lastHeartbeat = lastHeartbeat.parseInstantOrNull(),
     cpuPct = cpuPct,
     memoryPct = memoryPct,
     temperature = temperature,
     diskPct = diskPct,
     uptimeSeconds = uptimeSeconds,
     firmwareVersion = firmwareVersion,
-    hostname = hostname,
+    // PR-5c FINDING / PR-2.5 fix: hostname/scrapersCircuit/availableMemoryMb are not
+    // provided by GET /v1/edge/devices (DeviceResponse has no such fields — see
+    // DeviceDto's KDoc) — set to null explicitly rather than dropped from the
+    // domain model, so a future backend addition only needs the DTO + mapper touched.
+    hostname = null,
     brokerGateway = if (brokerGatewayEnabled != null || brokerGatewayStatus != null) {
         BrokerGatewayStatus(
             enabled = brokerGatewayEnabled ?: false,
@@ -169,14 +172,8 @@ fun DeviceDto.toDomain(): Device = Device(
     } else null,
     lastTicksSent = lastTicksSent,
     lastScraperErrors = lastScraperErrors,
-    scrapersCircuit = scrapersCircuit?.mapValues { (_, v) ->
-        ScraperCircuitState(
-            state = v.state,
-            consecutiveFailures = v.consecutiveFailures,
-            totalTrips = v.totalTrips,
-        )
-    },
-    availableMemoryMb = availableMemoryMb,
+    scrapersCircuit = null,
+    availableMemoryMb = null,
 )
 
 fun VpnPeerDto.toDomain(): VpnPeer = VpnPeer(
@@ -190,8 +187,8 @@ fun VpnPeerDto.toDomain(): VpnPeer = VpnPeer(
     },
     wgTunnelIp = wgTunnelIp,
     isActive = isActive,
-    pairedAt = Instant.parse(pairedAt),
-    lastHandshake = lastHandshake?.let { Instant.parse(it) },
+    pairedAt = parseInstantLenient(pairedAt),
+    lastHandshake = lastHandshake.parseInstantOrNull(),
 )
 
 // ── Entity → Domain ───────────────────────────────────────────────────────────
@@ -212,17 +209,24 @@ fun PositionEntity.toDomain(): Position = Position(
     openedAt = openedAt?.let { Instant.ofEpochMilli(it) },
 )
 
+/**
+ * Cache `/pnl` → domaine. [PnlSnapshotEntity.totalPnlPercent] est déjà une fraction.
+ * Les ratios de risque (`/performance` uniquement) sont null.
+ */
 fun PnlSnapshotEntity.toDomain(): PnlSummary = PnlSummary(
-    totalReturn = totalReturn?.let { BigDecimal(it) },
-    totalReturnPct = totalReturnPct,
-    sharpeRatio = sharpeRatio,
-    sortinoRatio = sortinoRatio,
-    maxDrawdown = maxDrawdown,
-    volatility = volatility,
-    cagr = cagr,
-    winRate = winRate,
-    profitFactor = profitFactor,
-    avgTradeReturn = avgTradeReturn?.let { BigDecimal(it) },
+    totalReturn = BigDecimal(totalPnl),
+    totalReturnPct = totalPnlPercent,
+    sharpeRatio = null,
+    sortinoRatio = null,
+    maxDrawdown = null,
+    volatility = null,
+    cagr = null,
+    winRate = if (tradesCount > 0) winningTrades.toDouble() / tradesCount else null,
+    profitFactor = null,
+    avgTradeReturn = null,
+    tradesCount = tradesCount,
+    winningTrades = winningTrades,
+    losingTrades = losingTrades,
 )
 
 fun AlertEntity.toDomain(): Alert = Alert(
@@ -291,18 +295,20 @@ fun Position.toEntity(syncedAt: Long = System.currentTimeMillis()): PositionEnti
     syncedAt = syncedAt,
 )
 
-fun PnlSummary.toEntity(period: PnlPeriod, syncedAt: Long = System.currentTimeMillis()): PnlSnapshotEntity = PnlSnapshotEntity(
+/**
+ * DTO `/pnl` → cache Room, une ligne par [period] (clé primaire = `period.toApiString()`,
+ * la période demandée — celle que `PnlWidget` relit).
+ * `total_pnl_percent` (pourcentage backend) est stocké en **fraction**.
+ */
+fun PnlResponseDto.toEntity(period: PnlPeriod, syncedAt: Long = System.currentTimeMillis()): PnlSnapshotEntity = PnlSnapshotEntity(
     period = period.toApiString(),
-    totalReturn = totalReturn?.toPlainString(),
-    totalReturnPct = totalReturnPct,
-    sharpeRatio = sharpeRatio,
-    sortinoRatio = sortinoRatio,
-    maxDrawdown = maxDrawdown,
-    volatility = volatility,
-    cagr = cagr,
-    winRate = winRate,
-    profitFactor = profitFactor,
-    avgTradeReturn = avgTradeReturn?.toPlainString(),
+    realizedPnl = realizedPnl.toPlainString(),
+    unrealizedPnl = unrealizedPnl.toPlainString(),
+    totalPnl = totalPnl.toPlainString(),
+    totalPnlPercent = totalPnlPercent / 100.0,
+    tradesCount = tradesCount,
+    winningTrades = winningTrades,
+    losingTrades = losingTrades,
     syncedAt = syncedAt,
 )
 

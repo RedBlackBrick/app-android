@@ -11,8 +11,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.Spacing
@@ -48,7 +48,7 @@ fun StatusBadge(
                 shape = RoundedCornerShape(50),
             )
             .padding(horizontal = Spacing.sm, vertical = Spacing.xs)
-            .semantics { contentDescription = "Statut : $text" },
+            .clearAndSetSemantics { contentDescription = "Statut : $text" },
         contentAlignment = Alignment.Center,
     ) {
         Text(
@@ -115,7 +115,7 @@ fun ClosedPositionBadge(modifier: Modifier = Modifier) {
                 shape = RoundedCornerShape(50),
             )
             .padding(horizontal = Spacing.sm, vertical = Spacing.xs)
-            .semantics { contentDescription = "Statut : Fermée" },
+            .clearAndSetSemantics { contentDescription = "Statut : Fermée" },
         contentAlignment = Alignment.Center,
     ) {
         Text(

@@ -19,10 +19,14 @@ import com.tradingplatform.app.domain.model.AuthTokens
 import com.tradingplatform.app.domain.model.Portfolio
 import com.tradingplatform.app.domain.model.User
 import com.tradingplatform.app.domain.model.WsTokenInfo
+import com.tradingplatform.app.data.session.SessionManager
 import com.tradingplatform.app.data.session.TokenHolder
 import com.tradingplatform.app.domain.repository.AuthRepository
-import java.time.Instant
+import com.tradingplatform.app.domain.util.parseInstantLenient
+import com.tradingplatform.app.domain.util.runCatchingCancellable
+import kotlinx.coroutines.CancellationException
 import okhttp3.OkHttpClient
+import retrofit2.Response
 import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -36,6 +40,7 @@ class AuthRepositoryImpl @Inject constructor(
     private val csrfInterceptor: CsrfInterceptor,
     private val cookieJar: EncryptedCookieJar,
     private val okHttpClient: OkHttpClient,
+    private val sessionManager: SessionManager,
 ) : AuthRepository {
 
     companion object {
@@ -43,12 +48,12 @@ class AuthRepositoryImpl @Inject constructor(
     }
 
     override suspend fun login(email: String, password: String): Result<Pair<User, AuthTokens>> =
-        runCatching {
+        runCatchingCancellable {
             val response = authApi.login(LoginRequestDto(email, password))
             if (!response.isSuccessful) {
                 val errorBody = response.errorBody()?.string()
                 val code = response.code()
-                val retryAfter = response.headers()["Retry-After"]?.toIntOrNull()
+                val retryAfter = retryAfterSeconds(response)
 
                 // 429 : compte verrouillé sans body nécessaire — lire Retry-After
                 if (code == 429) throw AccountLockedException(retryAfterSeconds = retryAfter)
@@ -77,6 +82,10 @@ class AuthRepositoryImpl @Inject constructor(
             dataStore.writeString(DataStoreKeys.ACCESS_TOKEN, tokens.accessToken)
             dataStore.writeLong(DataStoreKeys.USER_ID, user.id)
             dataStore.writeBoolean(DataStoreKeys.IS_ADMIN, user.isAdmin)
+            // Nouvelle session — émis APRÈS les écritures DataStore pour que les collecteurs
+            // (AppNavViewModel.isLoggedIn/isAdmin, PrivateWsClient reconnexion immédiate avec
+            // backoff remis à zéro) lisent un état cohérent.
+            sessionManager.notifySessionStarted()
 
             // Pre-fetch CSRF pour éviter runBlocking contention sur la première requête POST
             csrfInterceptor.preFetch()
@@ -84,10 +93,12 @@ class AuthRepositoryImpl @Inject constructor(
             Pair(user, tokens)
         }
 
-    override suspend fun logout(): Result<Unit> = runCatching {
+    override suspend fun logout(): Result<Unit> = runCatchingCancellable {
         // Tenter le logout API — même en cas d'erreur réseau, nettoyer le store local
         try {
             authApi.logout()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Timber.tag(TAG).w(e, "AuthRepository: logout API call failed, clearing local data anyway")
         }
@@ -98,21 +109,32 @@ class AuthRepositoryImpl @Inject constructor(
         // de forcer un re-scan du QR d'onboarding à chaque logout.
         try {
             dataStore.clearSession()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Timber.tag(TAG).e(e, "AuthRepository: clearSession failed during logout — session data may be stale")
         }
         csrfInterceptor.clearToken()
         cookieJar.clear()
-        try { okHttpClient.cache?.evictAll() } catch (_: Exception) {}
+        try {
+            okHttpClient.cache?.evictAll()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+        }
     }
 
     override suspend fun verify2fa(sessionToken: String, totpCode: String): Result<Pair<User, AuthTokens>> =
-        runCatching {
+        runCatchingCancellable {
             val response = authApi.verify2fa(TotpVerifyRequestDto(sessionToken, totpCode))
             if (!response.isSuccessful) {
-                // Code TOTP invalide (401) → exception typée
-                if (response.code() == 401) {
-                    throw InvalidTotpCodeException()
+                when (response.code()) {
+                    // 401 = code TOTP faux OU temp token expiré/déjà consommé (le backend
+                    // supprime le temp token à la première lecture, avant de vérifier le code)
+                    // → réponse authentifiée par le serveur, la session 2FA est perdue.
+                    401 -> throw InvalidTotpCodeException()
+                    // 429 : rate limit 2FA (3/min côté backend) — même mapping que login
+                    429 -> throw AccountLockedException(retryAfterSeconds = retryAfterSeconds(response))
                 }
                 error("2FA verification failed: HTTP ${response.code()}")
             }
@@ -128,6 +150,10 @@ class AuthRepositoryImpl @Inject constructor(
             dataStore.writeString(DataStoreKeys.ACCESS_TOKEN, tokens.accessToken)
             dataStore.writeLong(DataStoreKeys.USER_ID, user.id)
             dataStore.writeBoolean(DataStoreKeys.IS_ADMIN, user.isAdmin)
+            // Nouvelle session — émis APRÈS les écritures DataStore pour que les collecteurs
+            // (AppNavViewModel.isLoggedIn/isAdmin, PrivateWsClient reconnexion immédiate avec
+            // backoff remis à zéro) lisent un état cohérent.
+            sessionManager.notifySessionStarted()
 
             // Pre-fetch CSRF pour éviter runBlocking contention sur la première requête POST
             csrfInterceptor.preFetch()
@@ -135,7 +161,7 @@ class AuthRepositoryImpl @Inject constructor(
             Pair(user, tokens)
         }
 
-    override suspend fun getPortfolios(): Result<List<Portfolio>> = runCatching {
+    override suspend fun getPortfolios(): Result<List<Portfolio>> = runCatchingCancellable {
         val response = authApi.getPortfolios()
         if (!response.isSuccessful) {
             error("Get portfolios failed: HTTP ${response.code()}")
@@ -157,6 +183,10 @@ class AuthRepositoryImpl @Inject constructor(
 
         portfolios
     }
+
+    /** Délai en secondes de l'en-tête `Retry-After` (format entier uniquement), ou null. */
+    private fun retryAfterSeconds(response: Response<*>): Int? =
+        response.headers()["Retry-After"]?.toIntOrNull()
 
     /**
      * Parse le corps d'erreur d'un appel login et retourne l'exception typée correspondante,
@@ -195,7 +225,7 @@ class AuthRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun refreshToken(): Result<AuthTokens> = runCatching {
+    override suspend fun refreshToken(): Result<AuthTokens> = runCatchingCancellable {
         val response = authApi.refresh()
         if (!response.isSuccessful) {
             error("Token refresh failed: HTTP ${response.code()}")
@@ -207,7 +237,7 @@ class AuthRepositoryImpl @Inject constructor(
         tokens
     }
 
-    override suspend fun getWsToken(): Result<WsTokenInfo> = runCatching {
+    override suspend fun getWsToken(): Result<WsTokenInfo> = runCatchingCancellable {
         val response = authApi.getWsToken()
         if (!response.isSuccessful) {
             error("WS token fetch failed: HTTP ${response.code()}")
@@ -215,11 +245,11 @@ class AuthRepositoryImpl @Inject constructor(
         val body = response.body() ?: error("Empty WS token response")
         WsTokenInfo(
             token = body.token,
-            expiresAt = Instant.parse(body.expiresAt),
+            expiresAt = parseInstantLenient(body.expiresAt),
         )
     }
 
-    override suspend fun getUserProfile(): Result<User> = runCatching {
+    override suspend fun getUserProfile(): Result<User> = runCatchingCancellable {
         val response = authApi.me()
         if (!response.isSuccessful) {
             error("Get user profile failed: HTTP ${response.code()}")

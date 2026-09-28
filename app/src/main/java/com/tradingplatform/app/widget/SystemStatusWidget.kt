@@ -27,6 +27,8 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import com.tradingplatform.app.MainActivity
 import com.tradingplatform.app.data.local.datastore.DataStoreKeys
+import com.tradingplatform.app.data.local.datastore.SecureReadResult
+import com.tradingplatform.app.data.local.db.CacheTtl
 import com.tradingplatform.app.data.local.db.entity.DeviceEntity
 import com.tradingplatform.app.domain.model.DeviceStatus
 import com.tradingplatform.app.di.WidgetEntryPoint
@@ -36,7 +38,8 @@ import dagger.hilt.android.EntryPointAccessors
  * Widget System Status (2x1 minimum) — admin uniquement.
  *
  * Affiche :
- * - Si !is_admin : message "Réservé aux administrateurs"
+ * - Si !is_admin (ou clé absente) : message "Réservé aux administrateurs"
+ * - Si EncryptedDataStore corrompu : "Session expirée — ouvrez l'app" (comme les autres widgets)
  * - Si admin : état des devices depuis Room (devices)
  *   - Nombre de devices online/offline
  *   - Timestamp synced_at
@@ -54,10 +57,12 @@ class SystemStatusWidget : GlanceAppWidget() {
         val dataStore = ep.encryptedDataStore()
         val deviceDao = ep.deviceDao()
 
-        // Vérifier is_admin avant d'accéder aux données devices (CLAUDE.md §2)
-        val isAdmin = dataStore.readBoolean(DataStoreKeys.IS_ADMIN) ?: false
+        // Vérifier is_admin avant d'accéder aux données devices (CLAUDE.md §2).
+        // readBooleanSafe distingue un datastore corrompu (Keystore invalidé → session à
+        // rétablir) d'un compte non-admin — readBoolean() renvoyait null dans les deux cas.
+        val access = adminAccessOf(dataStore.readBooleanSafe(DataStoreKeys.IS_ADMIN))
 
-        val devices = if (isAdmin) {
+        val devices = if (access == AdminAccess.GRANTED) {
             deviceDao.getAll()
         } else {
             emptyList()
@@ -69,7 +74,7 @@ class SystemStatusWidget : GlanceAppWidget() {
         provideContent {
             GlanceTheme {
                 SystemStatusWidgetContent(
-                    isAdmin = isAdmin,
+                    access = access,
                     devices = devices,
                     lastSyncAttempt = lastSyncAttempt,
                 )
@@ -78,9 +83,22 @@ class SystemStatusWidget : GlanceAppWidget() {
     }
 }
 
+/** Résultat du contrôle `is_admin` du widget. */
+internal enum class AdminAccess { GRANTED, NOT_ADMIN, SESSION_EXPIRED }
+
+/**
+ * `Found(true)` → [AdminAccess.GRANTED] ; `Found(false)` / `NotFound` → [AdminAccess.NOT_ADMIN] ;
+ * `Corrupted` → [AdminAccess.SESSION_EXPIRED] (même message que les autres widgets).
+ */
+internal fun adminAccessOf(result: SecureReadResult<Boolean>): AdminAccess = when (result) {
+    is SecureReadResult.Found -> if (result.value) AdminAccess.GRANTED else AdminAccess.NOT_ADMIN
+    is SecureReadResult.NotFound -> AdminAccess.NOT_ADMIN
+    is SecureReadResult.Corrupted -> AdminAccess.SESSION_EXPIRED
+}
+
 @Composable
 private fun SystemStatusWidgetContent(
-    isAdmin: Boolean,
+    access: AdminAccess,
     devices: List<DeviceEntity>,
     lastSyncAttempt: Long,
 ) {
@@ -92,9 +110,13 @@ private fun SystemStatusWidgetContent(
             .clickable(actionStartActivity<MainActivity>()),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (!isAdmin) {
+        if (access != AdminAccess.GRANTED) {
             Text(
-                text = "Réservé aux administrateurs",
+                text = if (access == AdminAccess.SESSION_EXPIRED) {
+                    "Session expirée — ouvrez l'app"
+                } else {
+                    "Réservé aux administrateurs"
+                },
                 style = TextStyle(
                     color = GlanceTheme.colors.onSurfaceVariant,
                     fontSize = 12.sp,
@@ -117,18 +139,21 @@ private fun SystemStatusWidgetContent(
                 ),
                 modifier = GlanceModifier.defaultWeight(),
             )
+            // Timestamp synced_at — obligatoire ; « périmé » au-delà de maxOf(DEVICES_MS, WIDGET_STALE_GRACE_MS)
             val syncLabel = if (devices.isNotEmpty()) {
-                "Sync ${formatWidgetSyncTime(devices.maxOf { it.syncedAt })}"
+                val label = formatWidgetSyncTime(devices.maxOf { it.syncedAt }, widgetStaleThreshold(CacheTtl.DEVICES_MS))
+                label.copy(text = label.withSyncPrefix())
             } else if (lastSyncAttempt > 0L) {
-                "Tentative ${formatWidgetSyncTime(lastSyncAttempt)}"
+                val label = formatWidgetSyncTime(lastSyncAttempt, ttlMs = Long.MAX_VALUE)
+                label.copy(text = "Tentative ${label.text}")
             } else {
                 null
             }
             if (syncLabel != null) {
                 Text(
-                    text = syncLabel,
+                    text = syncLabel.text,
                     style = TextStyle(
-                        color = GlanceTheme.colors.onSurfaceVariant,
+                        color = syncLabelColor(syncLabel),
                         fontSize = 10.sp,
                     ),
                 )

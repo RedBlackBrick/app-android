@@ -4,6 +4,7 @@ import com.tradingplatform.app.data.api.PairingLanApi
 import com.tradingplatform.app.domain.exception.PairingDeviceException
 import com.tradingplatform.app.domain.model.PairingStatus
 import com.tradingplatform.app.domain.repository.PairingRepository
+import com.tradingplatform.app.domain.util.runCatchingCancellable
 import com.tradingplatform.app.security.SealedBoxHelper
 import com.tradingplatform.app.security.isLocalNetwork
 import com.tradingplatform.app.security.sealLanBody
@@ -32,7 +33,9 @@ class PairingRepositoryImpl @Inject constructor(
      * Règles critiques (CLAUDE.md §8) :
      * - Valide que l'IP est RFC-1918 avant tout appel réseau (anti-DNS-rebinding)
      * - Le session_pin et le local_token ne sont JAMAIS loggés — [REDACTED] uniquement
-     * - Connexion HTTP uniquement (pas de certificate pinning — LAN local)
+     * - Connexion HTTPS (cert auto-signé Radxa validé par [com.tradingplatform.app.security.LanTrustManager],
+     *   pas le certificate pinning Root CA du VPS) — `di/NetworkModule.kt` `lanOnlyHttpsGuard()`
+     *   refuse toute cible non-HTTPS ou non-RFC-1918 avant même l'ouverture de la socket
      * - Le payload JSON est chiffré avec crypto_box_seal (clé publique Curve25519 du Radxa)
      * - Le body envoyé est un octet-stream (bytes chiffrés, pas de JSON en clair)
      */
@@ -44,7 +47,7 @@ class PairingRepositoryImpl @Inject constructor(
         localToken: String,
         nonce: String,
         radxaWgPubkey: String,
-    ): Result<Unit> = runCatching {
+    ): Result<Unit> = runCatchingCancellable {
         Timber.tag(TAG).d("PairingRepository: sending encrypted PIN to $deviceIp:$devicePort sessionId=$sessionId pin=[REDACTED] token=[REDACTED] nonce=[REDACTED]")
 
         val payloadJson = JSONObject().apply {
@@ -90,7 +93,7 @@ class PairingRepositoryImpl @Inject constructor(
         val url = "https://$deviceIp:$devicePort/status?session_id=$sessionId"
 
         while (true) {
-            val status = runCatching {
+            val status = runCatchingCancellable {
                 val response = pairingApi.getStatus(url)
                 if (response.isSuccessful) {
                     val statusStr = response.body()?.get("status")?.toString() ?: "failed"

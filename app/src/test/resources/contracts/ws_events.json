@@ -1,0 +1,112 @@
+{
+  "_comment": "Hand-maintained (unlike openapi.json, WS payloads have no OpenAPI/AsyncAPI export in trading-platform2). For each private/public WS event type the app parses, `keys` lists every JSON key the backend actually puts in the envelope's `data` object across ALL call sites (union — a given message may carry a subset). Update this file by re-reading the cited backend source whenever a WS payload changes; DtoContractTest's WS test asserts the keys the app reads (hard-coded there, mirroring WsRepository.kt / PrivateWsClient.kt / PublicWsClient.kt) are a subset of the matching event's `keys` here.",
+  "portfolio_update": {
+    "envelope": "{\"type\": \"portfolio_update\", \"data\": {...}}",
+    "source": "trading-platform2 app/portfolio/consumer.py:2151-2162 (ws_payload, built in _record_order_execution) -> app/websocket/private_handler.py:37-38 send_portfolio_update",
+    "keys": [
+      "portfolio_id",
+      "symbol",
+      "side",
+      "quantity",
+      "price",
+      "total_value",
+      "cash_balance",
+      "positions_value"
+    ],
+    "notes": "No daily_pnl/total_pnl/nav key is ever sent on this channel — it is an order-execution snapshot, not a NAV/P&L tick. Matches the KDoc on WsRepository.portfolioUpdates (data/repository/WsRepository.kt:29-38)."
+  },
+  "position_update": {
+    "envelope": "{\"type\": \"position_update\", \"data\": {...}}",
+    "source": "trading-platform2 app/portfolio/consumer.py:2170-2200 (ws_position_payload, built in _record_order_execution) -> app/websocket/private_handler.py:40-41 send_position_update",
+    "keys": [
+      "portfolio_id",
+      "symbol",
+      "side",
+      "quantity",
+      "average_price",
+      "last_price",
+      "unrealized_pnl",
+      "realized_pnl",
+      "is_active"
+    ],
+    "notes": "No position_id key is ever sent — matches the KDoc on WsRepository.positionUpdates (data/repository/WsRepository.kt:57-66). `current_price` (the app's fallback name for `last_price`) is likewise never sent by any current call site."
+  },
+  "order_update": {
+    "envelope": "{\"type\": \"order_update\", \"data\": {...}}",
+    "source": "trading-platform2 app/execution/consumer.py:91-112 (_send_order_ws_update base fields + extra=) and app/execution/exit_consumer.py:1108-1131,1219-1233 (same helper, exit-order call sites)",
+    "keys": [
+      "order_id",
+      "symbol",
+      "side",
+      "status",
+      "broker_order_id",
+      "quantity",
+      "price",
+      "order_type",
+      "portfolio_id",
+      "strategy_id",
+      "strategy_type",
+      "reason",
+      "exit_order",
+      "rule_type",
+      "trigger_price",
+      "position_id"
+    ],
+    "notes": "PR-5c FINDING (new, not previously tracked in audit/PLAN.md): no call site of _send_order_ws_update ever sets a `fill_price` key — only `price` (the requested/limit price at SUBMITTED time). WsRepository.orderUpdates reads `fill_price` (data/repository/WsRepository.kt:102), which is therefore always null. See PR report."
+  },
+  "notification": {
+    "envelope": "{\"type\": \"notification\", \"data\": {...}}",
+    "source": "trading-platform2 app/notification/service.py:363-374 (send_and_route) and :474-482 (broadcast), app/notification/consumer.py:388-397",
+    "keys": [
+      "title",
+      "body",
+      "notification_type",
+      "priority",
+      "data",
+      "id"
+    ],
+    "notes": "PR-5c FINDING (new): the backend key is `notification_type`, never `type`. PrivateWsClient.kt:445 reads `data.optString(\"type\", \"info\")`, which therefore always falls back to the \"info\" default. PrivateWsClient.kt:447 also falls back to a `message` key for `body` (`data.optString(\"body\", data.optString(\"message\", \"\"))`) that no call site ever sends either — harmless since `body` itself is always sent, but dead code, and undocumented (no KDoc, unlike the position_update `current_price` fallback). See PR report."
+  },
+  "strategy_signal": {
+    "envelope": "{\"type\": \"strategy_signal\", \"data\": {...}}",
+    "source": "trading-platform2 app/strategy/consumer/base.py:3109-3120 (handler.send_strategy_signal)",
+    "keys": [
+      "signal_id",
+      "strategy_id",
+      "symbol",
+      "action",
+      "confidence",
+      "strategy_type"
+    ],
+    "notes": "confidence is sent as a numeric STRING (str(result.confidence)); org.json's JSONObject.optDouble() coerces numeric strings via Double.parseDouble, so WsRepository.strategySignals' optDoubleOrNull(\"confidence\") decodes it correctly — not a drift."
+  },
+  "catalyst_event": {
+    "envelope": "{\"type\": \"catalyst_event\", \"data\": {...}}",
+    "source": "trading-platform2 app/events/catalyst/consumer.py:277-300 (_forward_to_websocket -> handler.send_catalyst_event)",
+    "keys": [
+      "catalyst_type",
+      "symbol",
+      "strategy_id",
+      "data"
+    ],
+    "notes": "PR-5c FINDING (new): the backend key is `catalyst_type`, never `event_type`; there is no top-level `title`/`description` — those would have to come from inside the nested `data` (event_data) object, which WsRepository does not descend into. WsRepository.catalystEvents reads `event_type`/`title`/`description` (data/repository/WsRepository.kt:123-126), which are therefore always null. See PR report."
+  },
+  "market_data": {
+    "envelope": "{\"type\": \"market_data\", \"data\": {...}, \"timestamp\": \"...\"} (public /ws/public channel, distinct from the private channel above)",
+    "source": "trading-platform2 app/websocket/market_data_bridge.py:252-351 (MarketDataBridge._forward)",
+    "keys": [
+      "symbol",
+      "price",
+      "open",
+      "high",
+      "low",
+      "close",
+      "volume",
+      "bid",
+      "ask",
+      "source",
+      "data_mode"
+    ],
+    "notes": "PR-5c FINDING (new): only `symbol`/`price` are unconditionally present; open/high/low/close/volume/bid/ask/source/data_mode are each included only `if val is not None`. The public bridge NEVER sends `source_name`, `source_type` or `quality` (those three appear only on the separate admin_events.py channel, app/websocket/admin_events.py:166-167) — PublicWsClient.parseMarketData reads all three (data/websocket/PublicWsClient.kt:143-147) and they are therefore always null on this channel. Also note the key sent is `source` (singular free-text), not `source_name`/`source_type`. See PR report."
+  }
+}

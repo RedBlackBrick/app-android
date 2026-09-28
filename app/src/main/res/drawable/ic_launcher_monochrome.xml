@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Adaptive icon monochrome layer (themed icons, Android 13+ / API 33+). Same glyph and
+     transform as ic_launcher_foreground.xml — the system re-tints this layer using only its
+     alpha channel, so the fill color itself is not meaningful, but it is kept identical to the
+     foreground for consistency should the layer ever be rendered untinted.
+     See docs/design-system.md "Icône launcher" for the safe-zone/regeneration notes. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:translateX="24"
+        android:translateY="24"
+        android:scaleX="2.5"
+        android:scaleY="2.5">
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M16,6l2.29,2.29 -4.88,4.88 -4,-4L2,16.41 3.41,17.82l6,-6 4,4 6.29,-6.29L22,12V6z" />
+    </group>
+</vector>

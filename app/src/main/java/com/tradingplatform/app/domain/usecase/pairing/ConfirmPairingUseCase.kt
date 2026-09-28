@@ -3,6 +3,7 @@ package com.tradingplatform.app.domain.usecase.pairing
 import com.tradingplatform.app.domain.exception.PairingTimeoutException
 import com.tradingplatform.app.domain.model.PairingStatus
 import com.tradingplatform.app.domain.repository.PairingRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeout
@@ -33,8 +34,14 @@ class ConfirmPairingUseCase @Inject constructor(
             }
         )
     } catch (e: TimeoutCancellationException) {
+        // TimeoutCancellationException is a CancellationException subclass — caught first and
+        // deliberately mapped to a business failure (the 120s pairing-session TTL expired).
+        // Must stay ahead of the generic CancellationException catch below.
         Timber.w("ConfirmPairing: session timeout after 120s — sessionId=$sessionId")
         Result.failure(PairingTimeoutException())
+    } catch (e: CancellationException) {
+        // Real external cancellation (caller left the flow) — never swallow, rethrow.
+        throw e
     } catch (e: Exception) {
         Result.failure(e)
     }

@@ -1,5 +1,6 @@
 package com.tradingplatform.app.ui.screens.portfolio
 
+import androidx.annotation.VisibleForTesting
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tradingplatform.app.domain.model.Position
@@ -9,6 +10,7 @@ import com.tradingplatform.app.domain.usecase.auth.GetPortfolioIdUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPositionWsUpdatesUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPositionsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -41,26 +43,48 @@ class PositionsViewModel @Inject constructor(
     private val _selectedFilter = MutableStateFlow(StatusFilter.OPEN)
     val selectedFilter: StateFlow<StatusFilter> = _selectedFilter.asStateFlow()
 
+    /**
+     * Test-only seam: moves [selectedFilter] without cancelling [loadJob], so a test can
+     * reproduce the race window between an in-flight [loadPositions] response and a filter
+     * change, independently of `Job` cancellation (see [loadPositions] kdoc).
+     */
+    @VisibleForTesting
+    internal fun forceSelectedFilterForRaceTest(filter: StatusFilter) {
+        _selectedFilter.value = filter
+    }
+
     private var portfolioId: String = ""
 
+    /** Tracks the in-flight load so a filter change/refresh can cancel a stale one. */
+    private var loadJob: Job? = null
+
     init {
-        viewModelScope.launch {
+        loadJob = viewModelScope.launch {
             portfolioId = getPortfolioIdUseCase()
-            loadPositions()
+            loadPositions(_selectedFilter.value)
         }
         collectPositionWsUpdates()
     }
 
     fun selectFilter(filter: StatusFilter) {
+        loadJob?.cancel()
         _selectedFilter.value = filter
-        viewModelScope.launch { loadPositions() }
+        loadJob = viewModelScope.launch { loadPositions(filter) }
     }
 
     /**
      * Collect real-time position updates from the private WebSocket.
      *
      * Each [WsUpdate.PositionUpdate] is merged into the current positions list
-     * by matching on positionId first, then symbol as fallback.
+     * via [matchesPosition]. The backend does not currently send `position_id`,
+     * so matching falls back to symbol scoped to the OPEN status — this avoids
+     * a symbol match hitting a stale CLOSED row when the same symbol was
+     * traded, closed and reopened (visible under the ALL filter).
+     *
+     * `isActive == false` means the fill fully closed the position: it is
+     * dropped from the list under the OPEN filter (it no longer belongs there)
+     * and marked CLOSED otherwise (ALL/CLOSED filters keep it visible).
+     *
      * Updates are ignored when the UI state is not [PositionsUiState.Success].
      */
     private fun collectPositionWsUpdates() {
@@ -68,17 +92,24 @@ class PositionsViewModel @Inject constructor(
             getPositionWsUpdatesUseCase().collect { wsUpdate ->
                 _uiState.update { current ->
                     if (current !is PositionsUiState.Success) return@update current
-                    val updatedPositions = current.positions.map { position ->
-                        if (matchesPosition(position, wsUpdate)) {
-                            position.copy(
-                                currentPrice = wsUpdate.currentPrice?.toBigDecimal()
-                                    ?: position.currentPrice,
-                                unrealizedPnl = wsUpdate.unrealizedPnl?.toBigDecimal()
-                                    ?: position.unrealizedPnl,
-                            )
-                        } else {
-                            position
+                    val filter = _selectedFilter.value
+                    val updatedPositions = current.positions.mapNotNull { position ->
+                        if (!matchesPosition(position, wsUpdate)) return@mapNotNull position
+                        if (!wsUpdate.isActive) {
+                            return@mapNotNull if (filter == StatusFilter.OPEN) {
+                                null
+                            } else {
+                                position.copy(status = PositionStatus.CLOSED)
+                            }
                         }
+                        position.copy(
+                            currentPrice = wsUpdate.lastPrice?.toBigDecimal()
+                                ?: position.currentPrice,
+                            unrealizedPnl = wsUpdate.unrealizedPnl?.toBigDecimal()
+                                ?: position.unrealizedPnl,
+                            quantity = wsUpdate.quantity?.toBigDecimal()
+                                ?: position.quantity,
+                        )
                     }
                     current.copy(positions = updatedPositions)
                 }
@@ -87,28 +118,52 @@ class PositionsViewModel @Inject constructor(
     }
 
     /**
-     * Match a [WsUpdate.PositionUpdate] to a [Position] — prefer positionId,
-     * fall back to symbol.
+     * Match a [WsUpdate.PositionUpdate] to a [Position].
+     *
+     * When the backend sends an explicit `position_id`, match it exactly —
+     * this is unambiguous regardless of status. Otherwise (current backend
+     * behavior), fall back to symbol matching scoped to OPEN positions only:
+     * a symbol alone cannot disambiguate between a closed and a reopened
+     * position of the same ticker.
      */
     private fun matchesPosition(position: Position, update: WsUpdate.PositionUpdate): Boolean {
-        val byId = update.positionId?.let { it == position.id.toString() } ?: false
-        if (byId) return true
-        return update.symbol?.let { it == position.symbol } ?: false
+        val positionId = update.positionId
+        if (positionId != null) {
+            return positionId == position.id.toString()
+        }
+        return position.status == PositionStatus.OPEN &&
+            update.symbol != null &&
+            update.symbol == position.symbol
     }
 
     fun refresh() {
-        viewModelScope.launch { loadPositions() }
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch { loadPositions(_selectedFilter.value) }
     }
 
-    private suspend fun loadPositions() {
+    /**
+     * Loads positions for [requestedFilter].
+     *
+     * [selectFilter]/[refresh] always cancel the previous [loadJob] before launching a new
+     * one, which normally prevents an out-of-order response from overwriting a newer one.
+     * The [_selectedFilter] check below is a defense-in-depth guard for the residual window
+     * between a response arriving and cancellation taking effect — it drops the result if the
+     * user has since moved on to a different filter, rather than trusting cancellation alone.
+     *
+     * Internal (not private) so tests can drive this directly to exercise that guard without
+     * depending on coroutine cancellation timing.
+     */
+    @VisibleForTesting
+    internal suspend fun loadPositions(requestedFilter: StatusFilter) {
         _uiState.update { PositionsUiState.Loading }
-        val status = when (_selectedFilter.value) {
+        val status = when (requestedFilter) {
             StatusFilter.OPEN -> PositionStatus.OPEN
             StatusFilter.CLOSED -> PositionStatus.CLOSED
             StatusFilter.ALL -> PositionStatus.ALL
         }
         getPositionsUseCase(portfolioId, status)
             .onSuccess { positions ->
+                if (_selectedFilter.value != requestedFilter) return@onSuccess
                 _uiState.update {
                     PositionsUiState.Success(
                         positions = positions,
@@ -117,6 +172,7 @@ class PositionsViewModel @Inject constructor(
                 }
             }
             .onFailure { e ->
+                if (_selectedFilter.value != requestedFilter) return@onFailure
                 _uiState.update {
                     PositionsUiState.Error(e.localizedMessage ?: "Erreur")
                 }

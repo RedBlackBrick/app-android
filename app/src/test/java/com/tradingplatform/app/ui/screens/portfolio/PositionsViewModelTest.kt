@@ -3,6 +3,7 @@ package com.tradingplatform.app.ui.screens.portfolio
 import app.cash.turbine.test
 import com.tradingplatform.app.domain.model.Position
 import com.tradingplatform.app.domain.model.PositionStatus
+import com.tradingplatform.app.domain.model.WsUpdate
 import com.tradingplatform.app.domain.usecase.auth.GetPortfolioIdUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPositionWsUpdatesUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPositionsUseCase
@@ -11,6 +12,8 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
@@ -49,6 +52,30 @@ class PositionsViewModelTest {
     )
 
     private val fakePositions = listOf(fakePosition)
+
+    private val fakeOpenTsla = Position(
+        id = 42,
+        symbol = "TSLA",
+        quantity = BigDecimal("10"),
+        avgPrice = BigDecimal("250.00"),
+        currentPrice = BigDecimal("280.00"),
+        unrealizedPnl = BigDecimal("300.00"),
+        unrealizedPnlPercent = 12.0,
+        status = PositionStatus.OPEN,
+        openedAt = Instant.now(),
+    )
+
+    private val fakeClosedTsla = Position(
+        id = 99,
+        symbol = "TSLA",
+        quantity = BigDecimal("5"),
+        avgPrice = BigDecimal("200.00"),
+        currentPrice = BigDecimal("210.00"),
+        unrealizedPnl = BigDecimal("50.00"),
+        unrealizedPnlPercent = 5.0,
+        status = PositionStatus.CLOSED,
+        openedAt = Instant.now(),
+    )
 
     @Before
     fun setUp() {
@@ -205,6 +232,126 @@ class PositionsViewModelTest {
             )
             cancelAndIgnoreRemainingEvents()
         }
+    }
+
+    // ── WS position_update merge (finding #23 / NEW-ws-position-price) ─────────
+
+    @Test
+    fun `position update with last_price updates currentPrice and unrealizedPnl`() = runTest {
+        val wsUpdates = MutableSharedFlow<WsUpdate.PositionUpdate>(extraBufferCapacity = 1)
+        every { getPositionWsUpdatesUseCase() } returns wsUpdates
+        viewModel = createViewModel()
+
+        wsUpdates.emit(
+            WsUpdate.PositionUpdate(
+                symbol = "TSLA",
+                lastPrice = 295.5,
+                unrealizedPnl = 455.0,
+                isActive = true,
+            ),
+        )
+
+        val state = viewModel.uiState.value as PositionsUiState.Success
+        val updated = state.positions.first()
+        assertEquals(0, BigDecimal("295.5").compareTo(updated.currentPrice))
+        assertEquals(0, BigDecimal("455.0").compareTo(updated.unrealizedPnl))
+    }
+
+    @Test
+    fun `position update for a shared symbol under ALL filter only touches the OPEN row`() = runTest {
+        val wsUpdates = MutableSharedFlow<WsUpdate.PositionUpdate>(extraBufferCapacity = 1)
+        every { getPositionWsUpdatesUseCase() } returns wsUpdates
+        coEvery { getPositionsUseCase(any(), PositionStatus.ALL) } returns
+            Result.success(listOf(fakeOpenTsla, fakeClosedTsla))
+
+        viewModel = createViewModel()
+        viewModel.selectFilter(StatusFilter.ALL)
+
+        wsUpdates.emit(
+            WsUpdate.PositionUpdate(
+                symbol = "TSLA",
+                lastPrice = 320.0,
+                unrealizedPnl = 700.0,
+                isActive = true,
+            ),
+        )
+
+        val state = viewModel.uiState.value as PositionsUiState.Success
+        val open = state.positions.first { it.id == 42 }
+        val closed = state.positions.first { it.id == 99 }
+        assertEquals(0, BigDecimal("320.0").compareTo(open.currentPrice))
+        // The CLOSED row for the same symbol must not be touched by a symbol-only match.
+        assertEquals(0, BigDecimal("210.00").compareTo(closed.currentPrice))
+        assertEquals(0, BigDecimal("50.00").compareTo(closed.unrealizedPnl))
+    }
+
+    @Test
+    fun `is_active false removes the position under the OPEN filter`() = runTest {
+        val wsUpdates = MutableSharedFlow<WsUpdate.PositionUpdate>(extraBufferCapacity = 1)
+        every { getPositionWsUpdatesUseCase() } returns wsUpdates
+        viewModel = createViewModel()
+
+        wsUpdates.emit(WsUpdate.PositionUpdate(symbol = "TSLA", isActive = false))
+
+        val state = viewModel.uiState.value as PositionsUiState.Success
+        assertTrue("Expected the closed position to be dropped", state.positions.isEmpty())
+    }
+
+    @Test
+    fun `is_active false under ALL filter marks the position CLOSED instead of removing it`() = runTest {
+        val wsUpdates = MutableSharedFlow<WsUpdate.PositionUpdate>(extraBufferCapacity = 1)
+        every { getPositionWsUpdatesUseCase() } returns wsUpdates
+        coEvery { getPositionsUseCase(any(), PositionStatus.ALL) } returns
+            Result.success(listOf(fakeOpenTsla))
+
+        viewModel = createViewModel()
+        viewModel.selectFilter(StatusFilter.ALL)
+
+        wsUpdates.emit(WsUpdate.PositionUpdate(symbol = "TSLA", isActive = false))
+
+        val state = viewModel.uiState.value as PositionsUiState.Success
+        assertEquals(1, state.positions.size)
+        assertEquals(PositionStatus.CLOSED, state.positions.first().status)
+    }
+
+    // ── Stale filter result dropped (finding C-pos-conc-2) ──────────────────────
+
+    /**
+     * [PositionsViewModel.selectFilter]/[PositionsViewModel.refresh] cancel the previous
+     * load job, which normally prevents an out-of-order response. This test targets the
+     * defense-in-depth guard in [PositionsViewModel.loadPositions] directly — dropping a
+     * response whose requested filter no longer matches [PositionsViewModel.selectedFilter]
+     * — without depending on `Job` cancellation timing, by driving `loadPositions` for two
+     * "filters" concurrently and completing them out of order.
+     */
+    @Test
+    fun `stale load result for a previous filter is dropped once selection has moved on`() = runTest {
+        val deferredOpen = CompletableDeferred<Result<List<Position>>>()
+        coEvery { getPositionsUseCase(any(), PositionStatus.OPEN) } coAnswers { deferredOpen.await() }
+        coEvery { getPositionsUseCase(any(), PositionStatus.ALL) } returns
+            Result.success(listOf(fakeOpenTsla))
+
+        viewModel = createViewModel()
+        // init's load for OPEN (the default selected filter) is now suspended on deferredOpen.
+
+        // Simulate the selected filter moving to ALL while the OPEN request is still in
+        // flight — driven directly via the internal `loadPositions` (not `selectFilter`,
+        // which would cancel the OPEN job and make this race unreachable).
+        viewModel.forceSelectedFilterForRaceTest(StatusFilter.ALL)
+        viewModel.loadPositions(StatusFilter.ALL)
+
+        val afterAll = viewModel.uiState.value as PositionsUiState.Success
+        assertEquals(listOf(fakeOpenTsla), afterAll.positions)
+
+        // The stale OPEN response finally arrives — it must not clobber the ALL state.
+        deferredOpen.complete(Result.success(fakePositions))
+
+        val finalState = viewModel.uiState.value as PositionsUiState.Success
+        assertEquals(
+            "Stale OPEN response must be dropped, ALL state must survive",
+            listOf(fakeOpenTsla),
+            finalState.positions,
+        )
     }
 }
 

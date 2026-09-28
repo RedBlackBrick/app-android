@@ -1,6 +1,7 @@
 package com.tradingplatform.app.data.api.interceptor
 
 import com.tradingplatform.app.BuildConfig
+import com.tradingplatform.app.data.api.AuthPaths
 import com.tradingplatform.app.data.session.SessionManager
 import com.tradingplatform.app.data.session.TokenHolder
 import okhttp3.Interceptor
@@ -17,13 +18,15 @@ import javax.inject.Singleton
  * - Authorization: Bearer <access_token> (depuis [TokenHolder] in-memory uniquement)
  * - X-App-Version: {versionCode} (pour détection upgrade requis 426)
  *
- * Le token est lu depuis [TokenHolder] (volatile read, ~0ns) — aucun accès disque
- * sur le thread OkHttp. Le cache est peuplé au startup par [TradingApplication.onCreate]
- * et maintenu par [TokenAuthenticator] sur refresh.
+ * Le token est lu depuis [TokenHolder] uniquement (volatile read, ~0ns) — aucun accès
+ * disque sur le thread OkHttp, et pas de fallback DataStore. Le holder est peuplé par le
+ * preload de `TradingApplication.onCreate`, par `GetAuthContextUseCase` (porte de
+ * navigation au démarrage, si le preload n'a pas encore fini), par AuthRepositoryImpl au
+ * login / 2FA, et maintenu par [TokenAuthenticator] sur refresh.
  *
- * Si le token est absent (cold start non encore terminé, EncryptedDataStore corrompu
- * ou Keystore invalidé), un logout forcé est déclenché via [SessionManager] et une
- * réponse 401 synthétique est retournée — la requête n'est pas envoyée au serveur.
+ * Si le token est absent (logout en vol, EncryptedDataStore corrompu ou Keystore
+ * invalidé), un logout forcé est déclenché via [SessionManager] et une réponse 401
+ * synthétique est retournée — la requête n'est pas envoyée au serveur.
  */
 @Singleton
 class AuthInterceptor @Inject constructor(
@@ -33,25 +36,15 @@ class AuthInterceptor @Inject constructor(
 
     companion object {
         private const val TAG = "AuthInterceptor"
-
-        // Endpoints that do NOT require an Authorization header. Fresh installs
-        // have no token yet; without this exclusion, the interceptor short-circuits
-        // with a synthetic 401 before /v1/auth/login can even reach the server.
-        // Must stay in sync with the backend CSRF_EXEMPT_PATHS in
-        // app/core/middleware/csrf.py.
-        private val PUBLIC_PATHS: Set<String> = setOf(
-            "/v1/auth/login",
-            "/v1/auth/register",
-            "/v1/auth/refresh",
-            "/v1/auth/csrf-token",
-        )
     }
 
     override fun intercept(chain: Interceptor.Chain): Response {
-        // Public endpoints: proceed without Authorization header (fresh installs
-        // have no token at all and must be able to reach /v1/auth/login).
+        // Public endpoints (AuthPaths.PUBLIC, miroir de auth.py PUBLIC_PATHS) : pas de
+        // Bearer. Une install fraîche n'a aucun token et doit joindre /v1/auth/login ;
+        // pendant un login 2FA le TokenHolder est vide et /v1/auth/2fa/verify
+        // s'authentifie par le temp token du body.
         val path = chain.request().url.encodedPath
-        if (path in PUBLIC_PATHS) {
+        if (path in AuthPaths.PUBLIC) {
             return chain.proceed(
                 chain.request().newBuilder()
                     .header("X-App-Version", BuildConfig.VERSION_CODE.toString())
@@ -71,9 +64,10 @@ class AuthInterceptor @Inject constructor(
             )
         }
 
-        // TokenHolder vide : soit le preload n'est pas encore terminé (rare, course
-        // improbable — preload démarre au super.onCreate() avant toute composition UI),
-        // soit le token a été invalidé (logout en vol) ou le Keystore est corrompu.
+        // TokenHolder vide : le token a été invalidé (logout en vol) ou le Keystore est
+        // corrompu. Le cold start n'est pas un cas attendu : la porte de navigation attend
+        // GetAuthContextUseCase, qui peuple le holder si le preload n'a pas encore fini
+        // (seuls les appels hors UI — Worker, FCM — peuvent encore précéder le preload).
         // Dans tous les cas : refuser la requête sans bloquer un thread OkHttp.
         Timber.tag(TAG).w("AuthInterceptor: token absent in TokenHolder — forced logout")
         sessionManager.notifyForcedLogout()

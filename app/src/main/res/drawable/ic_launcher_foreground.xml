@@ -1,10 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Adaptive icon foreground layer — upward trend-line glyph (trading app), white fill.
+     Glyph is Material Design's "trending_up" path (24x24 grid), scaled 2.5x and centred in
+     the 108x108 canvas so it stays well within the 66dp safe zone (bbox after transform:
+     x≈[29,79], y≈[39,69] — margin on every side of the 21..87 safe-zone box).
+     See docs/design-system.md "Icône launcher" for the safe-zone/regeneration notes. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M54,27C39.1,27 27,39.1 27,54s12.1,27 27,27 27-12.1 27-27S68.9,27 54,27z" />
+    <group
+        android:translateX="24"
+        android:translateY="24"
+        android:scaleX="2.5"
+        android:scaleY="2.5">
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M16,6l2.29,2.29 -4.88,4.88 -4,-4L2,16.41 3.41,17.82l6,-6 4,4 6.29,-6.29L22,12V6z" />
+    </group>
 </vector>

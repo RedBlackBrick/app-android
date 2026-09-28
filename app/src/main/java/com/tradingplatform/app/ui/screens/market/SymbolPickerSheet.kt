@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -21,7 +22,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.SuggestionChip
+import androidx.compose.material3.SuggestionChipDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -36,6 +40,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.tradingplatform.app.domain.model.SymbolInfo
 import com.tradingplatform.app.ui.components.rememberHapticFeedback
 import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.Spacing
@@ -46,6 +51,8 @@ fun SymbolPickerSheet(
     symbolPickerState: SymbolPickerUiState,
     watchlistSymbols: List<String>,
     onRefresh: () -> Unit,
+    onSearchQueryChange: (String) -> Unit,
+    onLoadMore: () -> Unit,
     onAddSymbol: (String) -> Unit,
     onRemoveSymbol: (String) -> Unit,
     onDismiss: () -> Unit,
@@ -75,13 +82,16 @@ fun SymbolPickerSheet(
                 ),
             )
 
-            // Search field
+            // Search field — server-side search (debounced in the ViewModel)
             TextField(
                 value = searchQuery,
-                onValueChange = { searchQuery = it },
+                onValueChange = { input ->
+                    searchQuery = input
+                    onSearchQueryChange(input)
+                },
                 placeholder = {
                     Text(
-                        text = "Rechercher un symbole\u2026",
+                        text = "Rechercher un symbole…",
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 },
@@ -139,7 +149,7 @@ fun SymbolPickerSheet(
                             color = MaterialTheme.colorScheme.error,
                         )
                         Text(
-                            text = "R\u00e9essayer",
+                            text = "Réessayer",
                             style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier
@@ -152,19 +162,10 @@ fun SymbolPickerSheet(
 
                 is SymbolPickerUiState.Success -> {
                     val watchlistSet = remember(watchlistSymbols) {
-                        watchlistSymbols.toSet()
-                    }
-                    val filteredSymbols = remember(symbolPickerState.symbols, searchQuery) {
-                        if (searchQuery.isBlank()) {
-                            symbolPickerState.symbols
-                        } else {
-                            symbolPickerState.symbols.filter { symbol ->
-                                symbol.contains(searchQuery.trim(), ignoreCase = true)
-                            }
-                        }
+                        watchlistSymbols.map { it.uppercase() }.toSet()
                     }
 
-                    if (filteredSymbols.isEmpty()) {
+                    if (symbolPickerState.symbols.isEmpty()) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -172,7 +173,7 @@ fun SymbolPickerSheet(
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
-                                text = "Aucun symbole trouv\u00e9",
+                                text = "Aucun symbole trouvé",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -182,23 +183,32 @@ fun SymbolPickerSheet(
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             items(
-                                items = filteredSymbols,
-                                key = { it },
+                                items = symbolPickerState.symbols,
+                                key = { it.ticker },
                             ) { symbol ->
-                                val isInWatchlist = symbol.uppercase() in watchlistSet
+                                val isInWatchlist = symbol.ticker.uppercase() in watchlistSet
                                 SymbolPickerItem(
                                     symbol = symbol,
                                     isInWatchlist = isInWatchlist,
                                     onToggle = {
                                         if (isInWatchlist) {
                                             haptic.reject()
-                                            onRemoveSymbol(symbol)
+                                            onRemoveSymbol(symbol.ticker)
                                         } else {
                                             haptic.confirm()
-                                            onAddSymbol(symbol)
+                                            onAddSymbol(symbol.ticker)
                                         }
                                     },
                                 )
+                            }
+
+                            if (symbolPickerState.hasMore) {
+                                item(key = "load_more") {
+                                    LoadMoreRow(
+                                        isLoading = symbolPickerState.isLoadingMore,
+                                        onClick = onLoadMore,
+                                    )
+                                }
                             }
                         }
                     }
@@ -209,8 +219,30 @@ fun SymbolPickerSheet(
 }
 
 @Composable
+private fun LoadMoreRow(
+    isLoading: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(Spacing.lg),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (isLoading) {
+            CircularProgressIndicator(modifier = Modifier.size(24.dp))
+        } else {
+            TextButton(onClick = onClick) {
+                Text("Charger plus")
+            }
+        }
+    }
+}
+
+@Composable
 private fun SymbolPickerItem(
-    symbol: String,
+    symbol: SymbolInfo,
     isInWatchlist: Boolean,
     onToggle: () -> Unit,
     modifier: Modifier = Modifier,
@@ -225,19 +257,38 @@ private fun SymbolPickerItem(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = symbol,
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = symbol.ticker,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = symbol.name,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        symbol.exchange?.let { exchange ->
+            SuggestionChip(
+                onClick = onToggle,
+                label = { Text(exchange, style = MaterialTheme.typography.labelSmall) },
+                colors = SuggestionChipDefaults.suggestionChipColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                ),
+                modifier = Modifier.padding(horizontal = Spacing.xs),
+            )
+        }
 
         IconButton(
             onClick = onToggle,
             modifier = Modifier.semantics {
                 contentDescription = if (isInWatchlist) {
-                    "Retirer $symbol de la watchlist"
+                    "Retirer ${symbol.ticker} de la watchlist"
                 } else {
-                    "Ajouter $symbol \u00e0 la watchlist"
+                    "Ajouter ${symbol.ticker} à la watchlist"
                 }
             },
         ) {

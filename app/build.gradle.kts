@@ -32,7 +32,11 @@ android {
 
     defaultConfig {
         applicationId = "com.tradingplatform.app"
-        minSdk = 26
+        // minSdk 28 (décision D1, CLAUDE.md §4) : sur API 26-27 BiometricPrompt passe par
+        // FingerprintDialogFragment → AlertDialog AppCompat, qui plante avec le thème framework
+        // actuel (android:Theme.Material.Light.NoActionBar). On exclut ces versions plutôt que
+        // de basculer toute l'app sur un thème AppCompat.
+        minSdk = 28
         targetSdk = 36
         versionCode = 1
         versionName = "1.0.0"
@@ -51,7 +55,11 @@ android {
             "\"${localProperties.getProperty("WG_VPS_PUBKEY", "")}\"")
 
         ndk {
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+            // x86_64 added for ChromeOS support (ChromeOsAbiSupport) — verified present in all
+            // three native AARs pulled in by this module: com.wireguard.android:tunnel
+            // (jni/x86_64/libwg*.so), com.goterl:lazysodium-android (jni/x86_64/libsodium.so)
+            // and net.java.dev.jna:jna@aar (jni/x86_64/libjnidispatch.so).
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
         }
     }
 
@@ -104,8 +112,61 @@ android {
             all {
                 it.maxHeapSize = "4g"
                 it.forkEvery = 1
+                // Les tests JVM tournent sur un JDK 21 (pas le toolchain de compilation 17) :
+                // lazysodium 5.2.0 (android + java) est du bytecode Java 21 (class v65) —
+                // requis par SealedBoxHelperRealTest (libsodium réel via JNA). Le bytecode
+                // Kotlin/Java cible 17 s'exécute sans changement sur 21. La CI et le daemon
+                // (gradle/gradle-daemon-jvm.properties) sont déjà en JDK 21.
+                it.javaLauncher.set(
+                    project.extensions.getByType<JavaToolchainService>().launcherFor {
+                        languageVersion.set(JavaLanguageVersion.of(21))
+                    },
+                )
             }
         }
+
+        // Gradle Managed Devices — job CI `instrumented` (.github/workflows/android.yml),
+        // voir audit/plan-ui-tests-ci.md PART 2 §1. ATD (Automated Test Device) images :
+        // pas de Play Store/GMS, démarrage plus rapide, comportement plus déterministe pour
+        // du CI headless. api30 épingle #9 (Instant.parse pré-JDK12 sur un device réel plus
+        // ancien) ; api34 couvre le FGS/VPN (foregroundServiceType="specialUse") et le chemin
+        // BiometricPrompt actuel (minSdk 28, décision D1).
+        managedDevices {
+            localDevices {
+                create("api30") {
+                    device = "Pixel 5"
+                    apiLevel = 30
+                    systemImageSource = "aosp-atd"
+                    // Image 64 bits obligatoire : l'image ATD API 30 par défaut est x86 32 bits,
+                    // ABI absente de l'APK (abiFilters) → "No matching Apks found" en CI.
+                    require64Bit = true
+                }
+                create("api34") {
+                    device = "Pixel 6"
+                    apiLevel = 34
+                    systemImageSource = "aosp-atd"
+                    // Image 64 bits obligatoire : l'image ATD API 30 par défaut est x86 32 bits,
+                    // ABI absente de l'APK (abiFilters) → "No matching Apks found" en CI.
+                    require64Bit = true
+                }
+            }
+        }
+    }
+
+    lint {
+        abortOnError = true
+        warningsAsErrors = false
+        checkReleaseBuilds = false
+        // Triage from the audit/remediation lint pass — see app/lint.xml for the justification
+        // behind each entry (downgrades documented design decisions to "informational", never
+        // "ignore", so they stay visible in the report without recurring noise).
+        lintConfig = file("lint.xml")
+        // Pas de baseline pour l'instant : lint n'a jamais tourné sur ce module, donc aucun
+        // fichier lint-baseline.xml existant a committer. AGP echoue le build si `baseline`
+        // pointe vers un fichier absent (message "missing baseline file... will be created").
+        // Quand l'audit aura fait tourner `./gradlew lintDebug` une premiere fois et trie les
+        // faux positifs restants, decommenter la ligne suivante et committer le fichier genere :
+        // baseline = file("lint-baseline.xml")
     }
 
 }
@@ -188,6 +249,8 @@ dependencies {
 
     // Biométrie
     implementation(libs.biometric)
+    // FragmentActivity (MainActivity) — requis par BiometricPrompt
+    implementation(libs.fragment.ktx)
 
     // Glance widgets
     implementation(libs.glance.appwidget)
@@ -222,7 +285,16 @@ dependencies {
     implementation(libs.lazysodium.android) {
         exclude(group = "net.java.dev.jna", module = "jna")
     }
-    implementation("net.java.dev.jna:jna:5.17.0@aar")
+    // Version catalog TOML has no classifier/extension field (gradle/gradle#13270) — the "@aar"
+    // is applied here via artifact { type = "aar" }, equivalent to the former literal
+    // "net.java.dev.jna:jna:5.17.0@aar" string, with the coordinates/version now in libs.jna.
+    implementation(libs.jna) {
+        artifact {
+            name = "jna"
+            type = "aar"
+            extension = "aar"
+        }
+    }
 
     // Utilitaires
     implementation(libs.timber)
@@ -239,13 +311,41 @@ dependencies {
     testImplementation(libs.work.testing)
     testImplementation(libs.robolectric)
     testImplementation(libs.test.core)
+    testImplementation(libs.room.testing)
     testImplementation(libs.okhttp.mockwebserver)
+    // Compose UI tests on the JVM (Robolectric) — e.g. BiometricLockOverlayTest
+    testImplementation(platform(libs.compose.bom))
+    testImplementation(libs.compose.ui.test)
     testImplementation(libs.org.json)
     testImplementation(kotlin("test"))
+    // kotlin-reflect — NOT already on the classpath (checked: absent from libs.versions.toml
+    // and from every other module dependency). Needed by DtoContractTest (contracts/) for
+    // KParameter.isOptional / .type.isMarkedNullable / .annotations on DTO primary
+    // constructors — the same introspection Moshi's own KotlinJsonAdapterFactory performs at
+    // runtime for non-codegen adapters.
+    testImplementation(kotlin("reflect"))
+    // JVM-only libsodium binding (JNA-backed) for SealedBoxHelperRealTest — LazySodiumAndroid's
+    // JNI .so cannot load on the plain JVM unit test runner. Same version as lazysodium-android
+    // (libs.versions.toml "lazysodium") and the JNA version the main app already pulls in via
+    // libs.jna (see the "artifact { type = aar }" implementation above), to avoid resolving two
+    // different JNA versions on the test classpath.
+    testImplementation(libs.lazysodium.java)
+    testImplementation(libs.jna)
     androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.compose.ui.test)
     androidTestImplementation(libs.room.testing)
     androidTestImplementation(libs.test.core)
-    androidTestImplementation("androidx.test.ext:junit:1.3.0")
+    androidTestImplementation(libs.test.runner)
+    androidTestImplementation(libs.test.rules)
+    androidTestImplementation(libs.espresso.core) // Espresso.pressBack() dans BiometricLockOverlayInstrumentedTest
+    androidTestImplementation(libs.test.ext.junit)
+    // MockWebServer + okhttp-tls — SetupSmokeTest (MobileProvisioningRepositoryImpl réel). Le
+    // serveur tourne en HTTPS avec un certificat éphémère (HeldCertificate) : le
+    // network_security_config interdit tout cleartext, y compris vers localhost.
+    androidTestImplementation(libs.okhttp.mockwebserver)
+    androidTestImplementation(libs.okhttp.tls)
+    // Aligne kotlinx-serialization (transitif via lifecycle 2.10.0 = 1.7.3) sur la version
+    // exigée par room-migration 2.8.4 (1.8.1) — voir libs.versions.toml.
+    implementation(platform(libs.kotlinx.serialization.bom))
     debugImplementation(libs.compose.ui.test.manifest)
 }

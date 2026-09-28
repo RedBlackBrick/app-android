@@ -3,13 +3,16 @@ package com.tradingplatform.app.ui.screens.market
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tradingplatform.app.domain.model.Quote
+import com.tradingplatform.app.domain.model.SymbolInfo
 import com.tradingplatform.app.domain.usecase.market.AddToWatchlistUseCase
 import com.tradingplatform.app.domain.usecase.market.GetAvailableSymbolsUseCase
+import com.tradingplatform.app.domain.usecase.market.GetPublicWsConnectionStateUseCase
 import com.tradingplatform.app.domain.usecase.market.GetQuoteStreamUseCase
 import com.tradingplatform.app.domain.usecase.market.GetQuoteUseCase
 import com.tradingplatform.app.domain.usecase.market.GetSymbolHistoryUseCase
 import com.tradingplatform.app.domain.usecase.market.GetWatchlistUseCase
 import com.tradingplatform.app.domain.usecase.market.RemoveFromWatchlistUseCase
+import com.tradingplatform.app.ui.common.QuoteFallbackController
 import com.tradingplatform.app.vpn.VpnNotConnectedException
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -17,8 +20,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import java.io.IOException
@@ -46,13 +47,19 @@ sealed interface MarketDataUiState {
 sealed interface SymbolPickerUiState {
     data object Idle : SymbolPickerUiState
     data object Loading : SymbolPickerUiState
-    data class Success(val symbols: List<String>) : SymbolPickerUiState
+    data class Success(
+        val symbols: List<SymbolInfo>,
+        val hasMore: Boolean = false,
+        val isLoadingMore: Boolean = false,
+        val nextOffset: Int = 0,
+    ) : SymbolPickerUiState
     data class Error(val message: String) : SymbolPickerUiState
 }
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-private const val QUOTE_POLL_INTERVAL_MS = 30_000L
+private const val SYMBOL_SEARCH_DEBOUNCE_MS = 300L
+private const val SYMBOLS_PAGE_SIZE = 50
 private const val TAG = "MarketDataViewModel"
 
 @HiltViewModel
@@ -64,6 +71,7 @@ class MarketDataViewModel @Inject constructor(
     private val removeFromWatchlistUseCase: RemoveFromWatchlistUseCase,
     private val getAvailableSymbolsUseCase: GetAvailableSymbolsUseCase,
     private val getSymbolHistoryUseCase: GetSymbolHistoryUseCase,
+    getPublicWsConnectionStateUseCase: GetPublicWsConnectionStateUseCase,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<MarketDataUiState>(MarketDataUiState.Loading)
@@ -78,14 +86,41 @@ class MarketDataViewModel @Inject constructor(
     /** Sparkline history data per symbol (close prices). */
     private val sparklines = mutableMapOf<String, List<BigDecimal>>()
 
-    /** Active WS subscription jobs per symbol. */
-    private val wsJobs = mutableMapOf<String, Job>()
+    /**
+     * Active quote watch jobs per symbol (WS stream + state-driven REST fallback).
+     * Cancelling a job unsubscribes the symbol (ref-counted in the WS client) and stops polling.
+     */
+    private val watchJobs = mutableMapOf<String, Job>()
 
-    /** Active REST polling fallback jobs per symbol. */
-    private val pollingJobs = mutableMapOf<String, Job>()
-
-    /** Symbols whose last fetch failed — surfaced in [MarketDataUiState.Success.staleSymbols]. */
+    /**
+     * Symbols whose quote is no longer live (WS public down, or REST fallback failing) —
+     * surfaced in [MarketDataUiState.Success.staleSymbols].
+     */
     private val staleSymbols = mutableSetOf<String>()
+
+    /**
+     * WS stream + REST fallback driven by the public WS connection state (audit #13/#14):
+     * polls every 30 s only while the WS is not Connected and the app is in foreground.
+     */
+    private val quoteFallback = QuoteFallbackController(
+        scope = viewModelScope,
+        connectionState = getPublicWsConnectionStateUseCase(),
+        isForeground = getPublicWsConnectionStateUseCase.isAppForeground(),
+        stream = { symbol -> getQuoteStreamUseCase(symbol) },
+        fetch = { symbol -> getQuoteUseCase(symbol) },
+        onQuote = ::onQuoteReceived,
+        onStale = ::markStale,
+        onFetchError = ::onQuoteFetchError,
+    )
+
+    /** Debounced search-query job for the symbol picker — cancelled/relaunched on each keystroke. */
+    private var symbolSearchJob: Job? = null
+
+    /** "Load more" pagination job for the symbol picker. */
+    private var loadMoreSymbolsJob: Job? = null
+
+    /** Search term of the last symbol picker request — reused by [refreshSymbols] and [loadMoreSymbols]. */
+    private var currentSymbolSearch: String? = null
 
     init {
         viewModelScope.launch {
@@ -115,18 +150,81 @@ class MarketDataViewModel @Inject constructor(
         }
     }
 
+    /**
+     * (Re)loads the first page of the symbol picker using [currentSymbolSearch] — called both
+     * when the picker is first opened (search still unset) and from its "Réessayer" retry.
+     */
     fun refreshSymbols() {
-        _symbolPickerState.value = SymbolPickerUiState.Loading
+        symbolSearchJob?.cancel()
+        loadMoreSymbolsJob?.cancel()
         viewModelScope.launch {
-            getAvailableSymbolsUseCase()
-                .onSuccess { symbols ->
-                    _symbolPickerState.value = SymbolPickerUiState.Success(symbols)
+            loadSymbols(search = currentSymbolSearch, offset = 0)
+        }
+    }
+
+    /**
+     * Server-side search — debounced 300 ms so each keystroke doesn't fire a request.
+     * Cancelling and relaunching the job on every call means only the last query in a
+     * burst survives long enough to fire.
+     */
+    fun onSymbolSearchQueryChanged(query: String) {
+        symbolSearchJob?.cancel()
+        symbolSearchJob = viewModelScope.launch {
+            delay(SYMBOL_SEARCH_DEBOUNCE_MS)
+            loadSymbols(search = query.trim().ifBlank { null }, offset = 0)
+        }
+    }
+
+    /** Fetches the next page (offset from the current [SymbolPickerUiState.Success]) and appends it. */
+    fun loadMoreSymbols() {
+        val current = _symbolPickerState.value
+        if (current !is SymbolPickerUiState.Success || !current.hasMore || current.isLoadingMore) {
+            return
+        }
+        _symbolPickerState.value = current.copy(isLoadingMore = true)
+        loadMoreSymbolsJob?.cancel()
+        loadMoreSymbolsJob = viewModelScope.launch {
+            getAvailableSymbolsUseCase(
+                search = currentSymbolSearch,
+                limit = SYMBOLS_PAGE_SIZE,
+                offset = current.nextOffset,
+            )
+                .onSuccess { page ->
+                    val existing = (_symbolPickerState.value as? SymbolPickerUiState.Success)
+                        ?.symbols
+                        ?: current.symbols
+                    _symbolPickerState.value = SymbolPickerUiState.Success(
+                        symbols = existing + page.items,
+                        hasMore = page.hasMore,
+                        isLoadingMore = false,
+                        nextOffset = page.nextOffset,
+                    )
                 }
                 .onFailure { e ->
-                    _symbolPickerState.value =
-                        SymbolPickerUiState.Error(e.localizedMessage ?: "Erreur")
+                    Timber.tag(TAG).w(e, "Failed to load more symbols")
+                    val stateNow = _symbolPickerState.value
+                    if (stateNow is SymbolPickerUiState.Success) {
+                        _symbolPickerState.value = stateNow.copy(isLoadingMore = false)
+                    }
                 }
         }
+    }
+
+    private suspend fun loadSymbols(search: String?, offset: Int) {
+        currentSymbolSearch = search
+        _symbolPickerState.value = SymbolPickerUiState.Loading
+        getAvailableSymbolsUseCase(search = search, limit = SYMBOLS_PAGE_SIZE, offset = offset)
+            .onSuccess { page ->
+                _symbolPickerState.value = SymbolPickerUiState.Success(
+                    symbols = page.items,
+                    hasMore = page.hasMore,
+                    nextOffset = page.nextOffset,
+                )
+            }
+            .onFailure { e ->
+                _symbolPickerState.value =
+                    SymbolPickerUiState.Error(e.localizedMessage ?: "Erreur")
+            }
     }
 
     fun refresh() {
@@ -145,25 +243,25 @@ class MarketDataViewModel @Inject constructor(
     // ── Private helpers ─────────────────────────────────────────────────────
 
     /**
-     * Reconciles the active subscriptions with the new watchlist.
-     * Adds subscriptions for new symbols, removes those no longer in the list.
+     * Reconciles the active quote watches with the new watchlist.
+     * Starts a watch for new symbols, cancels those no longer in the list (the WS client
+     * ref-counts subscriptions, so the Dashboard keeps its own subscription alive).
      */
     private fun handleWatchlistUpdate(symbols: List<String>) {
-        val currentSymbols = wsJobs.keys.toSet() + pollingJobs.keys.toSet()
+        val currentSymbols = watchJobs.keys.toSet()
         val newSymbols = symbols.toSet()
 
-        // Remove subscriptions for symbols no longer in the watchlist
+        // Remove watches for symbols no longer in the watchlist
         (currentSymbols - newSymbols).forEach { symbol ->
-            wsJobs.remove(symbol)?.cancel()
-            pollingJobs.remove(symbol)?.cancel()
+            watchJobs.remove(symbol)?.cancel()
             quotes.remove(symbol)
             sparklines.remove(symbol)
             staleSymbols.remove(symbol)
         }
 
-        // Add subscriptions for new symbols
+        // Watch new symbols (WS stream + state-driven REST fallback)
         (newSymbols - currentSymbols).forEach { symbol ->
-            startWsSubscription(symbol)
+            watchJobs[symbol] = quoteFallback.watch(symbol)
             fetchSparkline(symbol)
         }
 
@@ -176,77 +274,37 @@ class MarketDataViewModel @Inject constructor(
         )
     }
 
-    /**
-     * Starts a WebSocket subscription for real-time quote updates.
-     * Falls back to REST polling if the WS connection fails.
-     */
-    private fun startWsSubscription(symbol: String) {
-        wsJobs[symbol]?.cancel()
-        pollingJobs[symbol]?.cancel()
-        pollingJobs.remove(symbol)
-
-        wsJobs[symbol] = viewModelScope.launch {
-            try {
-                getQuoteStreamUseCase(symbol).collect { quote ->
-                    quotes[symbol] = quote
-                    staleSymbols.remove(symbol)
-                    emitCurrentState()
-                }
-            } catch (e: VpnNotConnectedException) {
-                Timber.tag(TAG).w("VPN not connected for $symbol — falling back to REST")
-                if (quotes.containsKey(symbol)) staleSymbols.add(symbol).also { emitCurrentState() }
-                startPollingFallback(symbol)
-            } catch (e: SocketTimeoutException) {
-                Timber.tag(TAG).w("WS timeout for $symbol — falling back to REST")
-                startPollingFallback(symbol)
-            } catch (e: IOException) {
-                Timber.tag(TAG).w(e, "WS IO error for $symbol — falling back to REST")
-                startPollingFallback(symbol)
-            } catch (e: Exception) {
-                Timber.tag(TAG).e(e, "Unexpected WS error for $symbol — falling back to REST")
-                startPollingFallback(symbol)
-            }
-        }
-    }
-
-    /**
-     * REST polling fallback — used when WS is unavailable.
-     * Polls every 30 seconds per CLAUDE.md market data strategy.
-     */
-    private fun startPollingFallback(symbol: String) {
-        pollingJobs[symbol]?.cancel()
-        pollingJobs[symbol] = viewModelScope.launch {
-            while (isActive) {
-                fetchQuoteRest(symbol)
-                delay(QUOTE_POLL_INTERVAL_MS)
-            }
-        }
-    }
-
+    /** One-shot REST fetch (pull-to-refresh). Continuous polling is owned by [quoteFallback]. */
     private suspend fun fetchQuoteRest(symbol: String) {
         getQuoteUseCase(symbol)
-            .onSuccess { quote ->
-                quotes[symbol] = quote
-                staleSymbols.remove(symbol)
-                emitCurrentState()
-            }
-            .onFailure { e ->
-                when (e) {
-                    is VpnNotConnectedException,
-                    is SocketTimeoutException,
-                    is IOException -> {
-                        // Transient — keep previous cache but flag the symbol as stale so the UI
-                        // can show a "données du HH:mm" warning instead of silently stale prices.
-                        if (quotes.containsKey(symbol)) {
-                            staleSymbols.add(symbol)
-                            emitCurrentState()
-                        }
-                    }
-                    else -> {
-                        Timber.tag(TAG).w(e, "Quote fetch error for $symbol")
-                    }
-                }
-            }
+            .onSuccess { quote -> onQuoteReceived(symbol, quote) }
+            .onFailure { e -> onQuoteFetchError(symbol, e) }
+    }
+
+    /** New quote from the WS stream or the REST fallback — the symbol is live again. */
+    private fun onQuoteReceived(symbol: String, quote: Quote) {
+        quotes[symbol] = quote
+        staleSymbols.remove(symbol)
+        emitCurrentState()
+    }
+
+    /**
+     * The public WS is no longer live (debounced) — keep the cached quote but flag it as stale
+     * so the UI can show a "données du HH:mm" warning instead of silently stale prices.
+     */
+    private fun markStale(symbol: String) {
+        if (quotes.containsKey(symbol) && staleSymbols.add(symbol)) {
+            emitCurrentState()
+        }
+    }
+
+    private fun onQuoteFetchError(symbol: String, e: Throwable) {
+        when (e) {
+            is VpnNotConnectedException,
+            is SocketTimeoutException,
+            is IOException -> markStale(symbol)
+            else -> Timber.tag(TAG).w(e, "Quote fetch error for $symbol")
+        }
     }
 
     private fun emitCurrentState() {

@@ -172,7 +172,7 @@ suspend fun readLocalToken(deviceId: String): String? =
 class SetupViewModel @Inject constructor(
     private val parseSetupQrUseCase: ParseSetupQrUseCase,
     private val wireGuardManager: WireGuardManager,
-    private val dataStore: EncryptedDataStore,
+    private val markSetupCompletedUseCase: MarkSetupCompletedUseCase,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow<SetupUiState>(SetupUiState.Scanning)
     val uiState: StateFlow<SetupUiState> = _uiState.asStateFlow()
@@ -187,6 +187,12 @@ sealed interface SetupUiState {
     data class Error(val message: String) : SetupUiState
 }
 ```
+
+> **État actuel du code (implémenté) :** `SetupViewModel` ne dépend **pas** directement
+> d'`EncryptedDataStore`. `SETUP_COMPLETED` est écrit via `MarkSetupCompletedUseCase` →
+> `SetupRepository` (interface `domain/repository/`, implémentation `data/repository/`) — le
+> ViewModel respecte la règle « pas d'accès direct au DataStore depuis un ViewModel/UseCase
+> hors Repository ». Voir `CLAUDE.md §2` (package tree, `domain/usecase/setup/`).
 
 ### B6. Modifier la navigation : `Screen.kt` + `AppNavGraph.kt`
 

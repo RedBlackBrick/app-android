@@ -25,6 +25,11 @@ Instructions pour Claude Code lors du travail sur ce projet.
 | Mutable `StateFlow` exposé depuis un `ViewModel` | Exposer `StateFlow` immuable uniquement |
 | `LaunchedEffect` avec des effets de bord non annulables | Toujours gérer l'annulation de coroutine |
 
+Pour un appel OkHttp brut (hand-built, hors Retrofit) — ex. `MobileProvisioningRepositoryImpl` —
+injecter `@IoDispatcher` (`di/DispatcherModule.kt`) et wrapper l'appel bloquant dans
+`withContext(io) { ... }`. Les fonctions `suspend` Retrofit dispatchent déjà off-caller
+elles-mêmes et n'en ont pas besoin.
+
 ### TOUJOURS FAIRE
 
 | Obligatoire | Comment |
@@ -48,33 +53,42 @@ Instructions pour Claude Code lors du travail sur ce projet.
 
 ```
 com.tradingplatform.app/
-├── di/                    # Hilt modules (AppModule, NetworkModule, VpnModule, SecurityModule, WebSocketModule)
+├── di/                    # Hilt modules (AppModule, NetworkModule, VpnModule, SecurityModule, WebSocketModule, WidgetModule)
+│                          # DispatcherModule fournit @IoDispatcher — pour un appel OkHttp brut hors Retrofit
+│                          # (ex. MobileProvisioningRepositoryImpl), jamais pour des fonctions suspend Retrofit
 ├── data/
 │   ├── api/               # Interfaces Retrofit (AuthApi, PortfolioApi, MarketDataApi, DeviceApi, BrokerConnectionApi, PairingApi, NotificationApi, MobileProvisioningApi)
+│   │                      # AuthPaths.kt — source unique des chemins PUBLIC / CSRF_EXEMPT / VPN_EXCLUDED / COOKIE_SAVE
 │   ├── repository/        # Implémentations des Repository interfaces du domaine
 │   ├── local/
-│   │   ├── db/            # Room : AppDatabase, DAOs, Entities (dont WatchlistEntity)
+│   │   ├── db/            # Room : AppDatabase, DAOs, Entities (dont WatchlistEntity) ; CacheTtl.kt — TTL/rétention centralisés
 │   │   └── datastore/     # EncryptedDataStore (tokens, config WireGuard)
 │   ├── model/             # Data Transfer Objects (DTOs) JSON ↔ API
 │   └── websocket/         # PrivateWsClient, PublicWsClient, WsEvent, WsRepository
 ├── domain/
 │   ├── model/             # Domain models (purs Kotlin, sans annotations Android/Retrofit/Room)
-│   │                      # Inclut : PerformanceMetrics, ActivityItem, WsUpdate (OrderUpdate, StrategySignal, CatalystEvent), BrokerConnection
+│   │                      # Inclut : PerformanceMetrics, ActivityItem, WsUpdate (OrderUpdate, StrategySignal, CatalystEvent),
+│   │                      # BrokerConnection, Cached<T> (valeur + syncedAt), Page<T>, SymbolInfo/SymbolPage
 │   ├── repository/        # Interfaces Repository (définies dans domain, implémentées dans data)
-│   │                      # Inclut : WatchlistRepository, BrokerConnectionRepository (lecture seule), MobileProvisioningRepository
+│   │                      # Inclut : WatchlistRepository, BrokerConnectionRepository (lecture seule), MobileProvisioningRepository, SetupRepository
+│   ├── exception/         # HttpStatusException (isRetryable — pilote les retries FCM/worker), UnrecognizedQrException, etc.
+│   ├── util/              # RunCatchingCancellable (relance CancellationException), InstantParsing (parseInstantLenient/parseInstantOrNull)
 │   └── usecase/
 │       ├── auth/          # LoginUseCase, LogoutUseCase, GetUserProfileUseCase
 │       ├── portfolio/     # GetPortfolioUseCase, GetPositionsUseCase, GetPositionWsUpdatesUseCase, GetPerformanceUseCase
-│       ├── market/        # GetQuoteUseCase, GetQuoteStreamUseCase, GetAvailableSymbolsUseCase, GetSymbolHistoryUseCase, GetWatchlistUseCase, AddToWatchlistUseCase, RemoveFromWatchlistUseCase
+│       ├── market/        # GetQuoteUseCase, GetQuoteStreamUseCase, GetAvailableSymbolsUseCase, GetSymbolHistoryUseCase, GetWatchlistUseCase, AddToWatchlistUseCase, RemoveFromWatchlistUseCase, GetPublicWsConnectionStateUseCase
 │       ├── activity/      # GetActivityFeedUseCase
 │       ├── device/        # GetDevicesUseCase, GetDeviceStatusUseCase, SendDeviceCommandUseCase, GetBrokerConnectionsUseCase
 │       ├── alerts/        # GetAlertsUseCase, GetFilteredAlertsUseCase, MarkAlertReadUseCase
 │       ├── notification/  # RegisterFcmTokenUseCase
+│       ├── setup/         # MarkSetupCompletedUseCase (SetupViewModel ne touche plus le DataStore directement)
 │       └── pairing/       # ParseVpsQrUseCase, ScanDeviceQrUseCase, SendPinToDeviceUseCase, ConfirmPairingUseCase, ParseSetupQrUseCase, ProvisionMobileVpnUseCase
 ├── ui/
 │   ├── theme/             # Color.kt, Theme.kt, Type.kt (Material 3)
 │   ├── navigation/        # AppNavGraph.kt — navigation globale
-│   ├── components/        # Composables partagés (LoadingOverlay, ErrorBanner, MetricsComponents, etc.)
+│   ├── common/            # DataState.kt (valeur/isRefreshing/error/syncedAt pour le Dashboard), QuoteFallbackController.kt
+│   │                      # (WS + fallback REST piloté par connectionState — partagé Dashboard/MarketData)
+│   ├── components/        # Composables partagés (LoadingOverlay, ErrorBanner, MetricsComponents, CacheTimestamp, BiometricLockOverlay, etc.)
 │   └── screens/
 │       ├── auth/          # LoginScreen + LoginViewModel
 │       ├── dashboard/     # DashboardScreen + DashboardViewModel + ActivityFeedCard
@@ -88,23 +102,27 @@ com.tradingplatform.app/
 │       ├── setup/         # SetupScreen + SetupViewModel (onboarding QR mobile)
 │       └── settings/      # VpnSettingsScreen, SecuritySettingsScreen, ProfileScreen, MyDevicesScreen + ViewModels
 ├── vpn/
-│   ├── WireGuardVpnService.kt   # VpnService Android — gère le tunnel
-│   ├── WireGuardManager.kt      # API publique : connect(), disconnect(), state: StateFlow<VpnState>
+│   ├── WireGuardVpnService.kt   # Service foreground — notification « VPN connecté » (tunnel tenu par GoBackend$VpnService)
+│   ├── TunnelBackend.kt         # Seam GoBackend (setState/getState) — fake en test JVM
+│   ├── VpnServiceController.kt  # Seam start/stop de WireGuardVpnService (notification foreground) — fake en test JVM
+│   ├── WireGuardManager.kt      # API publique : connect(), disconnect(), state: StateFlow<VpnState> — sérialisé par Mutex
 │   ├── WireGuardConfig.kt       # Modèle de config (interface, peer)
-│   └── VpnState.kt              # sealed class : Disconnected | Connecting | Connected | Error
+│   ├── SystemVpnMonitor.kt      # Détecte un VPN tiers actif (ConnectivityManager) → VpnState.SystemVpnActive (D6)
+│   └── VpnState.kt              # sealed class : Disconnected | Connecting | Connected | ConsentRequired | SystemVpnActive | Error
 ├── security/
-│   ├── BiometricManager.kt      # Abstraction BiometricPrompt
+│   ├── BiometricManager.kt      # Abstraction BiometricPrompt — consulte KeystoreManager.checkAuthValidity() avant le prompt
 │   ├── RootDetector.kt          # Détection root (RootBeer)
 │   ├── CertificatePinner.kt     # SHA-256 pins du certificat VPS
-│   ├── KeystoreManager.kt       # Android Keystore : génération et récupération clés
+│   ├── KeystoreManager.kt       # Android Keystore : génération/récupération clés ; KeyState (Valid|Expired|Invalidated)
+│   ├── LanTrustManager.kt       # TrustManager permissif scopé LAN (cert auto-signé Radxa, port 8099 HTTPS)
 │   └── SealedBoxHelper.kt       # crypto_box_seal via lazysodium-android (chiffrement payloads LAN)
 └── widget/
-    ├── PnlWidget.kt             # Glance widget P&L
+    ├── PnlWidget.kt / PnlWidgetConfigureActivity.kt   # Glance widget P&L (période configurable jour/semaine/mois)
     ├── PositionsWidget.kt       # Glance widget positions
     ├── AlertsWidget.kt          # Glance widget alertes
     ├── SystemStatusWidget.kt    # Glance widget état VPS/devices (admin)
-    ├── QuoteWidget.kt           # Glance widget cours rapide 1x1 (ticker configurable)
-    └── WidgetUpdateWorker.kt    # WorkManager periodic task (5 min, toutes sources)
+    ├── QuoteWidget.kt / QuoteWidgetConfigureActivity.kt # Glance widget cours rapide 1x1 (ticker configurable)
+    └── WidgetUpdateWorker.kt    # WorkManager periodic task (15 min, plancher OS — toutes sources)
 ```
 
 ### Flux de données
@@ -142,29 +160,38 @@ Le flag `is_admin` (champ `user` dans la réponse login / `/auth/me`) conditionn
 | Positions (cours live via WS privé) | ✅ | ✅ |
 | Performance (Sharpe, Sortino, drawdown, etc.) | ✅ | ✅ |
 | Alertes (FCM → Room, filtrage par type) | ✅ | ✅ |
-| Device list + detail (métriques santé CPU/RAM/temp) | ❌ masqué | ✅ |
-| Pairing workflow | ❌ masqué | ✅ |
+| Device list + detail (métriques santé CPU/RAM/temp), écran Devices (flotte) | ❌ masqué | ✅ |
+| Pairing depuis « Mes appareils » (Settings → MyDevicesScreen) | ✅ | ✅ |
+| Pairing depuis l'écran Devices (flotte admin) | ❌ masqué | ✅ |
 | `SystemStatusWidget` | ❌ masqué | ✅ |
 | `DevicesWidget` (si créé) | ❌ masqué | ✅ |
 
-- L'onglet Devices dans la navigation est affiché **uniquement si `user.is_admin == true`**
-- Le bouton "Ajouter un device" (démarrage pairing) est réservé aux admins
+**Décision D5 (audit/PLAN.md) :** le pairing d'un device est ouvert à **tout utilisateur
+authentifié** via `Settings → Mes appareils` (`MyDevicesScreen`, non gardé par `isAdmin`) — le
+backend l'applique par propriétaire du device, pas par rôle. Seuls la flotte admin
+(`Screen.Devices`, liste tous les devices) et le pairing lancé depuis cet écran restent
+réservés aux admins (`AppNavGraph` redirige vers Dashboard si `!isAdmin`). Les deux points
+d'entrée partagent le même graphe de navigation `PairingViewModel`/4 écrans ; seul l'écran de
+retour (`pairingReturnRoute`) diffère selon la source.
+
+- L'onglet Devices (flotte) dans la navigation est affiché **uniquement si `user.is_admin == true`**
 - Les widgets admin (`SystemStatusWidget`) sont **désactivés** dans le launcher si `is_admin == false` — ils n'apparaissent pas dans le picker de widgets
 - Stocker `is_admin` dans `EncryptedDataStore` après login — relire à chaque démarrage
-- Désactiver/activer via `PackageManager` après login :
+- Désactiver/activer via `ApplyAdminWidgetVisibilityUseCase` (jamais un appel `PackageManager` direct
+  depuis un ViewModel — violerait la règle UseCase → Repository) :
 
 ```kotlin
-// Dans LoginViewModel après récupération de is_admin
-fun applyAdminWidgetVisibility(isAdmin: Boolean) {
-    val state = if (isAdmin)
-        PackageManager.COMPONENT_ENABLED_STATE_ENABLED
-    else
-        PackageManager.COMPONENT_ENABLED_STATE_DISABLED
-    packageManager.setComponentEnabledSetting(
-        ComponentName(context, SystemStatusWidgetReceiver::class.java),
-        state,
-        PackageManager.DONT_KILL_APP
-    )
+// domain/repository/AdminWidgetVisibilityManager — interface domaine, implémentée dans
+// widget/AdminWidgetVisibilityManagerImpl.kt (PackageManager.setComponentEnabledSetting)
+interface AdminWidgetVisibilityManager {
+    suspend fun applyVisibility(isAdmin: Boolean)
+}
+
+// domain/usecase/auth/ApplyAdminWidgetVisibilityUseCase — appelé par LoginViewModel/TotpViewModel
+class ApplyAdminWidgetVisibilityUseCase @Inject constructor(
+    private val visibilityManager: AdminWidgetVisibilityManager,
+) {
+    suspend operator fun invoke(isAdmin: Boolean) = visibilityManager.applyVisibility(isAdmin)
 }
 ```
 
@@ -176,14 +203,22 @@ fun applyAdminWidgetVisibility(isAdmin: Boolean) {
 | `WidgetUpdateWorker` | `@HiltWorker` + `@AssistedInject` | WorkManager supporte Hilt nativement |
 
 ```kotlin
-// WidgetUpdateWorker — injection standard via @HiltWorker
+// WidgetUpdateWorker — injection standard via @HiltWorker (constructeur réel, di/WidgetModule.kt
+// fournit les mêmes UseCases/DAOs aux widgets Glance via EntryPointAccessors ci-dessous)
 @HiltWorker
 class WidgetUpdateWorker @AssistedInject constructor(
     @Assisted context: Context,
     @Assisted workerParams: WorkerParameters,
-    private val getPortfolioUseCase: GetPortfolioUseCase,
-    private val getAlertsUseCase: GetAlertsUseCase,
+    private val vpnManager: WireGuardManager,
+    private val systemVpnMonitor: SystemVpnMonitor,
+    private val dataStore: EncryptedDataStore,
+    private val getPositionsUseCase: GetPositionsUseCase,
+    private val getPnlUseCase: GetPnlUseCase,
     private val getQuoteUseCase: GetQuoteUseCase,
+    private val getDefaultQuoteSymbolUseCase: GetDefaultQuoteSymbolUseCase,
+    private val alertDao: AlertDao,
+    private val quoteDao: QuoteDao,
+    private val watchlistDao: WatchlistDao,
 ) : CoroutineWorker(context, workerParams) { ... }
 ```
 
@@ -192,58 +227,98 @@ class WidgetUpdateWorker @AssistedInject constructor(
 Les widgets Glance ne supportent pas l'injection Hilt standard. Utiliser `EntryPointAccessors` :
 
 ```kotlin
+// di/WidgetModule.kt — nom réel des méthodes (pas de getPortfolioUseCase générique)
 @EntryPoint
 @InstallIn(SingletonComponent::class)
 interface WidgetEntryPoint {
-    fun getPortfolioUseCase(): GetPortfolioUseCase
-    fun getDevicesUseCase(): GetDevicesUseCase       // vérifier is_admin dans provideGlance() avant d'appeler
+    // UseCases — utilisés par WidgetUpdateWorker pour les appels réseau dans doWork()
+    fun getPositionsUseCase(): GetPositionsUseCase
+    fun getPnlUseCase(): GetPnlUseCase
+    fun getPortfolioNavUseCase(): GetPortfolioNavUseCase
     fun getAlertsUseCase(): GetAlertsUseCase
-    fun getMarketDataUseCase(): GetMarketDataUseCase // pour QuoteWidget
+    fun getDevicesUseCase(): GetDevicesUseCase  // vérifier is_admin avant d'appeler
+    fun getQuoteUseCase(): GetQuoteUseCase
+
+    // DAOs — pour les GlanceAppWidgets (lecture cache Room uniquement, pas d'appel réseau)
+    fun positionDao(): PositionDao
+    fun pnlDao(): PnlDao
+    fun alertDao(): AlertDao
+    fun deviceDao(): DeviceDao
+    fun quoteDao(): QuoteDao
+
+    // DataStore — pour lire portfolioId, is_admin depuis les widgets
+    fun encryptedDataStore(): EncryptedDataStore
 }
 
-// Dans chaque GlanceAppWidget :
+// Dans chaque GlanceAppWidget : les widgets lisent Room directement via les DAOs
+// (pas d'appel réseau depuis provideGlance()) — le Worker met à jour Room en amont.
 override suspend fun provideGlance(context: Context, id: GlanceId) {
     val ep = EntryPointAccessors
         .fromApplication(context.applicationContext, WidgetEntryPoint::class.java)
-    val positions = ep.getPortfolioUseCase().invoke(portfolioId)
+    val portfolioId = ep.encryptedDataStore().readString(DataStoreKeys.PORTFOLIO_ID) ?: ""
+    val pnl = ep.pnlDao().getByPeriod("day")
     // ...
 }
 ```
 
-Déclarer `WidgetEntryPoint` dans `di/WidgetModule.kt` ou `di/AppModule.kt`.
-
 ### Stratégie de cache Room
 
 Toutes les données affichées offline ou dans les widgets passent par Room. Le `WidgetUpdateWorker`
-(WorkManager 5 min, 15 min en Doze) met à jour le cache. Si le VPN est inactif, les écrans
-affichent le cache daté sans déclencher d'erreur bloquante.
+(WorkManager, périodicité **15 min** — plancher imposé par l'OS pour un `PeriodicWorkRequest`,
+il n'y a pas de cadence « 5 min » distincte) met à jour le cache. Si le VPN est inactif, les
+écrans affichent le cache daté sans déclencher d'erreur bloquante.
 
-| Table Room | TTL indicatif | Utilisée par |
-|------------|---------------|-------------|
-| `positions` | 5 min | PositionsScreen offline, PositionsWidget |
-| `pnl_snapshots` | 5 min | DashboardScreen, PnlWidget |
-| `alerts` | permanent | AlertListScreen (filtrable par type), AlertsWidget |
-| `devices` | 1 min | DeviceListScreen offline (admin) |
-| `quotes` | 10 min | QuoteWidget, MarketDataScreen (offline-first cohérent) |
-| `watchlist` | permanent | MarketDataScreen (symboles suivis par l'utilisateur) |
+**Source unique des TTL : `data/local/db/CacheTtl.kt`** — ne jamais redéclarer une constante
+de TTL privée dans un repository, un widget ou un composant UI.
+
+| Table Room | TTL (fraîcheur) | Utilisée par |
+|------------|-----------------|-------------|
+| `positions` | `CacheTtl.POSITIONS_MS` (5 min) | PositionsWidget, PositionDetail (`getPosition`) |
+| `pnl_snapshots` | `CacheTtl.PNL_MS` (5 min) | PnlWidget — une ligne par période, forme `/pnl` (écrite par `getPnlSummary`) |
+| `alerts` | permanent (`CacheTtl.ALERTS_RETENTION_MS`) | AlertListScreen (filtrable par type), AlertsWidget |
+| `devices` | `CacheTtl.DEVICES_MS` (1 min) | DeviceListScreen offline, détail device (`getDeviceStatus`), SystemStatusWidget |
+| `quotes` | `CacheTtl.QUOTES_MS` (10 min) | QuoteWidget, MarketDataScreen (offline-first cohérent) |
+| `watchlist` | permanent | MarketDataScreen, `WidgetUpdateWorker.syncQuotes` |
 
 Le timestamp de dernière sync est stocké avec chaque entité (`synced_at: Long`).
-L'UI affiche "Données du HH:mm" si le cache a plus de 10 min.
+
+**Lectures unitaires (`getDeviceStatus`, `getPosition`)** : renvoient `Result<Cached<T>>`
+(`domain/model/Cached` = valeur + vrai `syncedAt`). Le cache n'est servi que s'il est frais
+(`CacheTtl.isFresh`) et que `forceRefresh == false` ; le pull-to-refresh / retry des écrans
+passe `forceRefresh = true`. Si le réseau échoue et qu'une ligne périmée existe, elle est
+renvoyée avec son `syncedAt` réel (affichée « offline », pas d'erreur bloquante). Les
+ViewModels exposent ce `syncedAt`, jamais `System.currentTimeMillis()`.
+
+**UI — `CacheTimestamp(syncedAt, ttlMs = CacheTtl.DEFAULT_UI_MS /* 10 min */, warnMs = ttlMs / 2)`** :
+les appelants passent le TTL de l'entité affichée. « À jour » (neutre) < 1 min ; « Données du
+HH:mm » (neutre) < `warnMs` ; couleur warning < `ttlMs` ; couleur offline ≥ `ttlMs`. Date
+`dd/MM HH:mm` si la donnée n'est pas du jour. Logique pure : `cacheTimestampLabel()` (testée).
 
 **Widgets** : le timestamp `synced_at` est affiché dans tous les widgets sans exception —
 pas uniquement dans l'UI principale. Pour un app de trading, afficher un cours de 10 min
-sans indication est trompeur.
+sans indication est trompeur. `formatWidgetSyncTime(syncedAt, ttlMs)` → `SyncLabel(text, isStale)` :
+« maintenant » / « il y a Nmin » / « HH:mm » (même jour) / « dd/MM HH:mm » ; au-delà du seuil
+widget `widgetStaleThreshold(ttl) = maxOf(TTL entité, CacheTtl.WIDGET_STALE_GRACE_MS /* 20 min =
+période Worker 15 min + 5 min de grâce */)`, préfixe **« périmé · »** et libellé coloré ambre
+(`syncLabelColor`, badge périmé). Le plancher évite un badge quasi permanent entre deux cycles du
+Worker ; l'UI in-app (`CacheTimestamp`) garde les TTL d'entité.
 
 ### Politique de rétention Room
 
 | Table | Politique |
 |-------|-----------|
-| `alerts` | 30 jours **ou** 500 entrées max (whichever first) — purge au démarrage du Worker |
-| `quotes` | Supprimer les entrées dont `synced_at < now - 10 min` |
-| `positions` | Supprimer les entrées dont `synced_at < now - 5 min` (remplacées à chaque sync) |
-| `pnl_snapshots` | Supprimer les entrées dont `synced_at < now - 5 min` |
-| `devices` | Supprimer les entrées dont `synced_at < now - 1 min` |
+| `alerts` | 30 jours (`CacheTtl.ALERTS_RETENTION_MS`) **ou** 500 entrées max (whichever first) — purge par le Worker |
+| `quotes` | Supprimer les entrées dont `synced_at < now - CacheTtl.QUOTES_MS` |
+| `positions` | Supprimer les entrées dont `synced_at < now - CacheTtl.POSITIONS_MS` (remplacées à chaque sync) |
+| `pnl_snapshots` | Supprimer les entrées dont `synced_at < now - CacheTtl.PNL_RETENTION_MS` (**24 h**, pas 5 min : une ligne par période — une purge à 5 min après la sync d'une période supprimerait les lignes des autres périodes configurées par d'autres widgets) |
+| `devices` | Supprimer les entrées dont `synced_at < now - CacheTtl.DEVICES_MS` |
 | `watchlist` | Pas de purge — persistance permanente (symboles gérés par l'utilisateur) |
+
+**`WidgetUpdateWorker.syncQuotes`** rafraîchit tickers `QuoteWidget` configurés ∪ watchlist ∪
+symboles déjà en cache `quotes` (majuscules, dédupliqués, plafond 50, tickers widgets en
+premier), fan-out borné par `withTimeout(60 s)` — un dépassement compte comme un échec IO.
+Les prefs de configuration des widgets (`ticker_*`, `period_*`) sont nettoyées dans
+`onDeleted` des receivers.
 
 La purge est exécutée **après** chaque sync réussie — jamais avant. Purger avant les appels
 réseau crée un gap : si le Worker est tué pendant la sync, les tables sont vides. Utiliser
@@ -252,9 +327,23 @@ des upserts (`OnConflictStrategy.REPLACE`) plutôt que DELETE + INSERT séquenti
 ### Migration Room
 
 Activer `schemaDirectory` (déjà configuré) et appliquer la stratégie suivante :
-- **Développement** : `fallbackToDestructiveMigration()` acceptable — schéma instable
-- **Production (v1 → v1.x)** : migrations explicites via `addMigrations(MIGRATION_X_Y)`
-- Ne jamais utiliser `fallbackToDestructiveMigration()` en release (perte de données alerts)
+- **Baseline v7** : l'app n'a jamais été livrée avant la version de schéma 7 (versionCode 1,
+  aucun utilisateur en v1-6) — décision D2 du plan de remédiation (finding #5). Les anciens
+  schémas `1.json`…`6.json` et les `MIGRATION_*` correspondants ont été supprimés ; `7.json`
+  est le seul schéma exporté et fait référence. **Aucune migration n'existe (ni n'a besoin
+  d'exister) avant v7.**
+- **Développement** : `fallbackToDestructiveMigration()` acceptable — schéma instable.
+  Configuré uniquement pour les builds debug dans `DatabaseModule.kt`.
+- **Release** : pas de fallback par design — la baseline v7 ne cible que les installations
+  fraîches. Le premier changement de schéma post-release (v8+) redevient soumis à la règle
+  générale : migration explicite obligatoire via `addMigrations(MIGRATION_X_Y)` dans
+  `DatabaseModule.kt` — ne jamais utiliser `fallbackToDestructiveMigration()` en release à
+  partir de là (perte de données `alerts`, pas de backup serveur). Voir la checklist « AJOUTER
+  UNE MIGRATION » dans `AppDatabase.kt`.
+- **Tests** : `MigrationTest` (androidTest, `MigrationTestHelper`) valide que le schéma exporté
+  `7.json` correspond aux entités déclarées dans `AppDatabase` — c'est le seul test de migration
+  tant qu'il n'y a pas de v8 (exécuté par le job CI instrumenté). Une variante JVM/Robolectric a
+  été tentée puis retirée : `MigrationTestHelper` ne voit pas les assets de schéma sous Robolectric.
 
 ### WorkManager — contraintes et comportement VPN
 
@@ -270,50 +359,53 @@ val constraints = Constraints.Builder()
 Si le VPN est inactif au moment du Worker (VpnRequiredInterceptor bloque) : retourner
 `Result.success()` **sans mettre à jour Room** — le cache daté reste affiché.
 Ne jamais retourner `Result.failure()` pour absence de VPN (déclencherait les retries WorkManager
-en boucle). Utiliser `Result.retry()` uniquement pour les erreurs réseau transitoires (timeout,
-IOE) avec `BackoffPolicy.EXPONENTIAL`.
+en boucle). `Result.retry()` (`BackoffPolicy.EXPONENTIAL`) n'est renvoyé que si **toutes** les
+sections IO (positions, PnL, quotes) ont échoué sur une `IOException` — règle délibérée : si au
+moins une section a réussi, un échec isolé et transitoire des autres ne vaut pas la peine de
+retenter tout le Worker avant le prochain cycle périodique (15 min).
 
 ```kotlin
-// Pattern obligatoire dans WidgetUpdateWorker.doWork()
+// Pattern dans WidgetUpdateWorker.doWork()
 // Chaque bloc sync est indépendant — un échec portfolio ne bloque pas les alertes
 override suspend fun doWork(): Result {
     if (vpnManager.state.value !is VpnState.Connected) {
         return Result.success()  // VPN absent — garder le cache, ne pas retry
     }
 
-    var anyRetryNeeded = false
+    var ioFailCount = 0
+    val ioSectionsTotal = 3
 
-    // Sync indépendante par section — try/catch par bloc
+    // Sync indépendante par section — try/catch par bloc ; SQLException = non-retryable (log only)
     try {
-        syncPortfolio()
-        purgeExpiredPositions()
-    } catch (e: IOException) { anyRetryNeeded = true }
+        syncPositions(portfolioId)
+    } catch (e: IOException) { ioFailCount++ } catch (e: SQLException) { /* log, non-retryable */ }
 
     try {
-        syncAlerts()
-        purgeExpiredAlerts()
-    } catch (e: IOException) { anyRetryNeeded = true }
+        syncPnl(portfolioId)
+    } catch (e: IOException) { ioFailCount++ } catch (e: SQLException) { /* log, non-retryable */ }
 
     try {
         syncQuotes()
-        purgeExpiredQuotes()
-    } catch (e: IOException) { anyRetryNeeded = true }
+    } catch (e: IOException) { ioFailCount++ } catch (e: SQLException) { /* log, non-retryable */ }
 
-    return if (anyRetryNeeded) Result.retry() else Result.success()
+    purgeExpired()  // alertes + entités périmées, après les tentatives de sync
+
+    return if (ioFailCount == ioSectionsTotal) Result.retry() else Result.success()
 }
 ```
 
 La vérification VPN en entrée de Worker (via `vpnManager.state`) évite de passer par les
-intercepteurs OkHttp pour un cas prévisible. `Result.retry()` uniquement si au moins une
-section a eu une erreur réseau transitoire.
+intercepteurs OkHttp pour un cas prévisible.
 
 ### Données de marché — stratégie
 
-- **Cours (Dashboard)** : polling REST — `GET /v1/market-data/quote/{symbol}` toutes les **30 secondes** via `while(isActive)` dans `viewModelScope`
-- **Cours (MarketDataScreen)** : souscription WebSocket public `wss://vps/ws/public` par symbole de la watchlist, throttle `Flow.sample(250ms)`, avec fallback REST
+- **Cours (Dashboard + MarketDataScreen)** : WebSocket public `wss://vps/ws/public` (symbole par défaut pour le Dashboard, chaque symbole de la watchlist pour MarketData), throttle `Flow.sample(250ms)`, via le helper partagé `ui/common/QuoteFallbackController` — ne jamais recopier une boucle « collect WS → catch → polling » dans un ViewModel
+- **Subscriptions WS ref-comptées** : `PublicWsClient` compte les collecteurs par symbole — frame `subscribe` seulement à 0→1, `unsubscribe` seulement à 1→0, resouscription de toutes les clés sur `onOpen`, fermeture quand plus aucun symbole. Dashboard et MarketData peuvent donc suivre le même symbole sans se couper mutuellement
+- **Fallback REST piloté par l'état** : `PublicWsClient.connectionState` (`WsConnectionState` : `Connecting` à l'ouverture / pendant le backoff, `Connected` sur onOpen, `Disconnected` sur onFailure/onClosed/disconnect, `Degraded` à partir de 3 tentatives de reconnexion) est exposé via `PublicWsRepository` + `GetPublicWsConnectionStateUseCase` (qui expose aussi `isAppForeground()`). Le flux WS `quoteUpdates` **ne lève jamais** sur coupure — un `catch` autour de sa collecte est du code mort. `QuoteFallbackController` collecte le flux WS en permanence (jamais annulé → resouscription automatique après reconnexion) et, quand l'état n'est pas `Connected` depuis **2 s** (debounce ; `Connected` est propagé immédiatement), appelle `onStale` puis polle `GET /v1/market-data/quote/{symbol}` toutes les **30 secondes** — uniquement si l'app est au premier plan. Le polling s'arrête dès le retour à `Connected` (`collectLatest`). Dans `openWebSocket`, un `catch (e: Exception)` doit relancer `CancellationException`
 - **Portfolio (P&L, positions)** : mises à jour temps réel via `WsRepository` (WebSocket `wss://vps/v1/ws/private`) en complément du polling REST
+- **Dashboard NAV / PnL — `DataState<T>`** (`ui/common/DataState.kt` : `value`, `isRefreshing`, `error`, `syncedAt`) : la valeur n'est **jamais** remise à `null` après un premier succès — `loading()` et `failure()` la conservent (valeur périmée), seul `success(v, now)` la remplace. Chaque `portfolio_update` du WS privé applique `total_value` / `cash_balance` / `positions_value` **directement** à la NAV affichée (patch optimiste, `syncedAt = now` ; le backend n'envoie pas de P&L sur ce canal), passe NAV + PnL en `isRefreshing`, puis déclenche un refetch REST NAV + PnL **debouncé 750 ms** (une rafale = une paire de requêtes). Côté écran : skeletons uniquement si NAV **et** PnL sont `isInitialLoading` ; `isRefreshing` n'alimente que le `PullToRefreshBox` ; valeur + erreur → valeur périmée + `CacheTimestamp(syncedAt, CacheTtl.PNL_MS)` + snackbar ; pas de valeur + erreur → carte d'erreur inline. Un changement de période PnL réinitialise la seule section PnL (jamais la PnL d'une autre période sous la nouvelle puce)
 - **Positions live** : les `position_update` du WS privé sont mergés dans `PositionsViewModel` pour mettre à jour `currentPrice` et `unrealizedPnl` en temps réel (affichage via `AnimatedPnlText`)
-- **Widgets** : rafraîchissement inclus dans le cycle WorkManager **5 min**
+- **Widgets** : rafraîchissement inclus dans le cycle WorkManager **15 min** (plancher OS)
 - **Symboles disponibles** : `GET /v1/market-data/symbols` retourne la liste des symboles trackés par le backend
 - **Historique OHLCV (sparklines)** : `GET /v1/market-data/{symbol}/history` — 30 derniers points close, affiché en mini-chart dans chaque card de la watchlist
 
@@ -321,50 +413,49 @@ La table Room `quotes` persiste le dernier cours connu (TTL 10 min) pour le `Quo
 La table Room `watchlist` persiste les symboles suivis par l'utilisateur (pas de TTL).
 L'écran Dashboard ne persiste pas les cours — il affiche uniquement les données live ou rien.
 
-**Gestion des exceptions dans le polling Dashboard** — trois cas distincts à traiter dans le ViewModel.
+**Gestion des exceptions du fallback REST Dashboard** — trois cas distincts, traités dans le
+callback `onFetchError` du `QuoteFallbackController` (le controller relance lui-même une
+`CancellationException` encapsulée dans un `Result`).
 
 `repeatOnLifecycle` est une extension de `Lifecycle` (Activity/Fragment) — **non utilisable
-dans un ViewModel**. Le polling se fait via `while(isActive)` dans `viewModelScope`. Côté UI,
-`collectAsStateWithLifecycle()` suspend automatiquement la collection quand l'app est en
-arrière-plan.
+dans un ViewModel**. Le polling (`while(isActive)` + `delay(30_000)`) vit dans le controller,
+lancé dans `viewModelScope` ; la pause en arrière-plan passe par
+`GetPublicWsConnectionStateUseCase.isAppForeground()` (ProcessLifecycleOwner côté data). Côté UI,
+`collectAsStateWithLifecycle()` suspend en plus la collection quand l'app est en arrière-plan.
 
 ```kotlin
 // Dans DashboardViewModel — pattern correct
-init {
-    viewModelScope.launch {
-        while (isActive) {
-            getQuoteUseCase(symbol)
-                .onSuccess { _quoteState.value = QuoteUiState.Success(it) }
-                .onFailure { e ->
-                    when (e) {
-                        is VpnNotConnectedException ->
-                            // VPN coupé — garder la valeur précédente, pas d'erreur bloquante
-                            _quoteState.update { prev ->
-                                if (prev is QuoteUiState.Success) QuoteUiState.Stale(prev.data)
-                                else prev
-                            }
-                        is SocketTimeoutException, is IOException ->
-                            Unit  // transitoire — garder l'état précédent
-                        else ->
-                            _quoteState.value = QuoteUiState.Error(e.localizedMessage ?: "Erreur")
-                    }
-                }
-            delay(30_000)
+private val quoteFallback = QuoteFallbackController(
+    scope = viewModelScope,
+    connectionState = getPublicWsConnectionStateUseCase(),
+    isForeground = getPublicWsConnectionStateUseCase.isAppForeground(),
+    stream = { getQuoteStreamUseCase(it) },
+    fetch = { getQuoteUseCase(it) },
+    onQuote = { _, q -> _uiState.update { it.copy(quote = QuoteUiState.Success(q)) } },
+    onStale = { markQuoteStale() },                          // Success → Stale(prev.data)
+    onFetchError = { _, e ->
+        when (e) {
+            is VpnNotConnectedException -> markQuoteStale()  // VPN coupé — pas d'erreur bloquante
+            is SocketTimeoutException, is IOException -> Unit // transitoire — état inchangé
+            else -> _uiState.update { it.copy(quote = QuoteUiState.Error(e.localizedMessage ?: "Erreur")) }
         }
-    }
-}
+    },
+)
+// quoteWatchJob = quoteFallback.watch(symbol) — annuler le Job = unsubscribe ref-compté + arrêt du polling
 
 // Dans le Composable — collectAsStateWithLifecycle() gère le lifecycle
-val quoteState by viewModel.quoteState.collectAsStateWithLifecycle()
+val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 ```
 
 ### WebSocket privé — PrivateWsClient
 
-`PrivateWsClient` se connecte à `wss://vps/v1/ws/private` avec un JWT dont le claim `"websocket"` est obtenu via `POST /v1/auth/ws-token`. Il implémente `DefaultLifecycleObserver` : la connexion est établie en foreground et fermée en arrière-plan.
+`PrivateWsClient` se connecte à `wss://vps/v1/ws/private` avec un JWT dont le claim `"websocket"` est obtenu via `POST /v1/auth/ws-token`. Il implémente `DefaultLifecycleObserver`, mais `onStop` (arrière-plan) n'annule que les timers de reconnexion/refresh de token pour économiser la batterie — **le socket lui-même n'est pas fermé** ; `onStart` (retour au premier plan) reconnecte seulement si besoin (token expiré pendant le background, socket absent). La connexion est réellement ouverte/fermée par les événements de session (voir ci-dessous), pas par le cycle de vie foreground/background.
 
 `WsRepository` expose des `Flow` pour les événements WS : `portfolioUpdates`, `positionUpdates`, `orderUpdates`, `strategySignals`, `notifications`, `catalystEvents`. `DashboardViewModel` collecte `portfolioUpdates` en complément du polling REST et `GetActivityFeedUseCase` merge les 5 flux (`orderUpdates`, `strategySignals`, `notifications`, `portfolioUpdates`, `catalystEvents`) dans un feed d'activité temps réel affiché sur le Dashboard via `ActivityFeedCard`. `PositionsViewModel` collecte `positionUpdates` pour mettre à jour les prix en temps réel.
 
 Le token WS est distinct de l'access token — obtenir via `POST /v1/auth/ws-token` avant chaque connexion. `WebSocketModule` dans `di/` fournit les bindings Hilt.
+
+**Connexion / déconnexion pilotées par la session (`SessionManager`).** Aucun ViewModel n'appelle `connect()`/`disconnect()`. `AuthRepositoryImpl` émet `notifySessionStarted()` juste après `tokenHolder.setToken` (login et vérification 2FA) : `PrivateWsClient` abandonne toute connexion de la session précédente, remet le backoff à zéro et se connecte immédiatement. Tout `forcedLogoutEvents` (logout utilisateur via `SettingsViewModel`, logout forcé `TokenAuthenticator`/`AuthInterceptor`, escape hatch biométrique) → `disconnect()` (close 1000, sans reconnexion). Garde `TokenHolder` : sans access token en mémoire, `connect()`/`scheduleReconnect()`/`openWebSocket()` ne font rien — la boucle de backoff s'arrête au logout. Un compteur de génération, incrémenté par `disconnect()`, rend périmée toute tentative en vol (`getWsToken()` ou handshake) : elle ne peut ni rouvrir un socket authentifié ni modifier l'état. Au démarrage à froid, `TradingApplication` appelle `connect()` après le préchargement du token (sans écraser un token déjà présent dans `TokenHolder`). Tests : `PrivateWsClientTest` (Robolectric + MockWebServer).
 
 ### Alertes — source de données (FCM → Room)
 
@@ -384,9 +475,22 @@ domain/usecase/alerts/
 
 ### Pattern Result<T> — Repository et UseCase (obligatoire)
 
+Timestamps : toujours `parseInstantLenient` (champ requis) / `parseInstantOrNull` (champ nullable)
+depuis `domain/util/InstantParsing.kt`, jamais `Instant.parse` nu — le backend sérialise via
+Python `.isoformat()` (offset numérique `+00:00`, pas `Z`), qu'`Instant.parse` seul rejette sur
+Android <= 13 (libcore antérieur à JDK-8166138). Voir audit finding #9 / B-dto-3.
+
 ```kotlin
 // Toutes les méthodes des interfaces Repository retournent Result<T> (stdlib Kotlin)
-// Jamais de throw directement depuis un Repository — toujours wrapper dans runCatching {}
+// Jamais de throw directement depuis un Repository — toujours wrapper dans
+// runCatchingCancellable {} (domain/util/RunCatchingCancellable.kt), jamais runCatching {} nu.
+// runCatching {} catche Throwable, donc avale silencieusement CancellationException et casse la
+// concurrence structurée (une coroutine annulée ressort comme un Result.failure « normal »).
+// runCatchingCancellable {} relance CancellationException (et sa sous-classe
+// TimeoutCancellationException) au lieu de l'encapsuler — un appelant qui veut convertir un
+// timeout en échec métier doit le catcher explicitement avant, comme ConfirmPairingUseCase.
+// Un test de garde (NoBareRunCatchingTest) échoue le build sur tout nouveau runCatching {} nu
+// hors d'une liste blanche de code synchrone (parsing JSON/URI, widgets Glance).
 interface PortfolioRepository {
     suspend fun getPositions(portfolioId: Int, status: PositionStatus): Result<List<Position>>
     suspend fun getPnl(portfolioId: Int, period: PnlPeriod): Result<PnlSummary>
@@ -418,6 +522,22 @@ viewModelScope.launch {
 - `WireGuardManager` est injecté par Hilt comme `@Singleton`
 - **Avant chaque appel Retrofit** : vérifier `vpnManager.state.value is VpnState.Connected`
   → via un `OkHttp Interceptor` dédié (`VpnRequiredInterceptor`)
+- `VpnState.SystemVpnActive` = VPN tiers actif, tunnel intégré coupé (D6 : autorisé par `VpnRequiredInterceptor`, affiché distinctement, jamais émis par `WireGuardManager`) ; `WireGuardManager` sérialise `connect()`/`disconnect()` par un `Mutex` (dernière intention gagne) et, sur un DOWN non initié (révocation OS), arrête `WireGuardVpnService` (qui ne porte que la notification — le tunnel est tenu par `GoBackend$VpnService`).
+- **Consentement VPN (`VpnService.prepare`)** : Android exige que l'utilisateur accepte une
+  fois le dialogue système de connexion VPN (et de nouveau si une autre app VPN a pris la main),
+  sinon `GoBackend.setState(UP)` échoue. `WireGuardManager.connect()` vérifie d'abord
+  `prepareIntent()` (= `VpnService.prepare(context)`, seam `VpnConsentChecker` ; null = déjà
+  autorisé) : si un Intent est requis, il publie `VpnState.ConsentRequired` **sans appeler le
+  backend** et garde la config en mémoire. `SetupScreen` et `VpnSettingsScreen` lancent l'Intent
+  via `rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult())`
+  (garde « déjà lancé » dans le ViewModel contre un double lancement), puis
+  `viewModel.onVpnConsentResult(granted = resultCode == RESULT_OK)` → accordé :
+  `WireGuardManager.retryAfterConsent()` rejoue la connexion (publie `Connecting` de façon
+  synchrone) ; refusé : message explicite « Autorisation VPN refusée — le tunnel est requis pour
+  utiliser l'application » + bouton « Réessayer ». Politique réseau de `ConsentRequired` =
+  `Disconnected` (bloqué par `VpnRequiredInterceptor` ; `WidgetUpdateWorker` ne synchronise
+  que si un VPN système est actif). Tout `when` exhaustif sur `VpnState` doit traiter
+  `ConsentRequired` comme `Disconnected`.
 - La clé privée WireGuard est générée une seule fois, stockée dans `EncryptedDataStore`,
   protégée par Android Keystore. Elle ne sort jamais de l'app.
 - La clé publique est partagée avec le VPS lors du pairing uniquement.
@@ -432,10 +552,16 @@ CsrfInterceptor           → récupère et injecte le token CSRF (header X-CSRF
 VpnRequiredInterceptor    → bloque si VpnState ≠ Connected
 AuthInterceptor           → injecte Authorization: Bearer <access_token>
 TokenAuthenticator        → sur 401 AUTH_1002 : refresh puis retry
-HttpLoggingInterceptor    → debug uniquement, tokens [REDACTED]
+HttpLoggingInterceptor    → debug uniquement (NetworkModule.debugLogger) : Authorization,
+                            X-CSRF-Token, Cookie, Set-Cookie expurgés ; HEADERS seulement
+                            sur AuthPaths.isSensitive() (auth, csrf, fcm-token), BODY ailleurs
 ```
 
 Le middleware CSRF du VPS **ne fait pas d'exemption** sur les requêtes Bearer — le `CsrfInterceptor` est obligatoire pour tous les `POST/PUT/DELETE/PATCH`.
+
+**Source unique des chemins d'auth : `data/api/AuthPaths.kt`** (`PUBLIC` sans Bearer, `CSRF_EXEMPT`,
+`VPN_EXCLUDED`, `COOKIE_SAVE`, `isSensitive()`), miroir de `auth.py PUBLIC_PATHS` / `csrf.py CSRF_EXEMPT_PATHS`
+du backend. Ne jamais redéclarer un set de paths privé dans un intercepteur ou le cookie jar — modifier `AuthPaths` (+ `AuthPathsTest`).
 
 **Deux contraintes d'implémentation critiques pour `CsrfInterceptor` :**
 
@@ -509,46 +635,70 @@ suspend fun readSecurely(key: String): String? {
 }
 ```
 
-Si le token retourné est `null` suite à cette exception : logout forcé vers `LoginScreen`.
+Attraper aussi `SecurityException` (security-crypto alpha enveloppe les échecs de déchiffrement
+Tink en `RuntimeException`). Les chemins critiques utilisent `readStringSafe` / `readBooleanSafe`
+(`SecureReadResult.Found | NotFound | Corrupted`) pour distinguer « absent » de « corrompu ».
+
+**Corruption détectée → reset complet.** `SessionManager.notifyKeystoreCorruption()` affiche le
+dialog de corruption ; son bouton lance `RecoverFromKeystoreCorruptionUseCase` (WS privé + tunnel
+WG coupés, caches token/cookie/CSRF vidés, Room vidé, puis `EncryptedDataStore.resetCorruptedStore()`
+qui supprime `trading_secure_prefs` **et** l'alias MasterKey avant de recréer un store vide).
+**Rien ne survit** (tokens, cookies, clés/config WireGuard, `setup_completed`, `local_token_*`) :
+l'app repart sur `SetupScreen` et l'utilisateur rescanne le QR de configuration. Si le store ne
+peut pas être recréé, le dialog réapparaît en variante « stockage indisponible » (réessayer).
 Ne jamais laisser l'app dans un état indéterminé avec des clés nulles.
 
 ### Verrou biométrique — comportement (Option B1 : deux mécanismes distincts)
 
-`setUserAuthenticationValidityDurationSeconds(300)` et "inactivité de 5 min" sont deux choses
-différentes. L'implémentation combine les deux :
+La validité de 300 s de la clé Keystore et "inactivité de 5 min" sont deux choses différentes.
+L'implémentation combine les deux :
 
 | Mécanisme | Rôle |
 |-----------|------|
-| Clé Keystore avec `setUserAuthenticationValidityDurationSeconds(300)` | Invalide la clé crypto 5 min **après la dernière auth biométrique** — géré par Android |
-| Timer d'inactivité dans `MainActivity` | Déclenche l'overlay et redemande la biométrie après 5 min **sans interaction écran** |
+| Clé Keystore `setUserAuthenticationParameters(300, AUTH_BIOMETRIC_STRONG)` (API 30+ ; `setUserAuthenticationValidityDurationSeconds(300)` sur 28-29) | Invalide la clé crypto 5 min **après la dernière auth biométrique forte** — géré par Android |
+| Timer d'inactivité dans `BiometricLockManager` (singleton) | Déclenche l'overlay et redemande la biométrie après 5 min **sans interaction écran** |
 
-Le timer d'inactivité est géré dans `MainActivity` :
+**`BiometricLockManager` est le seul propriétaire** du timestamp d'interaction, du poll (5 s) et
+de `isLocked` ; il observe `ProcessLifecycleOwner` (`onStart` : verrouille si expiré puis relance
+le poll ; `onStop` : coupe le poll et persiste). `MainActivity` ne fait que transmettre les touches
+(la recréation d'Activity ne remet donc pas l'horloge à zéro) :
 ```kotlin
-// Réinitialiser à chaque dispatchTouchEvent
 override fun dispatchTouchEvent(ev: MotionEvent?): Boolean {
-    resetInactivityTimer()
+    biometricLockManager.onUserInteraction()   // AtomicLong, ignoré pendant le verrou
     return super.dispatchTouchEvent(ev)
 }
-private fun resetInactivityTimer() {
-    inactivityJob?.cancel()
-    inactivityJob = lifecycleScope.launch {
-        delay(INACTIVITY_TIMEOUT_MS) // 5 * 60 * 1000
-        showBiometricLock()
-    }
-}
 ```
+`unlock()` ré-arme l'horloge ; `BIOMETRIC_LOCKED` + `LAST_INTERACTION_AT` sont persistés en
+`commit()` (clés critiques d'`EncryptedDataStore`). Sans session (`TokenHolder` vide :
+Setup/Login), le timeout ne verrouille pas.
 
-**Révocation biométrie** : si l'utilisateur supprime ses empreintes, la clé Keystore est
-invalidée. Toujours intercepter `KeyPermanentlyInvalidatedException` lors de l'utilisation de
-la clé et régénérer la clé + demander une nouvelle authentification :
-```kotlin
-try {
-    cipher.init(Cipher.ENCRYPT_MODE, keystoreKey)
-} catch (e: KeyPermanentlyInvalidatedException) {
-    keystoreManager.regenerateKey()
-    promptBiometricReEnrollment()
-}
-```
+**Démarrage à froid — verrouillé par défaut (D7).** `isLocked` vaut `true` jusqu'à la décision de
+`TradingApplication`, prise dans la coroutine qui lit `ACCESS_TOKEN` : session présente →
+`restorePersistedState()` avant `tokenHolder.setToken` (verrouillé sauf état persisté
+« déverrouillé » avec interaction < 5 min) ; pas de session → `unlock()` silencieux (Setup/Login
+non protégés) ; Keystore corrompu → reste verrouillé (le reset de récupération déverrouille).
+Tant que le dialog de corruption Keystore est affiché, l'overlay reste opaque mais ne lance pas
+le prompt biométrique (`authEnabled = false`) ; après un reset réussi
+(`RecoverFromKeystoreCorruptionUseCase` → `unlock()`), le flux normal reprend.
+
+**Overlay fail-closed.** `BiometricLockOverlay` n'appelle `onAuthSuccess` **que** depuis le
+callback de succès du `BiometricPrompt`. Pas de `FragmentActivity` dans la chaîne de `Context`
+ou pas de `BiometricManager` → message d'erreur, l'overlay reste. Seule autre sortie : le bouton
+« Se reconnecter » (après 60 s) → logout forcé. Escape hatch (bouton ou clé invalidée) :
+`LogoutUseCase` + `TokenHolder.clear()` puis `notifyForcedLogout()`, et l'overlay n'est levé
+(`unlock()`) qu'une fois Login/Setup devenu la destination RESUMED — jamais d'écran authentifié
+déverrouillé. L'overlay bloque les touches et le retour
+arrière ; en `LocalInspectionMode` il est rendu statiquement sans lancer de prompt.
+`MainActivity` est donc une `FragmentActivity` (exigée par `BiometricPrompt`), et
+**`minSdk = 28`** (décision D1) : sur API 26-27 `BiometricPrompt` passe par un dialog AppCompat
+qui plante avec notre thème framework — on n'a pas basculé l'app sur un thème AppCompat.
+
+**Révocation biométrie** : avant chaque prompt, `BiometricManager` appelle
+`KeystoreManager.checkAuthValidity()` → `Valid` / `Expired` (`UserNotAuthenticatedException`,
+cas nominal après 300 s : on affiche le prompt) / `Invalidated`
+(`KeyPermanentlyInvalidatedException`, empreintes supprimées : `regenerateKey()` puis
+`onKeyInvalidated` → logout forcé, sans prompt). Aucune de ces exceptions ne doit s'échapper.
+Prompt : `BIOMETRIC_STRONG` seul (bouton négatif obligatoire), `setConfirmationRequired(false)`.
 
 - En cas de verrou : overlay opaque sur l'écran, données non visibles
 - L'authentification biométrique réussie déverrouille pour 5 min supplémentaires (reset les deux mécanismes)
@@ -639,16 +789,22 @@ for t in $(find app/src/test -name "*Test.kt" -exec grep -l "^class\|^@.*class" 
   fi
 done
 
-# Tests instrumentation (émulateur/device requis)
-./gradlew connectedAndroidTest
+# Tests instrumentation — Gradle Managed Devices (api30, api34 ; images ATD, pas de GMS)
+# déclarés dans testOptions.managedDevices (app/build.gradle.kts) — voir aussi le job CI
+# `instrumented` (.github/workflows/android.yml)
+./gradlew api30DebugAndroidTest api34DebugAndroidTest
 
-# Coverage
-./gradlew jacocoTestReport
+# Garde de drift de contrats (JVM, dans testDebugUnitTest) — DtoContractTest compare les DTOs/
+# chemins Retrofit/clés WS à un OpenAPI backend réduit + ws_events.json (docs/api-contracts.md
+# §« Garde de drift de contrats »)
+./gradlew testDebugUnitTest --tests "com.tradingplatform.app.contracts.DtoContractTest"
 ```
 
+Coverage : plugin jacoco non appliqué — à ajouter si besoin (voir docs/gradle-setup.md).
+
 Structure :
-- `test/` — UseCases, ViewModels (Mockk + Turbine pour StateFlow), intercepteurs OkHttp (MockWebServer), Repositories
-- `androidTest/` — UI tests Compose (ComposeTestRule), Room DAOs, WidgetUpdateWorker (TestListenableWorkerBuilder)
+- `test/` — UseCases, ViewModels (Mockk + Turbine pour StateFlow), intercepteurs OkHttp (MockWebServer), Repositories, `DtoContractTest` (garde de drift de contrats), `NoBareRunCatchingTest` (interdit `runCatching {` nu hors liste blanche — voir « Pattern Result<T> » ci-dessous)
+- `androidTest/` — UI tests Compose (ComposeTestRule), Room DAOs (`MigrationTest`, baseline v7), `WidgetUpdateWorker` (TestListenableWorkerBuilder), overlay biométrique fail-closed réel (`BiometricLockOverlayTest`), DataStore avec un vrai Keystore, `SealedBoxHelper` avec libsodium réel — exécutés par le job CI `instrumented` (Gradle Managed Devices api30/api34)
 
 Objectif couverture : ≥ 80% sur `domain/usecase/`, `ui/screens/` ViewModels **et** `data/repository/`.
 
@@ -739,15 +895,16 @@ l'applique). Elle ne stocke jamais le `session_pin` — elle le transmet en un s
 ```
 VPS QR → scan → {session_id, session_pin, device_wg_ip, local_token, nonce}
 Radxa QR → scan → {device_id, wg_pubkey, local_ip:8099}
-App → POST http://radxa_ip:8099/pin {session_id, session_pin, local_token, nonce}  (LAN direct, chiffré)
-App → poll GET http://radxa_ip:8099/status jusqu'à "paired"
+App → POST https://radxa_ip:8099/pin {session_id, session_pin, local_token, nonce}  (LAN direct, chiffré)
+App → poll GET https://radxa_ip:8099/status jusqu'à "paired"
 ```
 
 **Règles critiques :**
 - Valider que `radxa_ip` est RFC-1918 avant d'envoyer le PIN (`isLocalNetwork()`)
 - Le `session_pin`, `local_token` et `nonce` ne doivent jamais être loggés (`[REDACTED]` si debug nécessaire)
 - La connexion vers `radxa_ip:8099` doit être faite uniquement si `VpnState.Connected`
-  (le VPN garantit qu'on est sur le bon réseau avant de contacter le LAN)
+  (le VPN garantit qu'on est sur le bon réseau avant de contacter le LAN) — appliqué au niveau
+  du client `@Named("lan")` par le `VpnRequiredInterceptor`, pas seulement documenté
 - Timeout 120s sur l'opération complète (durée de vie de la session VPS)
 
 **Validation des QR scannés :**
@@ -783,7 +940,12 @@ L'app scanne les deux QR dans n'importe quel ordre, puis connecte les infos.
 > **Notes d'implémentation :**
 > - `device_wg_ip` (du QR VPS) est affiché à l'utilisateur pour confirmation uniquement — il n'est envoyé ni à la Radxa ni au VPS par l'app.
 > - `wg_pubkey` dans le QR Radxa est la clé publique **complète** (44 chars base64). La mention "tronquée" ne s'applique qu'à l'affichage sur l'e-ink, pas aux données QR.
-> - La connexion vers `radxa_ip:8099` est HTTP. Le payload (session_pin, local_token) est chiffré avec `crypto_box_seal(radxa_wg_pubkey)` avant envoi — illisible sans la clé privée du Radxa.
+> - La connexion vers `radxa_ip:8099` est **HTTPS** (le pairing-server Radxa refuse de démarrer
+>   sans TLS) avec un certificat auto-signé accepté par `security/LanTrustManager.kt` — l'app
+>   ne fait pas de certificate pinning sur ce chemin (défense en profondeur : garde RFC-1918 +
+>   VPN actif + `crypto_box_seal`, pas la chaîne TLS). Le payload (session_pin, local_token) est
+>   en plus chiffré avec `crypto_box_seal(radxa_wg_pubkey)` avant envoi — illisible sans la clé
+>   privée du Radxa, même si le TLS venait à être compromis.
 
 ### Repository LAN (obligatoire — violation d'archi sinon)
 
@@ -795,7 +957,10 @@ domain/repository/
 └── PairingRepository    — interface : sendPin(...): Result<Unit>, pollStatus(...): Flow<PairingStatus>
 
 data/repository/
-└── PairingRepositoryImpl — OkHttpClient bare (pas de CSRF/Auth interceptors — c'est du LAN)
+└── PairingRepositoryImpl — client @Named("lan") (di/NetworkModule.kt) : HTTPS + LanTrustManager,
+                            garde anti-fuite qui rejette toute URL non-HTTPS/non-RFC-1918
+                            (lanOnlyHttpsGuard), VpnRequiredInterceptor inclus ; pas de
+                            CsrfInterceptor ni d'AuthInterceptor (LAN, pas VPS)
                             Valide isLocalNetwork() avant chaque appel
 ```
 
@@ -952,14 +1117,12 @@ Si le VPS déploie un breaking change, les anciennes apps cassent silencieusemen
 
 ```xml
 <!-- WireGuardVpnService — foregroundServiceType="specialUse" obligatoire Android 14+ (API 34) -->
+<!-- Pas de BIND_VPN_SERVICE ni d'intent-filter VpnService : ce service ne porte que la
+     notification ; GoBackend$VpnService (déclaré par l'AAR wireguard) tient le tunnel. -->
 <service
     android:name=".vpn.WireGuardVpnService"
-    android:permission="android.permission.BIND_VPN_SERVICE"
     android:foregroundServiceType="specialUse"
     android:exported="false">
-    <intent-filter>
-        <action android:name="android.net.VpnService" />
-    </intent-filter>
     <property
         android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
         android:value="VPN tunnel WireGuard — toutes les requêtes API passent par ce tunnel" />
@@ -977,23 +1140,43 @@ Si le VPS déploie un breaking change, les anciennes apps cassent silencieusemen
      SharedPreferences keyed sur appWidgetId (pas GlanceStateDefinition — plus simple
      pour une valeur scalaire configurée une seule fois) :
      prefs.edit().putString("ticker_$appWidgetId", symbol).apply() -->
+<!-- PnlWidgetConfigureActivity : même pattern (période day/week/month, clé "period_$appWidgetId"),
+     référencée par android:configure dans pnl_widget_info.xml -->
 <!-- WorkManager : ne pas déclarer manuellement, géré par la lib -->
 ```
 
 ### network_security_config.xml (`app/src/main/res/xml/`)
 
-Le certificate pinning est géré **uniquement via OkHttp** (`CertificatePinner` + `BuildConfig`),
-pas via ce fichier (les valeurs `local.properties` ne peuvent pas être injectées dans des XML
-Android au build time). Ce fichier se limite au blocage cleartext.
+Le certificate pinning du trafic VPS est géré **uniquement via OkHttp** (`CertificatePinner` +
+`BuildConfig`), pas via ce fichier (les valeurs `local.properties` ne peuvent pas être injectées
+dans des XML Android au build time). Le fichier bloque le cleartext par défaut et référence la
+Root CA interne de Caddy comme ancre de confiance additionnelle pour le trafic VPS :
 
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- Cleartext permis globalement : nécessaire pour POST http://radxa_ip:8099/pin
-         (pairing LAN). Les IPs Radxa sont RFC-1918 dynamiques, non listables statiquement.
-         Risque atténué : VpnRequiredInterceptor exige le tunnel actif, isLocalNetwork()
-         valide l'IP avant envoi. Décision architecture §C = Option 1. -->
-    <base-config cleartextTrafficPermitted="true" />
+    <!-- Défaut : cleartext bloqué (HTTPS uniquement pour le trafic VPS). -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+            <!-- Root CA interne Caddy (VPS trading-platform2, `tls internal`).
+                 Le hash SPKI SHA-256 est en plus pinné par OkHttp CertificatePinner. -->
+            <certificates src="@raw/caddy_root_ca" />
+        </trust-anchors>
+    </base-config>
+
+    <!-- Domain-config LAN (préfixes IP RFC-1918) : hérité de la décision architecture C
+         (cleartext explicitement permis pour joindre le pairing-server Radxa). Le pairing
+         LAN réel passe désormais en HTTPS + LanTrustManager (§8) — ce bloc reste au cas où
+         un appel cleartext LAN existerait, mais n'est plus le mécanisme de protection
+         principal du port 8099. `<domain>` ne supporte pas les plages CIDR ; seuls quelques
+         préfixes courants sont listés à titre indicatif, l'enforcement réel est côté code
+         (`isLocalNetwork()` + `VpnRequiredInterceptor`). -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">10.0.0.0</domain>
+        <domain includeSubdomains="true">172.16.0.0</domain>
+        <domain includeSubdomains="true">192.168.0.0</domain>
+    </domain-config>
 </network-security-config>
 ```
 
@@ -1063,6 +1246,8 @@ L'utilisateur **ne doit jamais avoir à se reconnecter** tant que son refresh to
 Le token refresh est renouvelé silencieusement en arrière-plan par OkHttp — l'app et les widgets
 restent fonctionnels sans interaction utilisateur.
 
+`AppNavViewModel.isLoggedIn` suit les événements de session (sessionStarted / forcedLogout) ; `startDestination` n'est calculé qu'au démarrage.
+
 ### EncryptedCookieJar — refresh token httpOnly
 
 Le `refresh_token` est un cookie httpOnly (non accessible en JS/Kotlin directement).
@@ -1071,20 +1256,18 @@ Il est persisté via un `CookieJar` OkHttp qui écrit dans `EncryptedDataStore` 
 ```kotlin
 class EncryptedCookieJar(private val dataStore: EncryptedDataStore) : CookieJar {
 
-    // Paths exacts autorisés — ne pas utiliser .contains("auth") qui matcherait n'importe quel
-    // endpoint futur contenant "auth" dans son path.
-    private val AUTH_PATHS = setOf("/v1/auth/login", "/v1/auth/refresh")
-    private val REFRESH_PATH = "/v1/auth/refresh"
-
+    // Paths exacts (AuthPaths) — ne pas utiliser .contains("auth") qui matcherait n'importe quel
+    // endpoint futur contenant "auth" dans son path. COOKIE_SAVE inclut /2fa/verify (+ alias
+    // /verify-2fa) : pour un compte 2FA, c'est la vérification TOTP qui pose le refresh_token.
     override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
-        if (url.encodedPath in AUTH_PATHS) {
+        if (url.encodedPath in AuthPaths.COOKIE_SAVE) {
             // Filtrer sur le nom exact — ne pas persister les cookies analytics/tracking futurs
             cookies.filter { it.name == "refresh_token" }
                    .forEach { dataStore.save("cookie_${it.name}", it.toString()) }
         }
     }
     override fun loadForRequest(url: HttpUrl): List<Cookie> {
-        return if (url.encodedPath == REFRESH_PATH) dataStore.loadCookies() else emptyList()
+        return if (url.encodedPath == AuthPaths.REFRESH) dataStore.loadCookies() else emptyList()
     }
 }
 ```
@@ -1141,9 +1324,11 @@ class CsrfInterceptor(
 
 **Risque `runBlocking` sous charge :** sur le thread pool OkHttp, `runBlocking` pendant le
 fetch CSRF peut saturer les threads si plusieurs requêtes parallèles attendent simultanément.
-**Alternative recommandée :** pre-fetcher le token CSRF immédiatement après le login réussi
-(dans `LoginUseCase` ou `TokenAuthenticator.authenticate()`) pour qu'il soit disponible en
-cache avant la première vraie requête. Réduit le risque de contention à zéro dans le cas nominal.
+**Mitigation implémentée :** `CsrfInterceptor.preFetch()` pré-charge le token CSRF juste après
+un login / une vérification 2FA réussis (`AuthRepositoryImpl`) et au démarrage si une session
+existe (`TradingApplication`), si bien qu'il est en cache avant la première vraie requête —
+contention nulle dans le cas nominal. Ne pas le déplacer dans `TokenAuthenticator` : le refresh
+est exempt de CSRF et passe par un client dédié (voir ci-dessous).
 
 ### Token refresh transparent — TokenAuthenticator
 
@@ -1155,48 +1340,57 @@ cache avant la première vraie requête. Réduit le risque de contention à zér
         → Échec 401 AUTH_1003 : logout forcé → LoginScreen
 ```
 
-**Mécanisme de refresh concurrent (Mutex + Deferred) :**
+**Mécanisme de refresh concurrent (Deferred partagé, Mutex sur le champ uniquement) :**
 Si plusieurs requêtes reçoivent un `401 AUTH_1002` simultanément, une seule doit déclencher
-le refresh — les autres doivent attendre et réutiliser le nouveau token.
+le refresh — les autres attendent le même `Deferred` et réutilisent le nouveau token.
 
-`TokenAuthenticator` est un `Authenticator` OkHttp (pas un Composable ni un ViewModel) — il
-n'a pas de scope intrinsèque. Injecter un `CoroutineScope` applicatif via Hilt :
+**Client refresh dédié — `@Named("refresh")` (NetworkModule) :** `TokenAuthenticator` reçoit un
+`@Named("refresh") AuthApi` construit sur un `OkHttpClient` propre : `Dispatcher` dédié
+(maxRequests = maxRequestsPerHost = 2), `TimeoutInterceptor`, `VpnRequiredInterceptor`,
+`EncryptedCookieJar`, timeouts 5 s, certificate pinning, logger debug HEADERS seulement.
+**Jamais** de `CsrfInterceptor` (le refresh est exempt côté backend), d'`AuthInterceptor` ni
+d'`Authenticator` (pas de refresh récursif). Aucune de ses dépendances ne dépend de
+`TokenAuthenticator` → pas de cycle Hilt, pas de `dagger.Lazy`.
+
+`TokenAuthenticator` est un `Authenticator` OkHttp sans scope intrinsèque : il reçoit le
+`CoroutineScope` applicatif (`AppModule.provideApplicationScope()`, `SupervisorJob + IO`).
 
 ```kotlin
-// Dans NetworkModule.kt
-@Provides @Singleton
-fun provideApplicationScope(): CoroutineScope =
-    CoroutineScope(SupervisorJob() + Dispatchers.IO)
-
-// TokenAuthenticator reçoit ce scope par injection
 class TokenAuthenticator @Inject constructor(
-    private val applicationScope: CoroutineScope,  // @Singleton — survit aux requêtes
-    private val dataStore: EncryptedDataStore,
-    private val authApi: AuthApi,
-    private val logoutHandler: LogoutHandler,
+    private val applicationScope: CoroutineScope,          // @Singleton — survit aux requêtes
+    private val tokenHolder: TokenHolder,
+    @Named("refresh") private val authApi: AuthApi,         // client refresh dédié
+    /* dataStore, sessionManager, appDatabase, cookieJar */
 ) : Authenticator {
     private val mutex = Mutex()
     private var refreshDeferred: Deferred<String?>? = null
 
     override fun authenticate(route: Route?, response: Response): Request? {
-        val newToken = runBlocking {
-            mutex.withLock {
-                // Si un refresh est déjà en vol, réutiliser son résultat
-                refreshDeferred?.await() ?: run {
-                    val deferred = applicationScope.async { doRefresh() }
-                    refreshDeferred = deferred
-                    val token = deferred.await()
-                    refreshDeferred = null
-                    token
-                }
-            }
-        } ?: return null  // refresh échoué → logout géré dans doRefresh()
-        return response.request.newBuilder()
-            .header("Authorization", "Bearer $newToken").build()
+        if (response.priorResponse?.code == 401) return null           // 1 retry max par requête
+        val path = response.request.url.encodedPath
+        if (path == AuthPaths.REFRESH) { handleLogout(); return null }  // refresh token invalide
+        if (path in AuthPaths.PUBLIC) return null                       // 401 login/2FA = échec métier
+        val failed = response.request.header("Authorization")?.removePrefix("Bearer ")
+        tokenHolder.accessToken?.let { if (it != failed) return retryWith(response, it) } // bearer périmé
+        val token = runBlocking {
+            withTimeoutOrNull(AUTHENTICATE_TIMEOUT_MS) { refreshOnce(failed).await() }  // n'annule que l'attente
+        } ?: return null
+        return retryWith(response, token)
     }
+
+    // Le lock ne garde que le champ : jamais tenu pendant l'appel réseau.
+    private suspend fun refreshOnce(failed: String?): Deferred<String?> = mutex.withLock {
+        refreshDeferred?.takeIf { !it.isCompleted }
+            ?: tokenHolder.accessToken?.takeIf { it != failed }?.let { CompletableDeferred(it) }
+            ?: applicationScope.async { doRefresh() }.also { refreshDeferred = it }
+    }
+    // doRefresh() : tokenHolder.setToken() AVANT dataStore.writeString() ; non-2xx → handleLogout() ;
+    // `catch (e: CancellationException) { throw e }` avant le catch générique.
 }
 ```
 Pas de `delay(5000)` — les threads en attente bloquent sur le `Deferred`, pas sur un timer.
+Le timeout (8 s) n'annule que l'attente : le refresh finit dans `applicationScope` et alimente
+`TokenHolder`, donc la requête suivante prend le chemin « bearer périmé » sans nouveau refresh.
 
 ### Découverte du portfolio_id — flow post-login
 
@@ -1205,7 +1399,8 @@ POST /v1/auth/login
     ├─ Succès → stocker access_token, user.id, user.is_admin dans EncryptedDataStore
     │
     ├─ Si user.totp_enabled == true
-    │       → naviguer vers TotpScreen (avec session_token)
+    │       → LoginViewModel appelle SessionManager.storePendingTotpToken(session_token)
+    │         puis navigue vers TotpScreen (pas d'argument de nav)
     │       → POST /v1/auth/2fa/verify
     │       └─ Succès → continuer ci-dessous
     │
@@ -1226,8 +1421,13 @@ LoginScreen → [auth OK + totp_enabled] → TotpScreen → [POST /v1/auth/2fa/v
     → GET /v1/portfolios → Dashboard
 ```
 
-`TotpScreen` reçoit le `session_token` (issu de la réponse login TOTP) via navigation args.
-`TotpViewModel` expose un `UiState` : `AwaitingInput | Verifying | Success | Error`.
+`TotpScreen` ne reçoit **pas** le `session_token` via navigation args : `TotpViewModel` le lit
+depuis `SessionManager.pendingTotpToken` (posé par `LoginViewModel.storePendingTotpToken()` juste
+après le login), en mémoire process uniquement — jamais dans le `NavController` ni persisté.
+`TotpViewModel` expose un `UiState` : `AwaitingInput | Verifying | Success | Error | BackToLogin`.
+Le temp token est lu sans être consommé ; il n'est consommé que
+sur succès ou sur 401 serveur (→ `BackToLogin`, le backend l'a brûlé). Timeout/IOException/429 →
+`Error` récupérable, token conservé.
 
 ### Widgets — accès sans verrou biométrique
 
@@ -1251,6 +1451,7 @@ Les widgets Glance accèdent aux données via `WidgetUpdateWorker` (WorkManager 
 | `wg_server_pubkey` | Clé publique WireGuard du VPS |
 | `wg_tunnel_ip` | IP tunnel attribuée |
 | `wg_dns` | DNS du tunnel |
+| `wg_allowed_ips` | Routes du peer VPS provisionnées (`allowed_ips` de `/register`, écrit par `ProvisionMobileVpnUseCase`) — relu par `WireGuardManager.reconnect()` ; absent (install antérieure) → full tunnel `WireGuardPeer.DEFAULT_ALLOWED_IPS` |
 | `setup_completed` | `true` après onboarding QR + premier login |
 | `local_token_{device_id}` | local_token par device Radxa (persisté après pairing) |
 | `cookie_*` | Cookies auth (refresh token httpOnly) |

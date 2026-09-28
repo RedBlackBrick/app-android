@@ -39,6 +39,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.tradingplatform.app.data.local.db.CacheTtl
 import com.tradingplatform.app.domain.model.Device
 import com.tradingplatform.app.domain.model.DeviceStatus
 import com.tradingplatform.app.ui.components.CacheTimestamp
@@ -344,6 +345,7 @@ private fun DeviceDetailContent(
         CacheTimestamp(
             syncedAt = syncedAt,
             modifier = Modifier.align(Alignment.End),
+            ttlMs = CacheTtl.DEVICES_MS,
         )
 
         Spacer(modifier = Modifier.height(Spacing.lg))

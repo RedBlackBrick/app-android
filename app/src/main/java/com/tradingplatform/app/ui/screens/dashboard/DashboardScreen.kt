@@ -34,13 +34,18 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.tradingplatform.app.data.local.db.CacheTtl
 import com.tradingplatform.app.domain.model.CircuitBreakerState
+import com.tradingplatform.app.domain.model.NavSummary
 import com.tradingplatform.app.domain.model.PnlPeriod
+import com.tradingplatform.app.domain.model.PnlSummary
 import com.tradingplatform.app.domain.model.PortfolioCircuitBreakerStatus
 import com.tradingplatform.app.domain.model.Quote
+import com.tradingplatform.app.ui.common.DataState
 import com.tradingplatform.app.ui.components.AnimatedPnlText
 import com.tradingplatform.app.ui.components.CacheTimestamp
 import com.tradingplatform.app.ui.components.ConnectionStatusIndicator
+import com.tradingplatform.app.ui.components.ErrorBanner
 import com.tradingplatform.app.ui.components.MoneyText
 import com.tradingplatform.app.ui.components.SkeletonDashboardCard
 import com.tradingplatform.app.ui.components.SparklineChart
@@ -66,17 +71,21 @@ fun DashboardScreen(
     val isWsLive by viewModel.isWsLive.collectAsStateWithLifecycle()
     val haptic = rememberHapticFeedback()
 
-    val isInitialLoading = uiState.navSummary is NavUiState.Loading &&
-        uiState.pnlSummary is PnlUiState.Loading
+    // Skeletons uniquement au tout premier chargement (ni valeur ni erreur sur NAV et PnL).
+    // Un refresh (WS, pull-to-refresh) conserve les valeurs affichées — audit #21.
+    val isInitialLoading = uiState.navSummary.isInitialLoading &&
+        uiState.pnlSummary.isInitialLoading
 
+    // isRefreshing n'alimente que l'indicateur du PullToRefreshBox.
     val isRefreshing = !isInitialLoading && (
-        uiState.pnlSummary is PnlUiState.Loading || uiState.navSummary is NavUiState.Loading
+        uiState.navSummary.isRefreshing || uiState.pnlSummary.isRefreshing
     )
 
-    // Snackbar for transient errors (replaces persistent ErrorBanner)
+    // Snackbar : échec d'un refresh alors qu'une valeur (périmée) reste affichée.
+    // Sans valeur, l'erreur est rendue inline dans la carte de la section (pas de snackbar).
     val snackbarHostState = remember { SnackbarHostState() }
-    val navError = (uiState.navSummary as? NavUiState.Error)?.message
-    val pnlError = (uiState.pnlSummary as? PnlUiState.Error)?.message
+    val navError = uiState.navSummary.staleError()
+    val pnlError = uiState.pnlSummary.staleError()
     val quoteError = (uiState.quote as? QuoteUiState.Error)?.message
     val errorMessage = navError ?: pnlError ?: quoteError
 
@@ -129,7 +138,10 @@ fun DashboardScreen(
                     SkeletonDashboardCard()
                 } else {
                     // ── NAV (Net Asset Value) ───────────────────────────────────
-                    NavSection(navState = uiState.navSummary)
+                    NavSection(
+                        navState = uiState.navSummary,
+                        onRetry = { viewModel.refresh() },
+                    )
 
                     // ── Stratégies actives + Circuit-breaker (lecture seule) ───
                     StrategyAndRiskStatusRow(
@@ -138,7 +150,7 @@ fun DashboardScreen(
                     )
 
                     // ── Sparkline chart ─────────────────────────────────────────
-                    val pnlData = (uiState.pnlSummary as? PnlUiState.Success)?.data
+                    val pnlData = uiState.pnlSummary.value
                     if (pnlData != null && pnlData.sparklinePoints.isNotEmpty()) {
                         SparklineChart(
                             dataPoints = pnlData.sparklinePoints,
@@ -162,7 +174,10 @@ fun DashboardScreen(
                     )
 
                     // ── P&L summary ─────────────────────────────────────────────
-                    PnlSection(pnlState = uiState.pnlSummary)
+                    PnlSection(
+                        pnlState = uiState.pnlSummary,
+                        onRetry = { viewModel.refresh() },
+                    )
 
                     // ── Quote ────────────────────────────────────────────────────
                     QuoteSection(quoteState = uiState.quote)
@@ -207,9 +222,31 @@ fun DashboardScreen(
 
 // ── Section composables ───────────────────────────────────────────────────────
 
+/** Erreur du dernier refresh quand une valeur (désormais périmée) reste affichée. */
+private fun DataState<*>.staleError(): String? = if (value != null) error else null
+
+/**
+ * Pied de section commun à NAV/PnL :
+ * - valeur + erreur → horodatage de la dernière sync ([CacheTimestamp], TTL [CacheTtl.PNL_MS]) ;
+ * - pas de valeur + erreur → carte d'erreur inline avec « Réessayer ».
+ */
+@Composable
+private fun DataStateFooter(
+    state: DataState<*>,
+    onRetry: () -> Unit,
+) {
+    val error = state.error ?: return
+    if (state.value != null) {
+        CacheTimestamp(syncedAt = state.syncedAt, ttlMs = CacheTtl.PNL_MS)
+    } else {
+        ErrorBanner(message = error, onRetry = onRetry)
+    }
+}
+
 @Composable
 private fun NavSection(
-    navState: NavUiState,
+    navState: DataState<NavSummary>,
+    onRetry: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val extendedColors = LocalExtendedColors.current
@@ -228,16 +265,9 @@ private fun NavSection(
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            when (navState) {
-                is NavUiState.Loading -> {
-                    Text(
-                        text = "—",
-                        style = MaterialTheme.typography.headlineMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                }
-                is NavUiState.Success -> {
-                    val nav = navState.data
+            val nav = navState.value
+            when {
+                nav != null -> {
                     MoneyText(
                         amount = nav.currentValue,
                         style = MaterialTheme.typography.headlineMedium,
@@ -285,14 +315,22 @@ private fun NavSection(
                         }
                     }
                 }
-                is NavUiState.Error -> {
+                navState.error != null -> {
                     Text(
                         text = "Indisponible",
                         style = MaterialTheme.typography.headlineMedium,
                         color = MaterialTheme.colorScheme.error,
                     )
                 }
+                else -> {
+                    Text(
+                        text = "—",
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
             }
+            DataStateFooter(state = navState, onRetry = onRetry)
         }
     }
 }
@@ -445,7 +483,8 @@ private fun PnlPeriodChips(
 
 @Composable
 private fun PnlSection(
-    pnlState: PnlUiState,
+    pnlState: DataState<PnlSummary>,
+    onRetry: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val extendedColors = LocalExtendedColors.current
@@ -464,16 +503,9 @@ private fun PnlSection(
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            when (pnlState) {
-                is PnlUiState.Loading -> {
-                    Text(
-                        text = "—",
-                        style = MaterialTheme.typography.titleLarge,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                }
-                is PnlUiState.Success -> {
-                    val pnl = pnlState.data
+            val pnl = pnlState.value
+            when {
+                pnl != null -> {
                     // Total return prominently displayed with animation
                     if (pnl.totalReturn != null) {
                         AnimatedPnlText(
@@ -569,14 +601,22 @@ private fun PnlSection(
                         }
                     }
                 }
-                is PnlUiState.Error -> {
+                pnlState.error != null -> {
                     Text(
                         text = "Indisponible",
                         style = MaterialTheme.typography.titleLarge,
                         color = MaterialTheme.colorScheme.error,
                     )
                 }
+                else -> {
+                    Text(
+                        text = "—",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
             }
+            DataStateFooter(state = pnlState, onRetry = onRetry)
         }
     }
 }

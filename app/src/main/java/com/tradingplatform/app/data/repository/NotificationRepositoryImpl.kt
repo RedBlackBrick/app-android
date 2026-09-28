@@ -2,7 +2,9 @@ package com.tradingplatform.app.data.repository
 
 import com.tradingplatform.app.data.api.NotificationApi
 import com.tradingplatform.app.data.model.FcmTokenRequestDto
+import com.tradingplatform.app.domain.exception.HttpStatusException
 import com.tradingplatform.app.domain.repository.NotificationRepository
+import com.tradingplatform.app.domain.util.runCatchingCancellable
 import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -13,7 +15,7 @@ class NotificationRepositoryImpl @Inject constructor(
 ) : NotificationRepository {
 
     override suspend fun registerFcmToken(token: String, deviceFingerprint: String): Result<Unit> =
-        runCatching {
+        runCatchingCancellable {
             val response = notificationApi.registerFcmToken(
                 FcmTokenRequestDto(
                     fcmToken = token,
@@ -21,8 +23,15 @@ class NotificationRepositoryImpl @Inject constructor(
                 )
             )
             if (!response.isSuccessful) {
-                error("FCM token registration failed: HTTP ${response.code()}")
+                // Wrapped by runCatchingCancellable — HttpStatusException.isRetryable lets the caller
+                // (FcmTokenRegistrationWorker) distinguish a transient 5xx/429/408 (retry) from
+                // a definitive 4xx like a malformed token (failure, no point retrying).
+                throw HttpStatusException(response.code(), ENDPOINT)
             }
             Timber.d("NotificationRepository: FCM token registered successfully")
         }
+
+    private companion object {
+        const val ENDPOINT = "v1/notifications/fcm-token"
+    }
 }

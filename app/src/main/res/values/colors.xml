@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Launcher adaptive icon — background layer. Indigo-950 (#1e1b4b), the darkest brand
+         indigo already defined in ui/theme/Color.kt (DarkColorScheme.onPrimary / see
+         docs/design-system.md "Tokens sémantiques → Material 3"), not a new hex value: the
+         app's principal theme is dark (docs/design-system.md, Color.kt "Dark Color Scheme —
+         app de trading sombre"), so the icon uses the same deep indigo instead of inventing a
+         separate brand color. Pairs with the white foreground glyph in
+         drawable/ic_launcher_foreground.xml. -->
+    <color name="ic_launcher_background">#1E1B4B</color>
+</resources>

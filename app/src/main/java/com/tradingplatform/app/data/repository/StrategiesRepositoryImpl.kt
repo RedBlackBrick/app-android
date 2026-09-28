@@ -3,6 +3,7 @@ package com.tradingplatform.app.data.repository
 import com.tradingplatform.app.data.api.StrategiesApi
 import com.tradingplatform.app.domain.model.PortfolioStrategyLink
 import com.tradingplatform.app.domain.repository.StrategiesRepository
+import com.tradingplatform.app.domain.util.runCatchingCancellable
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -13,7 +14,7 @@ class StrategiesRepositoryImpl @Inject constructor(
 
     override suspend fun listPortfolioStrategies(
         portfolioId: String,
-    ): Result<List<PortfolioStrategyLink>> = runCatching {
+    ): Result<List<PortfolioStrategyLink>> = runCatchingCancellable {
         val response = api.listPortfolioStrategies(portfolioId)
         if (!response.isSuccessful) {
             error("List portfolio strategies failed: HTTP ${response.code()}")

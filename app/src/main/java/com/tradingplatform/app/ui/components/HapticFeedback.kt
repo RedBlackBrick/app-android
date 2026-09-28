@@ -4,6 +4,7 @@ import android.os.Build
 import android.view.HapticFeedbackConstants
 import android.view.View
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalView
 
 /**
@@ -52,5 +53,5 @@ class HapticFeedbackHelper(private val view: View) {
 @Composable
 fun rememberHapticFeedback(): HapticFeedbackHelper {
     val view = LocalView.current
-    return HapticFeedbackHelper(view)
+    return remember(view) { HapticFeedbackHelper(view) }
 }

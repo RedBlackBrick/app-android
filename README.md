@@ -13,7 +13,7 @@ de la plateforme de trading algorithmique.
 | Tunnel WireGuard intégré | ✅ Implémenté | VpnService Android foreground — pas d'app externe |
 | Dashboard investissements | ✅ Implémenté | P&L, positions ouvertes, cours live (polling REST 30s + mises à jour portfolio temps réel via WebSocket) |
 | Pairing device Radxa | ✅ Implémenté | Scan QR VPS + QR Radxa (ordre libre) + PIN LAN |
-| Accès direct device (LAN) | ✅ Implémenté | isLocalNetwork() guard RFC-1918, HTTP LAN uniquement |
+| Accès direct device (LAN) | ✅ Implémenté | isLocalNetwork() guard RFC-1918, HTTPS + LanTrustManager |
 | Widgets écran d'accueil | ✅ Implémenté | 5 widgets Glance, WorkManager 15 min, cache Room |
 | Notifications push (FCM) | ✅ Implémenté | FCM → Room → AlertListScreen (deep link) |
 | Gestion stratégies / seuils | ⏳ Futur | Non couvert dans cette version |
@@ -28,8 +28,9 @@ de la plateforme de trading algorithmique.
    (SHA-256 principal + backup, depuis `local.properties`). Une réponse d'un tiers est rejetée.
 3. **Stockage chiffré** — JWT, clés WireGuard et credentials stockés dans `EncryptedDataStore`
    (AES-256-GCM, clé dans Android Keystore, jamais exportable). Corruption gérée (Keystore invalidé).
-4. **Biométrie** — déverrouillage requis après 5 minutes d'inactivité (`dispatchTouchEvent` timer).
-   `KeyPermanentlyInvalidatedException` → régénération clé + re-enrôlement.
+4. **Biométrie** — déverrouillage requis après 5 minutes d'inactivité, timer possédé par
+   `BiometricLockManager` (singleton) — `MainActivity.dispatchTouchEvent` ne fait que relayer
+   l'interaction. `KeyPermanentlyInvalidatedException` → régénération clé + re-enrôlement.
 5. **Anti-capture** — `FLAG_SECURE` sur `MainActivity` empêche les captures d'écran,
    l'enregistrement d'écran, et masque le contenu dans le sélecteur d'applications récentes.
 6. **Accès device LAN uniquement** — connexion Radxa autorisée uniquement si IP est RFC-1918
@@ -106,17 +107,23 @@ LoginScreen
         ├── Positions tab
         │   ├── PositionsScreen
         │   └── PositionDetailScreen
-        ├── Devices tab          — admin uniquement (is_admin == true)
+        ├── Devices tab          — admin uniquement (is_admin == true), flotte complète
         │   ├── DeviceListScreen
         │   ├── EdgeDeviceDashboardScreen  — métriques CPU/RAM/temp/disque + actions reboot/health/update
-        │   └── Pairing flow
-        │       ScanVpsQrScreen → ScanDeviceQrScreen → PairingProgressScreen → PairingDoneScreen
+        │   └── Pairing flow (source admin)
         ├── Alerts tab
         │   └── AlertListScreen  — FCM → Room (offline-first)
         └── Settings tab
             ├── VpnSettingsScreen
-            └── SecuritySettingsScreen
+            ├── SecuritySettingsScreen
+            └── MyDevicesScreen  — tout utilisateur authentifié (décision D5)
+                └── Pairing flow (source Mes appareils)
+                    ScanVpsQrScreen → ScanDeviceQrScreen → PairingProgressScreen → PairingDoneScreen
 ```
+
+Le pairing (les 4 écrans partagent un `PairingViewModel`) est accessible depuis deux points
+d'entrée : l'écran Devices admin (flotte) et `Settings > Mes appareils`, ouvert à tous — voir
+`docs/architecture-decisions.md` décision D5.
 
 ---
 
@@ -135,7 +142,9 @@ LoginScreen
 - Tous les widgets affichent `synced_at` (ex : "Données du 14:32") — jamais de cours muet
 - `SystemStatusWidget` désactivé dans le picker si `is_admin == false` (`PackageManager`)
 - `QuoteWidget` : ticker persisté en `SharedPreferences` keyed par `appWidgetId`
-- WorkManager : `Result.success()` si VPN absent (cache daté conservé), `Result.retry()` si erreur réseau
+- WorkManager : `Result.success()` si VPN absent (cache daté conservé) ; `Result.retry()`
+  uniquement si **toutes** les sections IO (positions, PnL, quotes) échouent sur une erreur
+  réseau transitoire — un échec isolé n'entraîne pas de retry avant le prochain cycle
 
 ---
 
@@ -145,10 +154,12 @@ Flux de pairing :
 1. Scan QR VPS (`pairing://` + `session_id` + `session_pin`) via l'interface admin web
 2. Scan QR Radxa (e-ink) : `pairing://radxa?id=…&pub=…&ip=…&port=8099`
 3. Validation `isLocalNetwork(ip)` — rejet si IP non-RFC-1918
-4. `POST http://radxa_ip:8099/pin {session_id, session_pin}` — HTTP LAN uniquement (TTL 120s)
+4. `POST https://radxa_ip:8099/pin {session_id, session_pin}` — HTTPS (cert auto-signé accepté
+   par `LanTrustManager`), payload en plus chiffré `crypto_box_seal` (TTL 120s)
 5. Poll `GET /status` toutes les 2s — terminé quand `paired` ou timeout 120s
 
-La connexion LAN utilise un `OkHttpClient` dédié sans les intercepteurs VPS (pas de CSRF, pas d'Auth).
+La connexion LAN utilise un `OkHttpClient` dédié (`@Named("lan")`) sans les intercepteurs VPS
+(pas de CSRF, pas d'Auth) mais avec `VpnRequiredInterceptor` — un VPN actif reste exigé.
 
 ---
 
@@ -173,7 +184,7 @@ La connexion LAN utilise un `OkHttpClient` dédié sans les intercepteurs VPS (p
 | Sécurité | RootBeer | 0.1.0 |
 | Logging | Timber (strippé en release) | 5.0.1 |
 | Build | AGP 9.0.1 + Gradle 9.2.1 | — |
-| Min SDK | Android 8.0 | API 26 |
+| Min SDK | Android 9.0 | API 28 |
 | Target SDK | Android 15 | API 35 |
 
 > ⚠ Libs en alpha — ne pas upgrader sans tester (EncryptedDataStore, BiometricPrompt)

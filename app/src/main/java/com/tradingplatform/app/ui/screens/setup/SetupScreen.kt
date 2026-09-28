@@ -1,7 +1,11 @@
 package com.tradingplatform.app.ui.screens.setup
 
 import android.app.Activity
+import android.content.ActivityNotFoundException
+import android.content.Intent
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,6 +40,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tradingplatform.app.ui.components.QrScannerView
 import com.tradingplatform.app.ui.theme.Spacing
+import timber.log.Timber
 
 /**
  * Initial onboarding screen — shown on first launch when setup is not yet completed.
@@ -45,6 +50,9 @@ import com.tradingplatform.app.ui.theme.Spacing
  * 2. [SetupUiState.Connecting] — progress indicator while WireGuard tunnel comes up
  * 3. [SetupUiState.Connected]  — brief confirmation, then [onSetupComplete] is called
  * 4. [SetupUiState.Error]      — error message + retry button to return to Scanning
+ * 5. [SetupUiState.VpnConsentRequired] — the system VPN consent dialog is launched via
+ *    `rememberLauncherForActivityResult(StartActivityForResult())`; RESULT_OK retries the tunnel
+ * 6. [SetupUiState.VpnConsentDenied]   — explicit message + retry button that re-asks consent
  *
  * Navigation: [onSetupComplete] pops this screen and navigates to LoginScreen.
  */
@@ -58,9 +66,27 @@ fun SetupScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
+    // System VPN consent dialog (VpnService.prepare). RESULT_OK = granted.
+    val vpnConsentLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        viewModel.onVpnConsentResult(granted = result.resultCode == Activity.RESULT_OK)
+    }
+
     LaunchedEffect(uiState) {
-        if (uiState is SetupUiState.Connected) {
+        val state = uiState
+        if (state is SetupUiState.Connected) {
             onSetupComplete()
+        }
+        // `launched` lives in the ViewModel: a recomposition / config change while the
+        // dialog is on screen does not launch it a second time.
+        if (state is SetupUiState.VpnConsentRequired && !state.launched) {
+            launchVpnConsent(
+                intent = viewModel.vpnConsentIntent(),
+                launch = { vpnConsentLauncher.launch(it) },
+                onLaunched = viewModel::onVpnConsentLaunched,
+                onResult = viewModel::onVpnConsentResult,
+            )
         }
     }
 
@@ -71,7 +97,10 @@ fun SetupScreen(
     Scaffold(
         modifier = modifier,
         topBar = {
-            if (uiState is SetupUiState.Scanning || uiState is SetupUiState.Error) {
+            if (uiState is SetupUiState.Scanning ||
+                uiState is SetupUiState.Error ||
+                uiState is SetupUiState.VpnConsentDenied
+            ) {
                 TopAppBar(
                     title = { Text(text = "Configuration initiale") },
                     actions = {
@@ -128,7 +157,52 @@ fun SetupScreen(
                         .padding(innerPadding),
                 )
             }
+
+            is SetupUiState.VpnConsentRequired -> {
+                VpnConsentPendingContent(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding),
+                )
+            }
+
+            is SetupUiState.VpnConsentDenied -> {
+                ErrorContent(
+                    title = "Autorisation VPN requise",
+                    message = state.message,
+                    onRetry = viewModel::retryVpnConsent,
+                    retryContentDescription = "Réessayer : redemander l'autorisation VPN",
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding),
+                )
+            }
         }
+    }
+}
+
+/**
+ * Launches the system VPN consent dialog, or reports "granted" right away when
+ * `VpnService.prepare` no longer needs it. A ROM without the VpnDialogs activity
+ * (ActivityNotFoundException) is reported as a denial so that the user gets the
+ * explicit message instead of a crash. Shared with VpnSettingsScreen.
+ */
+internal fun launchVpnConsent(
+    intent: Intent?,
+    launch: (Intent) -> Unit,
+    onLaunched: () -> Unit,
+    onResult: (granted: Boolean) -> Unit,
+) {
+    if (intent == null) {
+        onResult(true)
+        return
+    }
+    try {
+        onLaunched()
+        launch(intent)
+    } catch (e: ActivityNotFoundException) {
+        Timber.w(e, "VPN consent dialog unavailable on this device")
+        onResult(false)
     }
 }
 
@@ -262,9 +336,7 @@ private fun ConnectedContent(
 }
 
 @Composable
-private fun ErrorContent(
-    message: String,
-    onRetry: () -> Unit,
+private fun VpnConsentPendingContent(
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -273,7 +345,37 @@ private fun ErrorContent(
         verticalArrangement = Arrangement.Center,
     ) {
         Text(
-            text = "Échec de la configuration",
+            text = "Autorisation VPN",
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(modifier = Modifier.height(Spacing.md))
+        Text(
+            text = "Android demande d'autoriser l'application à créer le tunnel VPN. " +
+                "Acceptez la demande de connexion pour continuer.",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
+    }
+}
+
+@Composable
+private fun ErrorContent(
+    message: String,
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier,
+    title: String = "Échec de la configuration",
+    retryContentDescription: String? = null,
+) {
+    Column(
+        modifier = modifier.padding(Spacing.lg),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text(
+            text = title,
             style = MaterialTheme.typography.titleLarge,
             color = MaterialTheme.colorScheme.error,
             textAlign = TextAlign.Center,
@@ -286,7 +388,14 @@ private fun ErrorContent(
             textAlign = TextAlign.Center,
         )
         Spacer(modifier = Modifier.height(Spacing.xl))
-        Button(onClick = onRetry) {
+        Button(
+            onClick = onRetry,
+            modifier = if (retryContentDescription != null) {
+                Modifier.semantics { contentDescription = retryContentDescription }
+            } else {
+                Modifier
+            },
+        ) {
             Text("Réessayer")
         }
     }

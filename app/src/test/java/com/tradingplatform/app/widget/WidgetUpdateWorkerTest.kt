@@ -8,6 +8,7 @@ import com.tradingplatform.app.data.local.datastore.DataStoreKeys
 import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
 import com.tradingplatform.app.data.local.db.dao.AlertDao
 import com.tradingplatform.app.data.local.db.dao.QuoteDao
+import com.tradingplatform.app.data.local.db.dao.WatchlistDao
 import com.tradingplatform.app.domain.model.PnlPeriod
 import com.tradingplatform.app.domain.model.PnlSummary
 import com.tradingplatform.app.domain.model.Position
@@ -56,6 +57,7 @@ class WidgetUpdateWorkerTest {
     private val getDefaultQuoteSymbolUseCase = mockk<GetDefaultQuoteSymbolUseCase>()
     private val alertDao = mockk<AlertDao>(relaxed = true)
     private val quoteDao = mockk<QuoteDao>(relaxed = true)
+    private val watchlistDao = mockk<WatchlistDao>(relaxed = true)
 
     // ── Fake data ──────────────────────────────────────────────────────────────
 
@@ -76,7 +78,7 @@ class WidgetUpdateWorkerTest {
         totalReturnPct = 0.045,
         sharpeRatio = 1.2,
         sortinoRatio = 1.5,
-        maxDrawdown = -0.05,
+        maxDrawdown = 0.05,
         volatility = 0.12,
         cagr = 0.09,
         winRate = 0.7,
@@ -103,6 +105,7 @@ class WidgetUpdateWorkerTest {
         coEvery { getPositionsUseCase(any()) } returns Result.success(listOf(fakePosition))
         coEvery { getPnlUseCase(any(), any()) } returns Result.success(fakePnl)
         coEvery { quoteDao.getAllSymbols() } returns listOf("AAPL")
+        coEvery { watchlistDao.getAllSymbols() } returns emptyList()
         coEvery { getQuoteUseCase(any()) } returns Result.success(fakeQuote)
         coEvery { getDefaultQuoteSymbolUseCase() } returns "AAPL"
     }
@@ -137,6 +140,7 @@ class WidgetUpdateWorkerTest {
                         getDefaultQuoteSymbolUseCase = getDefaultQuoteSymbolUseCase,
                         alertDao = alertDao,
                         quoteDao = quoteDao,
+                        watchlistDao = watchlistDao,
                     )
                 }
             }
@@ -178,6 +182,41 @@ class WidgetUpdateWorkerTest {
         coVerify(exactly = 0) { getPositionsUseCase(any()) }
     }
 
+    @Test
+    fun `doWork syncs when in-app tunnel is Disconnected but a system VPN is active (D6)`() = runTest {
+        every { vpnManager.state } returns MutableStateFlow(VpnState.Disconnected)
+        every { systemVpnMonitor.active } returns MutableStateFlow(true)
+
+        val result = buildWorker().doWork()
+
+        assertEquals(ListenableWorker.Result.success(), result)
+        coVerify(exactly = 1) { getPositionsUseCase("1") }
+        coVerify(exactly = 1) { getPnlUseCase("1", PnlPeriod.DAY) }
+        coVerify(exactly = 1) { getQuoteUseCase("AAPL") }
+    }
+
+    @Test
+    fun `doWork syncs when in-app tunnel awaits VPN consent but a system VPN is active`() = runTest {
+        every { vpnManager.state } returns MutableStateFlow(VpnState.ConsentRequired)
+        every { systemVpnMonitor.active } returns MutableStateFlow(true)
+
+        val result = buildWorker().doWork()
+
+        assertEquals(ListenableWorker.Result.success(), result)
+        coVerify(exactly = 1) { getPositionsUseCase("1") }
+    }
+
+    @Test
+    fun `doWork skips sync when in-app tunnel awaits VPN consent and no system VPN`() = runTest {
+        every { vpnManager.state } returns MutableStateFlow(VpnState.ConsentRequired)
+
+        val result = buildWorker().doWork()
+
+        assertEquals(ListenableWorker.Result.success(), result)
+        coVerify(exactly = 0) { getPositionsUseCase(any()) }
+        coVerify(exactly = 0) { getQuoteUseCase(any()) }
+    }
+
     // ── Tests portfolioId manquant ─────────────────────────────────────────────
 
     @Test
@@ -203,6 +242,38 @@ class WidgetUpdateWorkerTest {
         coVerify(exactly = 1) { getPositionsUseCase("1") }
         coVerify(exactly = 1) { getPnlUseCase("1", PnlPeriod.DAY) }
         coVerify(exactly = 1) { getQuoteUseCase("AAPL") }
+    }
+
+    // ── Tests périodes PnL configurées par les widgets ─────────────────────────
+
+    @Test
+    fun `doWork syncs every PnL period configured by a PnlWidget instance`() = runTest {
+        every { vpnManager.state } returns MutableStateFlow(VpnState.Connected())
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        PnlWidget.saveConfiguredPeriod(context, appWidgetId = 11, period = "day")
+        PnlWidget.saveConfiguredPeriod(context, appWidgetId = 12, period = "week")
+
+        val result = buildWorker().doWork()
+
+        assertEquals(ListenableWorker.Result.success(), result)
+        // DAY une seule fois (toujours synchronisé + configuré par le widget 11)
+        coVerify(exactly = 1) { getPnlUseCase("1", PnlPeriod.DAY) }
+        coVerify(exactly = 1) { getPnlUseCase("1", PnlPeriod.WEEK) }
+        coVerify(exactly = 0) { getPnlUseCase("1", PnlPeriod.MONTH) }
+    }
+
+    @Test
+    fun `doWork keeps syncing other PnL periods when one fails with IOException`() = runTest {
+        every { vpnManager.state } returns MutableStateFlow(VpnState.Connected())
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        PnlWidget.saveConfiguredPeriod(context, appWidgetId = 21, period = "month")
+        coEvery { getPnlUseCase("1", PnlPeriod.DAY) } returns Result.failure(java.io.IOException("Timeout"))
+
+        val result = buildWorker().doWork()
+
+        // Échec partiel (PnL seulement) → pas de retry, mais MONTH est quand même tenté
+        assertEquals(ListenableWorker.Result.success(), result)
+        coVerify(exactly = 1) { getPnlUseCase("1", PnlPeriod.MONTH) }
     }
 
     @Test
@@ -342,5 +413,71 @@ class WidgetUpdateWorkerTest {
         coVerify(exactly = 1) { getQuoteUseCase("AAPL") }
         coVerify(exactly = 1) { getQuoteUseCase("TSLA") }
         coVerify(exactly = 1) { getQuoteUseCase("MSFT") }
+    }
+
+    // ── Symboles quotes : cache ∪ watchlist ∪ tickers QuoteWidget (D-wuw-correctness-1) ──
+
+    @Test
+    fun `doWork syncs the union of cached, watchlist and QuoteWidget symbols`() = runTest {
+        every { vpnManager.state } returns MutableStateFlow(VpnState.Connected())
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        coEvery { quoteDao.getAllSymbols() } returns listOf("AAPL")
+        coEvery { watchlistDao.getAllSymbols() } returns listOf("MSFT")
+        QuoteWidget.saveConfiguredSymbol(context, appWidgetId = 31, symbol = "TSLA")
+
+        val result = buildWorker().doWork()
+
+        assertEquals(ListenableWorker.Result.success(), result)
+        coVerify(exactly = 1) { getQuoteUseCase("AAPL") }
+        coVerify(exactly = 1) { getQuoteUseCase("MSFT") }
+        coVerify(exactly = 1) { getQuoteUseCase("TSLA") }
+        coVerify(exactly = 3) { getQuoteUseCase(any()) }
+        coVerify(exactly = 0) { getDefaultQuoteSymbolUseCase() }
+    }
+
+    @Test
+    fun `doWork deduplicates symbols across sources case-insensitively`() = runTest {
+        every { vpnManager.state } returns MutableStateFlow(VpnState.Connected())
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        coEvery { quoteDao.getAllSymbols() } returns listOf("AAPL", "msft")
+        coEvery { watchlistDao.getAllSymbols() } returns listOf("MSFT", "aapl")
+        QuoteWidget.saveConfiguredSymbol(context, appWidgetId = 32, symbol = "AAPL")
+
+        buildWorker().doWork()
+
+        coVerify(exactly = 1) { getQuoteUseCase("AAPL") }
+        coVerify(exactly = 1) { getQuoteUseCase("MSFT") }
+        coVerify(exactly = 2) { getQuoteUseCase(any()) }
+    }
+
+    @Test
+    fun `doWork caps the quote fan-out at 50 symbols, widget tickers first`() = runTest {
+        every { vpnManager.state } returns MutableStateFlow(VpnState.Connected())
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        coEvery { quoteDao.getAllSymbols() } returns (1..60).map { "SYM$it" }
+        QuoteWidget.saveConfiguredSymbol(context, appWidgetId = 33, symbol = "WIDGET")
+
+        buildWorker().doWork()
+
+        coVerify(exactly = WidgetUpdateWorker.QUOTES_MAX_SYMBOLS) { getQuoteUseCase(any()) }
+        coVerify(exactly = 1) { getQuoteUseCase("WIDGET") }
+        coVerify(exactly = 0) { getQuoteUseCase("SYM60") }
+    }
+
+    @Test
+    fun `quotes fan-out timeout counts as an IO failure`() = runTest {
+        every { vpnManager.state } returns MutableStateFlow(VpnState.Connected())
+        // Positions et PnL échouent (IO) ; les quotes ne répondent jamais → timeout 60 s
+        // (temps virtuel) → 3 sections IO en échec → retry.
+        coEvery { getPositionsUseCase(any()) } returns Result.failure(java.io.IOException("Timeout"))
+        coEvery { getPnlUseCase(any(), any()) } returns Result.failure(java.io.IOException("Timeout"))
+        coEvery { getQuoteUseCase(any()) } coAnswers {
+            kotlinx.coroutines.delay(WidgetUpdateWorker.QUOTES_SYNC_TIMEOUT_MS * 2)
+            Result.success(fakeQuote)
+        }
+
+        val result = buildWorker().doWork()
+
+        assertEquals(ListenableWorker.Result.retry(), result)
     }
 }

@@ -221,6 +221,106 @@ class PairingViewModelTest {
         }
     }
 
+    // ── QR misread after one QR already scanned — keeps state, emits scanErrors ──
+
+    @Test
+    fun `misread on VPS screen after VPS already scanned keeps VpsScanned and emits scanError`() = runTest {
+        // First scan succeeds (VpsScanned); second (misread) scan fails both parsers —
+        // returnsMany avoids any ambiguity between an exact-value and an any() stub.
+        coEvery { parseVpsQrUseCase(any()) } returnsMany listOf(
+            Result.success(fakeSession),
+            Result.failure(UnrecognizedQrException()),
+        )
+        // scanDeviceQrUseCase(any()) keeps the default failure from setUp() on both calls.
+
+        viewModel.onVpsQrScanned("{valid-vps-qr}")
+        assertIs<PairingStep.VpsScanned>(viewModel.step.value)
+
+        viewModel.scanErrors.test {
+            viewModel.onVpsQrScanned("garbage")
+            assertEquals("QR non reconnu, réessayez", awaitItem())
+        }
+
+        // Step must be untouched — still VpsScanned with the original session, not Error.
+        val step = viewModel.step.value
+        assertIs<PairingStep.VpsScanned>(step)
+        assertEquals(fakeSession.sessionId, step.session.sessionId)
+    }
+
+    @Test
+    fun `misread on Device screen after Device already scanned keeps DeviceScanned and emits scanError`() = runTest {
+        coEvery { scanDeviceQrUseCase(any()) } returnsMany listOf(
+            Result.success(fakeDevice),
+            Result.failure(UnrecognizedQrException()),
+        )
+        // parseVpsQrUseCase(any()) keeps the default failure from setUp() on both calls.
+
+        viewModel.onDeviceQrScanned("pairing://radxa?...")
+        assertIs<PairingStep.DeviceScanned>(viewModel.step.value)
+
+        viewModel.scanErrors.test {
+            viewModel.onDeviceQrScanned("garbage")
+            assertEquals("QR non reconnu, réessayez", awaitItem())
+        }
+
+        val step = viewModel.step.value
+        assertIs<PairingStep.DeviceScanned>(step)
+        assertEquals(fakeDevice.deviceId, step.device.deviceId)
+    }
+
+    @Test
+    fun `misread while Idle still transitions to Error and does not emit scanError`() = runTest {
+        // Both parsers fail by default (setUp) — nothing scanned yet.
+        viewModel.step.test {
+            assertIs<PairingStep.Idle>(awaitItem())
+
+            viewModel.onVpsQrScanned("garbage")
+
+            assertIs<PairingStep.Error>(awaitItem())
+        }
+    }
+
+    // ── BothScanned keeps deviceInfo/sessionInfo in sync on re-scan ──────────────
+
+    @Test
+    fun `applyDeviceScan BothScanned branch updates deviceInfo`() = runTest {
+        val secondDevice = fakeDevice.copy(localIp = "192.168.1.99")
+        coEvery { parseVpsQrUseCase(any()) } returns Result.success(fakeSession)
+        coEvery { scanDeviceQrUseCase(any()) } returnsMany listOf(
+            Result.success(fakeDevice),
+            Result.success(secondDevice),
+        )
+
+        viewModel.onVpsQrScanned("{valid-vps-qr}")
+        assertIs<PairingStep.VpsScanned>(viewModel.step.value)
+
+        viewModel.onDeviceQrScanned("pairing://radxa?...")
+        assertIs<PairingStep.BothScanned>(viewModel.step.value)
+        assertEquals(fakeDevice.localIp, viewModel.deviceInfo.value?.localIp)
+
+        // Re-scanning the device QR while already BothScanned must still update deviceInfo.
+        viewModel.onDeviceQrScanned("pairing://radxa?...")
+        val step = viewModel.step.value
+        assertIs<PairingStep.BothScanned>(step)
+        assertEquals(secondDevice.localIp, step.device.localIp)
+        assertEquals(secondDevice.localIp, viewModel.deviceInfo.value?.localIp)
+    }
+
+    @Test
+    fun `sessionInfo is populated as soon as the VPS QR is scanned and survives BothScanned`() = runTest {
+        coEvery { parseVpsQrUseCase(any()) } returns Result.success(fakeSession)
+        coEvery { scanDeviceQrUseCase(any()) } returns Result.success(fakeDevice)
+
+        assertEquals(null, viewModel.sessionInfo.value)
+
+        viewModel.onVpsQrScanned("{valid-vps-qr}")
+        assertEquals(fakeSession.deviceWgIp, viewModel.sessionInfo.value?.deviceWgIp)
+
+        viewModel.onDeviceQrScanned("pairing://radxa?...")
+        assertIs<PairingStep.BothScanned>(viewModel.step.value)
+        assertEquals(fakeSession.deviceWgIp, viewModel.sessionInfo.value?.deviceWgIp)
+    }
+
     // ── startPairing() flow ───────────────────────────────────────────────────
 
     @Test

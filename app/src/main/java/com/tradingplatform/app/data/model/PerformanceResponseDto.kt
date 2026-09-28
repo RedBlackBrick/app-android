@@ -9,7 +9,11 @@ import java.math.BigDecimal
  * Maps to backend `PerformanceMetrics` schema.
  *
  * All fields are nullable — a brand-new portfolio with no trades has no
- * computable metrics.  Maps to domain model [com.tradingplatform.app.domain.model.PnlSummary].
+ * computable metrics.  Maps to domain model
+ * [com.tradingplatform.app.domain.model.PerformanceMetrics] (`toPerformanceMetrics()`).
+ *
+ * Units: ratios are fractions (`total_return_pct`, `volatility`, `cagr`, `win_rate`)
+ * **except** [maxDrawdown], a positive percentage (8.3 = 8.3 %) — the mapper divides it by 100.
  */
 @JsonClass(generateAdapter = true)
 data class PerformanceResponseDto(

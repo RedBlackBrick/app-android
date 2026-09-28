@@ -52,13 +52,16 @@ conservent l'etat precedent sans afficher d'erreur.
 
 ### Tables et TTL
 
-| Table Room | Cle primaire | TTL indicatif | Purge | Utilisee par |
+Source unique des constantes : `data/local/db/CacheTtl.kt` -- ne jamais redeclarer une valeur
+de TTL ou de retention localement dans un repository, un widget ou un composant UI.
+
+| Table Room | Cle primaire | TTL indicatif (fraicheur) | Purge (cutoff retention) | Utilisee par |
 |------------|-------------|---------------|-------|-------------|
-| `positions` | `id: Int` | 5 min | `DELETE WHERE synced_at < now - 5 min` | PositionsScreen, PositionsWidget, PortfolioRepositoryImpl (fast-path) |
-| `pnl_snapshots` | `id: Long` (auto) | 5 min | `DELETE WHERE synced_at < now - 5 min` | DashboardScreen, PnlWidget |
-| `quotes` | `symbol: String` | 10 min | `DELETE WHERE synced_at < now - 10 min` | QuoteWidget, MarketDataScreen, MarketDataRepositoryImpl |
-| `alerts` | `id: Long` (auto) | 30 jours OU 500 max | `DELETE WHERE received_at < now - 30j` puis `DELETE sauf les 500 plus recentes` | AlertListScreen, AlertsWidget |
-| `devices` | `id: String` | 1 min | `DELETE WHERE synced_at < now - 1 min` | DeviceListScreen, DeviceDetailScreen, SystemStatusWidget |
+| `positions` | `id: Int` | `CacheTtl.POSITIONS_MS` (5 min) | `DELETE WHERE synced_at < now - 5 min` | PositionsScreen, PositionsWidget, PortfolioRepositoryImpl (fast-path) |
+| `pnl_snapshots` | `period: String` (une ligne par periode, forme `/pnl`) | `CacheTtl.PNL_MS` (5 min, badge widget) | `DELETE WHERE synced_at < now - 24h` (`CacheTtl.PNL_RETENTION_MS`) -- **pas 5 min** : une ligne par periode, une purge a 5 min apres la sync d'UNE periode supprimerait la ligne d'une autre periode (semaine/mois configuree par une autre instance de widget) ; 24h ne purge que les periodes abandonnees | PnlWidget (ecrite par `getPnlSummary`) |
+| `quotes` | `symbol: String` | `CacheTtl.QUOTES_MS` (10 min) | `DELETE WHERE synced_at < now - 10 min` | QuoteWidget, MarketDataScreen, MarketDataRepositoryImpl |
+| `alerts` | `id: Long` (auto) | `CacheTtl.ALERTS_RETENTION_MS` (30 jours) OU `ALERTS_MAX_ROWS` (500 max) | `DELETE WHERE received_at < now - 30j` puis `DELETE sauf les 500 plus recentes` | AlertListScreen, AlertsWidget |
+| `devices` | `id: String` | `CacheTtl.DEVICES_MS` (1 min) | `DELETE WHERE synced_at < now - 1 min` | DeviceListScreen, DeviceDetailScreen, SystemStatusWidget |
 | `watchlist` | `symbol: String` | Permanent | Aucune purge automatique | MarketDataScreen (symboles suivis par l'utilisateur) |
 
 ### Champ synced_at
@@ -130,7 +133,7 @@ sur les positions ne bloque pas la sync des quotes.
 
 | Exception | Comportement |
 |-----------|-------------|
-| `IOException` | `anyRetryNeeded = true` — le Worker retourne `Result.retry()` avec backoff exponentiel |
+| `IOException` | Comptabilise comme un echec IO pour sa section. Le Worker ne retourne `Result.retry()` (backoff exponentiel) que si **toutes** les sections IO ont echoue -- si au moins une section a reussi, un echec isolé et transitoire des autres ne declenche pas de retry avant le prochain cycle periodique (15 min). Regle deliberee, pas une omission. |
 | `VpnNotConnectedException` | Ignore — VPN coupe en cours de sync, cache conserve |
 | `SQLException` | Log erreur, pas de retry (non-transitoire) |
 
@@ -151,6 +154,12 @@ Apres la sync, le Worker appelle `updateAll()` sur chaque widget Glance :
 - `QuoteWidget`
 
 Chaque widget relit ses donnees depuis Room dans son `provideGlance()`.
+
+Le badge « perime » affiche par un widget n'utilise pas directement le TTL de la table : le
+seuil est `maxOf(TTL entite, CacheTtl.WIDGET_STALE_GRACE_MS)`, soit **20 min** (periode Worker
+15 min + 5 min de grace) -- sans ce plancher, une entite au TTL court (5-10 min) afficherait le
+badge pendant la majeure partie de chaque cycle du Worker. L'UI in-app (`CacheTimestamp`, §4)
+garde les TTL d'entite sans ce plancher.
 
 ---
 

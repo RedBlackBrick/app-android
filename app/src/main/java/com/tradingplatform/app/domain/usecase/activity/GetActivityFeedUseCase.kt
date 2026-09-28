@@ -53,16 +53,30 @@ class GetActivityFeedUseCase @Inject constructor(
         },
         wsRepository.portfolioUpdates.map { portfolio ->
             ActivityItem.PortfolioChange(
-                nav = portfolio.nav,
+                totalValue = portfolio.totalValue,
+                symbol = portfolio.symbol,
+                side = portfolio.side,
+                quantity = portfolio.quantity,
+                price = portfolio.price,
                 dailyPnl = portfolio.dailyPnl,
                 timestamp = Instant.now(),
             )
         },
         wsRepository.catalystEvents.map { catalyst ->
+            // catalyst.catalystType/description: see WsUpdate.CatalystEvent KDoc \u2014 the
+            // backend never sends a top-level title, so one is composed here from the
+            // catalyst type label plus whatever WsRepository could synthesize from the
+            // nested event data (may be null).
+            val typeLabel = when (catalyst.catalystType) {
+                "earnings" -> "R\u00e9sultats"
+                "spinoff" -> "Spin-off"
+                null -> "\u00c9v\u00e9nement catalyseur"
+                else -> catalyst.catalystType
+            }
             ActivityItem.CatalystEvent(
                 symbol = catalyst.symbol ?: "\u2014",
-                eventType = catalyst.eventType ?: "event",
-                title = catalyst.title ?: "\u00c9v\u00e9nement catalyseur",
+                eventType = catalyst.catalystType ?: "event",
+                title = catalyst.description?.let { "$typeLabel \u2014 $it" } ?: typeLabel,
                 timestamp = Instant.now(),
             )
         },

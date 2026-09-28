@@ -26,25 +26,57 @@ class WsRepository(
     private val wsClient: PrivateWsClient,
 ) : WsRepositoryInterface {
 
-    /** Toutes les mises à jour de portfolio reçues en temps réel. */
+    /**
+     * Toutes les mises à jour de portfolio reçues en temps réel.
+     *
+     * Le payload backend (`ws_payload` dans `app/portfolio/consumer.py`) ne
+     * porte pas de NAV/P&L jour — c'est un instantané de l'exécution qui vient
+     * d'avoir lieu (symbol/side/quantity/price) plus les totaux résultants
+     * (total_value/cash_balance/positions_value). [WsUpdate.PortfolioUpdate.nav]
+     * est renseigné depuis `total_value` pour compatibilité arrière ;
+     * dailyPnl/totalPnl ne sont jamais envoyés par ce canal et restent null.
+     */
     override val portfolioUpdates: Flow<WsUpdate.PortfolioUpdate> =
         wsClient.events.filterIsInstance<WsEvent.PortfolioUpdate>().map { event ->
+            val totalValue = event.data.optDoubleOrNull("total_value")
             WsUpdate.PortfolioUpdate(
                 portfolioId = event.data.optString("portfolio_id", null),
-                nav = event.data.optDoubleOrNull("nav"),
+                symbol = event.data.optString("symbol", null),
+                side = event.data.optString("side", null),
+                quantity = event.data.optDoubleOrNull("quantity"),
+                price = event.data.optDoubleOrNull("price"),
+                totalValue = totalValue,
+                cashBalance = event.data.optDoubleOrNull("cash_balance"),
+                positionsValue = event.data.optDoubleOrNull("positions_value"),
+                nav = totalValue,
                 dailyPnl = event.data.optDoubleOrNull("daily_pnl"),
                 totalPnl = event.data.optDoubleOrNull("total_pnl"),
             )
         }
 
-    /** Toutes les mises à jour de positions individuelles. */
+    /**
+     * Toutes les mises à jour de positions individuelles.
+     *
+     * Le payload backend (`ws_position_payload` dans `app/portfolio/consumer.py`)
+     * ne porte pas de `position_id` — [WsUpdate.PositionUpdate.positionId] reste
+     * null tant que le backend ne l'ajoute pas. `last_price` est le nom de champ
+     * actuel côté serveur ; `current_price` est conservé en fallback pour
+     * tolérer un éventuel ancien payload. `is_active` absent est traité comme
+     * `true` (position toujours ouverte).
+     */
     override val positionUpdates: Flow<WsUpdate.PositionUpdate> =
         wsClient.events.filterIsInstance<WsEvent.PositionUpdate>().map { event ->
             WsUpdate.PositionUpdate(
                 positionId = event.data.optString("position_id", null),
                 symbol = event.data.optString("symbol", null),
+                side = event.data.optString("side", null),
+                quantity = event.data.optDoubleOrNull("quantity"),
+                averagePrice = event.data.optDoubleOrNull("average_price"),
+                lastPrice = event.data.optDoubleOrNull("last_price")
+                    ?: event.data.optDoubleOrNull("current_price"),
                 unrealizedPnl = event.data.optDoubleOrNull("unrealized_pnl"),
-                currentPrice = event.data.optDoubleOrNull("current_price"),
+                realizedPnl = event.data.optDoubleOrNull("realized_pnl"),
+                isActive = !event.data.has("is_active") || event.data.optBoolean("is_active", true),
             )
         }
 
@@ -58,7 +90,15 @@ class WsRepository(
             )
         }
 
-    /** Mises à jour d'ordres en temps réel — mappé vers le domain model. */
+    /**
+     * Mises à jour d'ordres en temps réel — mappé vers le domain model.
+     *
+     * PR-5c FINDING / PR-2.5 fix: `_send_order_ws_update` (app/execution/consumer.py,
+     * app/execution/exit_consumer.py) never sets a `fill_price` key — only `price`
+     * (the requested/limit price at SUBMITTED time, or the executed price on fills,
+     * depending on the call site). [WsUpdate.OrderUpdate.fillPrice] is populated
+     * from `price` accordingly; `fill_price` is never sent so it is not read.
+     */
     override val orderUpdates: Flow<WsUpdate.OrderUpdate> =
         wsClient.events.filterIsInstance<WsEvent.OrderUpdate>().map { event ->
             WsUpdate.OrderUpdate(
@@ -67,7 +107,7 @@ class WsRepository(
                 side = event.data.optString("side", null),
                 status = event.data.optString("status", null),
                 quantity = event.data.optIntOrNull("quantity"),
-                fillPrice = event.data.optDoubleOrNull("fill_price"),
+                fillPrice = event.data.optDoubleOrNull("price"),
             )
         }
 
@@ -84,14 +124,24 @@ class WsRepository(
             )
         }
 
-    /** Événements catalyst (earnings, spinoff). */
+    /**
+     * Événements catalyst (earnings, spinoff).
+     *
+     * PR-5c FINDING / PR-2.5 fix: `_forward_to_websocket` (app/events/catalyst/consumer.py)
+     * sends `{"catalyst_type", "symbol", "strategy_id", "data"}` — never `event_type`,
+     * and no top-level `title`/`description` (those keys don't exist on this channel).
+     * [description] is synthesized from whichever fields exist in the nested `data`
+     * object (`EarningsEventData` / `SpinoffEventData`, app/events/catalyst/schemas.py)
+     * for the given `catalyst_type` — see [buildCatalystDescription].
+     */
     override val catalystEvents: Flow<WsUpdate.CatalystEvent> =
         wsClient.events.filterIsInstance<WsEvent.CatalystEvent>().map { event ->
+            val catalystType = event.data.optString("catalyst_type", null)
             WsUpdate.CatalystEvent(
                 symbol = event.data.optString("symbol", null),
-                eventType = event.data.optString("event_type", null),
-                title = event.data.optString("title", null),
-                description = event.data.optString("description", null),
+                catalystType = catalystType,
+                strategyId = event.data.optString("strategy_id", null),
+                description = buildCatalystDescription(catalystType, event.data.optJSONObject("data")),
             )
         }
 
@@ -100,6 +150,30 @@ class WsRepository(
 
     /** Etat de connexion WS prive expose a l'UI (F5). */
     override val connectionState: StateFlow<WsConnectionState> = wsClient.connectionState
+}
+
+/**
+ * Builds a short human-readable description of a catalyst event from the nested
+ * event-specific `data` object (`EarningsEventData` / `SpinoffEventData`,
+ * app/events/catalyst/schemas.py). Neither shape carries a `title`/`description`
+ * field — this composes one from the fields that do exist. Returns null when
+ * [nested] is absent or [catalystType] is neither known shape.
+ */
+private fun buildCatalystDescription(catalystType: String?, nested: org.json.JSONObject?): String? {
+    if (nested == null) return null
+    return when (catalystType) {
+        "earnings" -> {
+            val quarter = nested.optString("fiscal_quarter", "").ifEmpty { null }
+            val direction = nested.optString("eps_direction", "").ifEmpty { null }
+            listOfNotNull(quarter, direction).joinToString(" — ").ifEmpty { null }
+        }
+        "spinoff" -> {
+            val child = nested.optString("child_symbol", "").ifEmpty { null }
+            val phase = nested.optString("phase", "").ifEmpty { null }
+            listOfNotNull(child?.let { "vers $it" }, phase).joinToString(" — ").ifEmpty { null }
+        }
+        else -> null
+    }
 }
 
 /**

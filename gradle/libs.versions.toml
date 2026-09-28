@@ -7,12 +7,21 @@ desugar-jdk-libs    = "2.1.5"
 compose-bom         = "2026.03.00"
 activity-compose    = "1.13.0"
 lifecycle           = "2.10.0"
+# fragment explicite : MainActivity : FragmentActivity (exigé par BiometricPrompt). biometric
+# 1.2.0-alpha05 ne tire qu'un fragment 1.2.x ancien ; 1.8.x est compatible activity 1.13 /
+# lifecycle 2.10 (Gradle résout vers les versions hautes).
+fragment            = "1.8.9"
 
 hilt                = "2.58"
 hilt-androidx       = "1.3.0"
 
 retrofit            = "2.11.0"
 okhttp              = "4.12.0"
+# BOM kotlinx-serialization : room-testing/room-migration 2.8.4 exigent json >= 1.8.1 ; sans ce
+# BOM, la "consistent resolution" AGP aligne androidTest sur le classpath main (1.7.3 via
+# lifecycle 2.10.0) -> AbstractMethodError GeneratedSerializer.typeParametersSerializers()
+# au parsing de 7.json dans MigrationTest.
+kotlinx-serialization = "1.8.1"
 moshi               = "1.15.2"
 
 room                = "2.8.4"
@@ -35,6 +44,11 @@ mlkit-barcode       = "17.3.0"
 rootbeer            = "0.1.2"
 wireguard           = "1.0.20250531"
 lazysodium          = "5.2.0"
+# JNA — @aar (main, wraps SodiumAndroid's arm64 libjnidispatch.so) et jar plain (JVM unit tests)
+jna                 = "5.17.0"
+# lazysodium-java (JVM unit tests only) — même version que lazysodium-android : bytecode Java 21,
+# les tests JVM tournent sur un launcher JDK 21 (app/build.gradle.kts testOptions.unitTests).
+lazysodium-java     = "5.2.0"
 
 firebase-bom        = "34.0.0"
 owasp-depcheck      = "10.0.4"
@@ -50,6 +64,11 @@ junit               = "4.13.2"
 compose-test-bom    = "2026.03.00"
 robolectric         = "4.14.1"
 test-core           = "1.7.0"
+# androidx.test runner/rules — même famille de version que androidx.test:core (1.7.0) ;
+# ext:junit suit son propre cycle (1.3.0), déjà utilisé par MigrationTest.
+test-runner         = "1.7.0"
+test-ext-junit      = "1.3.0"
+espresso            = "3.7.0"
 
 [libraries]
 # ── Compose ──────────────────────────────────────────────────────────────────
@@ -100,6 +119,7 @@ security-crypto             = { group = "androidx.security", name = "security-cr
 
 # ── Biométrie ─────────────────────────────────────────────────────────────────
 biometric                   = { group = "androidx.biometric", name = "biometric-ktx", version.ref = "biometric" }
+fragment-ktx                = { group = "androidx.fragment", name = "fragment-ktx", version.ref = "fragment" }
 
 # ── Glance (widgets) ──────────────────────────────────────────────────────────
 glance-appwidget            = { group = "androidx.glance", name = "glance-appwidget", version.ref = "glance" }
@@ -130,6 +150,11 @@ wireguard-android           = { group = "com.wireguard.android", name = "tunnel"
 # ── Sécurité ──────────────────────────────────────────────────────────────────
 rootbeer                    = { group = "com.scottyab", name = "rootbeer-lib", version.ref = "rootbeer" }
 lazysodium-android          = { group = "com.goterl", name = "lazysodium-android", version.ref = "lazysodium" }
+# JNA — module de base ; le classifier "@aar" (main sourceSet) est appliqué au point d'usage via
+# artifact { type = "aar" } car les catalogues de versions TOML ne supportent pas de champ
+# classifier/extension (gradle/gradle#13270). testImplementation utilise le jar plain tel quel.
+jna                         = { group = "net.java.dev.jna", name = "jna", version.ref = "jna" }
+lazysodium-java             = { group = "com.goterl", name = "lazysodium-java", version.ref = "lazysodium-java" }
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
 org-json                    = { group = "org.json", name = "json", version.ref = "org-json" }
@@ -147,8 +172,15 @@ room-testing                = { group = "androidx.room", name = "room-testing", 
 # Robolectric — Android unit tests sur JVM (requis pour ApplicationProvider, Context)
 robolectric                 = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
 test-core                   = { group = "androidx.test", name = "core", version.ref = "test-core" }
+# androidx.test runner/rules — androidTest (instrumentation), pas JVM unit tests
+test-runner                 = { group = "androidx.test", name = "runner", version.ref = "test-runner" }
+test-rules                  = { group = "androidx.test", name = "rules", version.ref = "test-runner" }
+test-ext-junit              = { group = "androidx.test.ext", name = "junit", version.ref = "test-ext-junit" }
+espresso-core               = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espresso" }
 # MockWebServer — tests intercepteurs OkHttp (CsrfInterceptor, TokenAuthenticator, VpnRequiredInterceptor)
 okhttp-mockwebserver        = { group = "com.squareup.okhttp3", name = "mockwebserver", version.ref = "okhttp" }
+okhttp-tls                  = { group = "com.squareup.okhttp3", name = "okhttp-tls", version.ref = "okhttp" }
+kotlinx-serialization-bom   = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-bom", version.ref = "kotlinx-serialization" }
 # LeakCanary — debug uniquement (détection fuites mémoire ViewModels, services, coroutines)
 leakcanary                  = { group = "com.squareup.leakcanary", name = "leakcanary-android", version.ref = "leakcanary" }
 # Timber — logging structuré avec strip automatique en release via ProGuard

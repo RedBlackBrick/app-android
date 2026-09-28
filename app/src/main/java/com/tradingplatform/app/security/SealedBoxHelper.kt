@@ -1,5 +1,6 @@
 package com.tradingplatform.app.security
 
+import com.goterl.lazysodium.LazySodium
 import com.goterl.lazysodium.LazySodiumAndroid
 import com.goterl.lazysodium.SodiumAndroid
 import com.goterl.lazysodium.interfaces.Box
@@ -18,7 +19,18 @@ import javax.inject.Singleton
  */
 @Singleton
 class SealedBoxHelper @Inject constructor() {
-    private val sodium: LazySodiumAndroid = LazySodiumAndroid(SodiumAndroid())
+    private var sodium: LazySodium = LazySodiumAndroid(SodiumAndroid())
+
+    /**
+     * Test-only seam (PR 5b, audit/plan-ui-tests-ci.md) — substitutes the Android JNI-backed
+     * [LazySodiumAndroid] with any other [LazySodium] implementation (e.g. `LazySodiumJava`),
+     * so `crypto_box_seal` / `crypto_box_seal_open` can be exercised with real libsodium crypto
+     * on the plain JVM unit test runner (Android's native `.so` cannot load there). Production
+     * code always goes through the zero-arg `@Inject` constructor above; Hilt never sees this one.
+     */
+    internal constructor(sodium: LazySodium) : this() {
+        this.sodium = sodium
+    }
 
     /**
      * Chiffre [plaintext] avec la [recipientPublicKey] (32 bytes Curve25519).

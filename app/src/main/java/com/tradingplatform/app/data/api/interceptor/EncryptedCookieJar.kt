@@ -1,6 +1,8 @@
 package com.tradingplatform.app.data.api.interceptor
 
+import com.tradingplatform.app.data.api.AuthPaths
 import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -16,9 +18,10 @@ import javax.inject.Singleton
  * Persiste le cookie refresh_token httpOnly dans EncryptedDataStore.
  *
  * Contraintes :
- * - Sauvegarde uniquement sur les paths d'auth exacts (pas .contains("auth"))
+ * - Sauvegarde uniquement sur les paths exacts de [AuthPaths.COOKIE_SAVE] (login, refresh,
+ *   2fa/verify + alias verify-2fa — le backend pose refresh_token après une 2FA réussie)
  * - Filtre sur le nom exact "refresh_token" (pas tous les cookies)
- * - Envoie uniquement sur /v1/auth/refresh
+ * - Envoie uniquement sur [AuthPaths.REFRESH]
  *
  * Performance : le cookie est maintenu en cache mémoire ([cachedRefreshToken])
  * pour que [loadForRequest] et [saveFromResponse] soient non-bloquants sur le
@@ -32,10 +35,6 @@ class EncryptedCookieJar @Inject constructor(
     private val dataStore: EncryptedDataStore,
     private val applicationScope: CoroutineScope,
 ) : CookieJar {
-
-    // Paths exacts — ne pas utiliser .contains() qui matcherait n'importe quel futur endpoint
-    private val AUTH_SAVE_PATHS = setOf("/v1/auth/login", "/v1/auth/refresh")
-    private val REFRESH_PATH = "/v1/auth/refresh"
 
     /** Cache mémoire du refresh_token. null si non chargé ou absent. */
     private val cachedRefreshToken = AtomicReference<String?>(null)
@@ -57,7 +56,7 @@ class EncryptedCookieJar @Inject constructor(
     }
 
     override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
-        if (url.encodedPath in AUTH_SAVE_PATHS) {
+        if (url.encodedPath in AuthPaths.COOKIE_SAVE) {
             cookies
                 .filter { it.name == "refresh_token" }
                 .forEach { cookie ->
@@ -68,6 +67,8 @@ class EncryptedCookieJar @Inject constructor(
                     applicationScope.launch(Dispatchers.IO) {
                         try {
                             dataStore.saveCookie(cookie.name, cookie.value)
+                        } catch (e: CancellationException) {
+                            throw e
                         } catch (e: Exception) {
                             Timber.w(e, "EncryptedCookieJar: async saveCookie failed")
                         }
@@ -77,7 +78,7 @@ class EncryptedCookieJar @Inject constructor(
     }
 
     override fun loadForRequest(url: HttpUrl): List<Cookie> {
-        if (url.encodedPath != REFRESH_PATH) return emptyList()
+        if (url.encodedPath != AuthPaths.REFRESH) return emptyList()
 
         val value = cachedRefreshToken.get() ?: return emptyList()
         return try {

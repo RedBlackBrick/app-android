@@ -5,5 +5,4 @@ data class BrokerConnection(
     val portfolioId: String?,
     val brokerCode: String,
     val connectionStatus: String?,
-    val executionMode: String?,
 )

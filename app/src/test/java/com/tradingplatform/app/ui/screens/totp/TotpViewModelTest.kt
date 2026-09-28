@@ -2,6 +2,7 @@ package com.tradingplatform.app.ui.screens.totp
 
 import app.cash.turbine.test
 import com.tradingplatform.app.data.session.SessionManager
+import com.tradingplatform.app.domain.exception.AccountLockedException
 import com.tradingplatform.app.domain.exception.InvalidTotpCodeException
 import com.tradingplatform.app.domain.model.AuthTokens
 import com.tradingplatform.app.domain.model.Portfolio
@@ -11,8 +12,10 @@ import com.tradingplatform.app.domain.usecase.auth.Verify2faUseCase
 import com.tradingplatform.app.domain.usecase.auth.ApplyAdminWidgetVisibilityUseCase
 import com.tradingplatform.app.util.MainDispatcherRule
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -21,6 +24,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import java.io.IOException
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class TotpViewModelTest {
@@ -53,6 +57,7 @@ class TotpViewModelTest {
 
     @Before
     fun setUp() {
+        every { sessionManager.pendingTotpToken } returns sessionToken
         every { sessionManager.consumePendingTotpToken() } returns sessionToken
         viewModel = TotpViewModel(verify2faUseCase, getPortfoliosUseCase, applyAdminWidgetVisibilityUseCase, sessionManager)
     }
@@ -80,7 +85,7 @@ class TotpViewModelTest {
     // -- Code TOTP invalide (InvalidTotpCodeException) ---
 
     @Test
-    fun `verify returns Error on InvalidTotpCodeException`() = runTest {
+    fun `verify returns BackToLogin on InvalidTotpCodeException`() = runTest {
         coEvery { verify2faUseCase(any(), any()) } returns
             Result.failure(InvalidTotpCodeException())
 
@@ -91,11 +96,102 @@ class TotpViewModelTest {
 
             // Note: Verifying may be conflated by StateFlow + UnconfinedTestDispatcher
             val state = awaitItem()
-            assertTrue(state is TotpUiState.Error)
-            assertEquals("Code incorrect. Réessayez.", (state as TotpUiState.Error).message)
+            assertTrue(state is TotpUiState.BackToLogin)
+            assertEquals(
+                "Code incorrect ou session 2FA expirée — reconnectez-vous",
+                (state as TotpUiState.BackToLogin).message,
+            )
 
             cancelAndIgnoreRemainingEvents()
         }
+    }
+
+    // -- Cycle de vie du temp token (peek / consume) ---
+
+    @Test
+    fun `server 401 consumes the pending token`() = runTest {
+        coEvery { verify2faUseCase(any(), any()) } returns
+            Result.failure(InvalidTotpCodeException())
+
+        viewModel.verify("999999")
+
+        verify(exactly = 1) { sessionManager.consumePendingTotpToken() }
+    }
+
+    @Test
+    fun `success consumes the pending token`() = runTest {
+        coEvery { verify2faUseCase(any(), any()) } returns
+            Result.success(Pair(fakeUser, fakeTokens))
+        coEvery { getPortfoliosUseCase() } returns Result.success(listOf(fakePortfolio))
+
+        viewModel.verify(validCode)
+
+        assertEquals(TotpUiState.Success, viewModel.uiState.value)
+        verify(exactly = 1) { sessionManager.consumePendingTotpToken() }
+    }
+
+    @Test
+    fun `IOException keeps the pending token and exposes a retryable Error`() = runTest {
+        coEvery { verify2faUseCase(any(), any()) } returns
+            Result.failure(IOException("connection reset"))
+
+        viewModel.verify(validCode)
+
+        assertTrue(viewModel.uiState.value is TotpUiState.Error)
+        verify(exactly = 0) { sessionManager.consumePendingTotpToken() }
+    }
+
+    @Test
+    fun `retry after IOException reuses the same token and can succeed`() = runTest {
+        coEvery { verify2faUseCase(any(), any()) } returnsMany listOf(
+            Result.failure(IOException("timeout")),
+            Result.success(Pair(fakeUser, fakeTokens)),
+        )
+        coEvery { getPortfoliosUseCase() } returns Result.success(listOf(fakePortfolio))
+
+        viewModel.verify(validCode)
+        assertTrue(viewModel.uiState.value is TotpUiState.Error)
+
+        viewModel.resetError()
+        viewModel.verify(validCode)
+
+        assertEquals(TotpUiState.Success, viewModel.uiState.value)
+        coVerify(exactly = 2) { verify2faUseCase(sessionToken, validCode) }
+        verify(exactly = 1) { sessionManager.consumePendingTotpToken() }
+    }
+
+    @Test
+    fun `429 keeps the token and shows Retry-After`() = runTest {
+        coEvery { verify2faUseCase(any(), any()) } returns
+            Result.failure(AccountLockedException(retryAfterSeconds = 42))
+
+        viewModel.verify(validCode)
+
+        val state = viewModel.uiState.value
+        assertTrue(state is TotpUiState.Error)
+        assertTrue((state as TotpUiState.Error).message.contains("42"))
+        verify(exactly = 0) { sessionManager.consumePendingTotpToken() }
+    }
+
+    @Test
+    fun `missing pending token emits BackToLogin without calling the use case`() = runTest {
+        every { sessionManager.pendingTotpToken } returns null
+
+        viewModel.verify(validCode)
+
+        assertTrue(viewModel.uiState.value is TotpUiState.BackToLogin)
+        coVerify(exactly = 0) { verify2faUseCase(any(), any()) }
+    }
+
+    @Test
+    fun `resetError does not leave BackToLogin`() = runTest {
+        coEvery { verify2faUseCase(any(), any()) } returns
+            Result.failure(InvalidTotpCodeException())
+
+        viewModel.verify("999999")
+        viewModel.resetError()
+
+        assertTrue(viewModel.uiState.value is TotpUiState.BackToLogin)
     }
 
     // -- Erreur generique de verification ---
@@ -166,7 +262,7 @@ class TotpViewModelTest {
     @Test
     fun `resetError resets state from Error to AwaitingInput`() = runTest {
         coEvery { verify2faUseCase(any(), any()) } returns
-            Result.failure(InvalidTotpCodeException())
+            Result.failure(IOException("network down"))
 
         viewModel.uiState.test {
             assertEquals(TotpUiState.AwaitingInput, awaitItem())

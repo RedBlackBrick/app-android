@@ -12,6 +12,10 @@ interface WatchlistDao {
     @Query("SELECT * FROM watchlist ORDER BY added_at ASC")
     fun getAllFlow(): Flow<List<WatchlistEntity>>
 
+    /** Symboles suivis (lecture ponctuelle) — utilisée par `WidgetUpdateWorker.syncQuotes`. */
+    @Query("SELECT symbol FROM watchlist ORDER BY added_at ASC")
+    suspend fun getAllSymbols(): List<String>
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(entity: WatchlistEntity)
 

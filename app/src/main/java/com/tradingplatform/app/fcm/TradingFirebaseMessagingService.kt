@@ -1,6 +1,7 @@
 package com.tradingplatform.app.fcm
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -29,6 +30,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import timber.log.Timber
 import java.util.UUID
 
@@ -67,36 +69,51 @@ class TradingFirebaseMessagingService : FirebaseMessagingService() {
 
     override fun onMessageReceived(message: RemoteMessage) {
         // 1. Parser le message FCM — notification payload ou data payload
-        val title = message.notification?.title ?: message.data["title"] ?: "Alerte"
-        val body = message.notification?.body ?: message.data["body"] ?: ""
+        val rawTitle = message.notification?.title ?: message.data["title"] ?: "Alerte"
+        val rawBody = message.notification?.body ?: message.data["body"] ?: ""
+        val title = rawTitle.take(MAX_TITLE_LENGTH)
+        val body = rawBody.take(MAX_BODY_LENGTH)
         val typeStr = message.data["type"] ?: "UNKNOWN"
         val alertType = AlertType.fromString(typeStr)
+        val receivedAt = System.currentTimeMillis()
 
         // Debug uniquement — jamais le contenu de l'alerte
         Timber.tag(TAG).d("FCM reçu type=$alertType")
 
-        // 2. Persister dans Room via serviceScope — ne jamais bloquer le main thread (ANR).
-        //    showNotification est appelé immédiatement sans attendre l'insert Room.
-        //    La race condition (tap sur notif avant que Room écrive) est de quelques ms — acceptable.
         // id = 0L : Room génère l'ID automatiquement via autoGenerate = true
         val entity = AlertEntity(
             id = 0L,
             title = title,
             body = body,
             type = alertType.name,
-            receivedAt = System.currentTimeMillis(),
+            receivedAt = receivedAt,
             read = false,
-            syncedAt = System.currentTimeMillis(),
+            syncedAt = receivedAt,
         )
 
-        serviceScope.launch {
+        // 2. Persister dans Room de manière synchrone (bloquante) avant de continuer.
+        //    onMessageReceived() est déjà invoqué par le SDK Firebase sur un thread de fond
+        //    dédié (jamais le thread main) — bloquer ici ne risque donc pas d'ANR. On préfère
+        //    runBlocking à serviceScope.launch { } (fire-and-forget) car ce dernier peut perdre
+        //    l'insert si le système détruit le service (onDestroy → serviceScope.cancel()) juste
+        //    après la livraison du message, avant que la coroutine lancée n'ait eu la main —
+        //    scénario plausible vu la durée de vie courte du service sur un message isolé.
+        //    L'insert est rapide (une ligne Room) donc le coût du blocage est négligeable.
+        runBlocking(Dispatchers.IO) {
             alertDao.insert(entity)
         }
 
-        // 3. Afficher la notification avec PendingIntent vers MainActivity (deep link alerts)
-        showNotification(title, body)
+        // 3. Afficher la notification avec PendingIntent vers MainActivity (deep link alerts).
+        //    L'insert Room ci-dessus est déjà terminé : plus de race entre le tap sur la
+        //    notification et l'écriture en base.
+        showNotification(title, body, notificationId(alertType.name, receivedAt, title, body))
     }
 
+    // ANDROID_ID is read here only as a stable per-device fingerprint accompanying FCM token
+    // registration (server-side dedup/rotation of stale tokens on reinstall) — never used for
+    // advertising/analytics or cross-app tracking, so the general HardwareIds guidance (use an
+    // advertising/analytics ID instead) does not apply to this fraud/registration use case.
+    @SuppressLint("HardwareIds")
     override fun onNewToken(token: String) {
         // Token FCM renouvelé — jamais logger le token en clair
         Timber.tag(TAG).d("FCM token renouvelé : [REDACTED]")
@@ -116,8 +133,12 @@ class TradingFirebaseMessagingService : FirebaseMessagingService() {
             registerFcmTokenUseCase(token, deviceFingerprint)
                 .onSuccess {
                     Timber.tag(TAG).d("FCM token enregistré auprès du backend : [REDACTED]")
-                    encryptedDataStore.remove(DataStoreKeys.PENDING_FCM_TOKEN)
-                    encryptedDataStore.remove(DataStoreKeys.PENDING_FCM_FINGERPRINT)
+                    // Compare-and-remove: n'efface les clés pending que si elles contiennent
+                    // toujours ce même token/fingerprint. Si onNewToken() a été ré-invoqué entre
+                    // temps (rotation du token pendant cet appel réseau), la nouvelle paire
+                    // écrite doit survivre pour être enregistrée à son tour.
+                    encryptedDataStore.removeIfEquals(DataStoreKeys.PENDING_FCM_TOKEN, token)
+                    encryptedDataStore.removeIfEquals(DataStoreKeys.PENDING_FCM_FINGERPRINT, deviceFingerprint)
                 }
                 .onFailure { e ->
                     Timber.tag(TAG).w(e, "FCM registration failed — scheduling retry")
@@ -126,7 +147,7 @@ class TradingFirebaseMessagingService : FirebaseMessagingService() {
         }
     }
 
-    private fun showNotification(title: String, body: String) {
+    private fun showNotification(title: String, body: String, id: Int) {
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra(MainActivity.EXTRA_NAVIGATE_TO, "alerts")
@@ -162,7 +183,7 @@ class TradingFirebaseMessagingService : FirebaseMessagingService() {
         }
 
         NotificationManagerCompat.from(this)
-            .notify(System.currentTimeMillis().toInt(), notification)
+            .notify(id, notification)
     }
 
     private fun createNotificationChannel(channelId: String) {
@@ -179,6 +200,29 @@ class TradingFirebaseMessagingService : FirebaseMessagingService() {
     companion object {
         private const val TAG = "TradingFcmService"
         private const val CHANNEL_ID = "trading_alerts"
+
+        // Longueurs raisonnables avant persistance Room / affichage — un payload FCM
+        // malveillant ou mal formé ne doit pas pousser un titre/corps arbitrairement long
+        // en base ou dans la notification système.
+        const val MAX_TITLE_LENGTH = 120
+        const val MAX_BODY_LENGTH = 500
+
+        /**
+         * ID de notification stable et déterministe pour un message donné.
+         *
+         * Remplace `System.currentTimeMillis().toInt()` : tronquer un timestamp en Int perd
+         * les bits de poids fort (troncature silencieuse, collisions possibles tous les
+         * ~49 jours) et, surtout, ne correspond à aucune donnée persistée — deux appels
+         * séparés (ici vs. l'entité Room) produisaient des identifiants sans lien entre eux.
+         * Un hash des champs du message (type, receivedAt, title, body) est déterministe :
+         * un même message FCM (mêmes champs, même instant de réception) produit toujours le
+         * même ID, ce qui permet à `NotificationManager` de remplacer plutôt que dupliquer
+         * une notification si jamais le même message était traité deux fois.
+         *
+         * Fonction pure (pas de dépendance Android) — testable en JVM sans Robolectric.
+         */
+        fun notificationId(type: String, receivedAt: Long, title: String, body: String): Int =
+            "$type|$receivedAt|$title|$body".hashCode()
     }
 }
 

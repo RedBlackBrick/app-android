@@ -2,6 +2,7 @@ package com.tradingplatform.app
 
 import android.app.Application
 import androidx.hilt.work.HiltWorkerFactory
+import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.work.Configuration
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -44,8 +45,9 @@ class TradingApplication : Application(), Configuration.Provider {
      * Injecté par Hilt après super.onCreate() (garantie @HiltAndroidApp).
      * Démarre la connexion WS uniquement si un access token est présent,
      * ce qui indique que l'utilisateur est déjà authentifié.
-     * Si l'utilisateur n'est pas connecté, [PrivateWsClient] sera connecté
-     * après le login réussi (via [PrivateWsClient.connect] appelé par le LoginViewModel).
+     * Si l'utilisateur n'est pas connecté, [PrivateWsClient] se connecte de lui-même après le
+     * login / la vérification 2FA réussis : AuthRepositoryImpl émet
+     * [SessionManager.notifySessionStarted], que [PrivateWsClient] collecte.
      */
     @Inject lateinit var privateWsClient: PrivateWsClient
     @Inject lateinit var encryptedDataStore: EncryptedDataStore
@@ -61,24 +63,40 @@ class TradingApplication : Application(), Configuration.Provider {
         initTimber()
         scheduleWidgetUpdateWorker()
 
+        // Verrou biométrique : observe le cycle de vie du process (onStart → re-verrouille si
+        // > 5 min d'inactivité + polling ; onStop → persiste). onCreate tourne sur le main
+        // thread, exigé par addObserver.
+        ProcessLifecycleOwner.get().lifecycle.addObserver(biometricLockManager)
+
         // Pré-chargement synchrone des caches mémoire (token + cookies) pour éviter
         // les runBlocking sur le thread OkHttp au cold start. Le premier appel réseau
         // doit trouver TokenHolder et EncryptedCookieJar déjà peuplés.
         appScope.launch {
-            // Restaurer le verrou biométrique AVANT tout autre init — si l'app a été
-            // tuée en étant verrouillée, l'overlay doit être visible dès la première
-            // composition pour éviter toute exposition des données de trading.
-            biometricLockManager.restorePersistedState()
-        }
-        appScope.launch {
             val tokenResult = encryptedDataStore.readStringSafe(DataStoreKeys.ACCESS_TOKEN)
+            // Politique de verrou au démarrage à froid (D7) — dans la même coroutine que la
+            // lecture du token : BiometricLockManager.isLocked vaut true par défaut (fail-closed).
+            // - session existante → restore AVANT tokenHolder.setToken (verrouillé sauf si
+            //   l'état persisté est "déverrouillé" avec une interaction < 5 min) ;
+            // - pas de session → déverrouillage silencieux (Setup/Login ne sont pas protégés) ;
+            // - Keystore corrompu → reste verrouillé ; RecoverFromKeystoreCorruptionUseCase
+            //   déverrouille après le reset.
             val hasToken = when (tokenResult) {
                 is SecureReadResult.Found -> {
-                    tokenHolder.setToken(tokenResult.value)
-                    Timber.d("TradingApplication: access token preloaded into TokenHolder")
+                    biometricLockManager.restorePersistedState()
+                    // Ne jamais écraser un token plus frais : un refresh (TokenAuthenticator) ou
+                    // GetAuthContextUseCase a pu peupler le holder avant la fin de cette lecture.
+                    if (tokenHolder.accessToken == null) {
+                        tokenHolder.setToken(tokenResult.value)
+                        Timber.d("TradingApplication: access token preloaded into TokenHolder")
+                    } else {
+                        Timber.d("TradingApplication: TokenHolder already populated — preload skipped")
+                    }
                     true
                 }
-                is SecureReadResult.NotFound -> false
+                is SecureReadResult.NotFound -> {
+                    biometricLockManager.unlock()
+                    false
+                }
                 is SecureReadResult.Corrupted -> {
                     Timber.e(tokenResult.cause, "TradingApplication: Keystore corrupted at startup")
                     sessionManager.notifyKeystoreCorruption()

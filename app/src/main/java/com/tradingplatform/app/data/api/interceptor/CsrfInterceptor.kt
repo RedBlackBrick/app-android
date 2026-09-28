@@ -1,8 +1,10 @@
 package com.tradingplatform.app.data.api.interceptor
 
+import com.tradingplatform.app.data.api.AuthPaths
 import com.tradingplatform.app.data.local.datastore.DataStoreKeys
 import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
 import com.tradingplatform.app.data.session.TokenHolder
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -70,18 +72,13 @@ class CsrfInterceptor @Inject constructor(
 
     private val csrfMethods = setOf("POST", "PUT", "DELETE", "PATCH")
 
-    // Miroir des exemptions côté VPS (csrf.py CSRF_EXEMPT_PATHS).
-    // /v1/auth/refresh n'utilise que le cookie httpOnly refresh_token — pas de CSRF requis.
-    private val csrfExemptPaths = setOf(
-        "/v1/auth/refresh",
-        "/v1/auth/login",
-        "/v1/auth/csrf-token",
-    )
+    // Exemptions : AuthPaths.CSRF_EXEMPT (miroir de csrf.py CSRF_EXEMPT_PATHS).
+    // /v1/auth/2fa/verify n'est PAS exempt — le token CSRF anonyme y est accepté.
 
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
 
-        if (request.method !in csrfMethods || request.url.encodedPath in csrfExemptPaths) {
+        if (request.method !in csrfMethods || request.url.encodedPath in AuthPaths.CSRF_EXEMPT) {
             return chain.proceed(request)
         }
 
@@ -185,6 +182,8 @@ class CsrfInterceptor @Inject constructor(
                 mutex.withLock {
                     if (csrfToken == null) fetchCsrfToken()
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Timber.tag(TAG).w(e, "CsrfInterceptor: preFetch failed (non-blocking)")
             }
@@ -200,11 +199,21 @@ class CsrfInterceptor @Inject constructor(
     }
 
     private suspend fun persistToStore(token: String) {
-        try { dataStore.writeString(DataStoreKeys.CSRF_TOKEN, token) } catch (_: Exception) {}
+        try {
+            dataStore.writeString(DataStoreKeys.CSRF_TOKEN, token)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+        }
     }
 
     private suspend fun clearFromStore() {
-        try { dataStore.remove(DataStoreKeys.CSRF_TOKEN) } catch (_: Exception) {}
+        try {
+            dataStore.remove(DataStoreKeys.CSRF_TOKEN)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+        }
     }
 
     private suspend fun fetchCsrfToken(): String {
@@ -213,7 +222,7 @@ class CsrfInterceptor @Inject constructor(
         // Sans Bearer ici, on recevrait un token anonyme qui serait rejeté sur les POST
         // authentifiés (CSRF_001 "missing or invalid"). Attacher le token si disponible.
         val requestBuilder = Request.Builder()
-            .url("$baseUrl/csrf-token")
+            .url("$baseUrl${AuthPaths.CSRF_LEGACY}")
             .get()
         tokenHolder.accessToken?.let { token ->
             requestBuilder.header("Authorization", "Bearer $token")

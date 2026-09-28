@@ -45,7 +45,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -90,6 +89,8 @@ fun MarketDataScreen(
             symbolPickerState = symbolPickerState,
             watchlistSymbols = watchlistSymbols,
             onRefresh = { viewModel.refreshSymbols() },
+            onSearchQueryChange = { viewModel.onSymbolSearchQueryChanged(it) },
+            onLoadMore = { viewModel.loadMoreSymbols() },
             onAddSymbol = { viewModel.addSymbol(it) },
             onRemoveSymbol = { viewModel.removeSymbol(it) },
             onDismiss = { showSymbolPicker = false },
@@ -238,8 +239,8 @@ private fun SwipeToDismissWatchlistCard(
     quote: Quote?,
     sparklinePoints: List<BigDecimal>?,
     onDismiss: () -> Unit,
-    onSourceTap: (String) -> Unit = {},
     modifier: Modifier = Modifier,
+    onSourceTap: (String) -> Unit = {},
 ) {
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
@@ -296,9 +297,9 @@ private fun SwipeToDismissWatchlistCard(
 private fun WatchlistCard(
     symbol: String,
     quote: Quote?,
+    modifier: Modifier = Modifier,
     sparklinePoints: List<BigDecimal>? = null,
     onSourceTap: (String) -> Unit = {},
-    modifier: Modifier = Modifier,
 ) {
     val extendedColors = LocalExtendedColors.current
 
@@ -446,10 +447,11 @@ private fun SourceQualityDot(
     onTap: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val extendedColors = LocalExtendedColors.current
     val dotColor = when (quote.dataMode) {
-        "realtime" -> Color(0xFF22C55E)  // green-500
-        "polling" -> Color(0xFFF59E0B)   // amber-500
-        else -> Color(0xFF9CA3AF)        // gray-400
+        "realtime" -> extendedColors.dataRealtime
+        "polling" -> extendedColors.dataPolling
+        else -> extendedColors.dataStale
     }
 
     val tooltipMessage = remember(quote.sourceName, quote.dataMode, quote.quality) {

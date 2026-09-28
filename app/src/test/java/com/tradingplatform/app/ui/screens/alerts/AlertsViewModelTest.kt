@@ -11,6 +11,7 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -182,17 +183,72 @@ class AlertsViewModelTest {
     // ── Error state ────────────────────────────────────────────────────────────
 
     @Test
-    fun `uiState emits Error when Flow throws`() = runTest {
+    fun `uiState emits Error when Flow keeps throwing after all retries`() = runTest {
         every { getAlertsUseCase() } returns kotlinx.coroutines.flow.flow {
             throw RuntimeException("Room error")
         }
         viewModel = AlertsViewModel(getAlertsUseCase, getFilteredAlertsUseCase, markAlertReadUseCase)
 
         viewModel.uiState.test {
+            // Loading while the retries (virtual-time backoff) are pending
+            assertEquals(AlertsUiState.Loading, awaitItem())
             val state = awaitItem() as AlertsUiState.Error
             assertEquals("Room error", state.message)
             cancelAndIgnoreRemainingEvents()
         }
+        // 1 initial subscription + MAX_RETRIES re-subscriptions
+        verify(exactly = 1 + AlertsViewModel.MAX_RETRIES.toInt()) { getAlertsUseCase() }
+    }
+
+    @Test
+    fun `transient upstream error is retried and Success is re-emitted`() = runTest {
+        var subscriptions = 0
+        every { getAlertsUseCase() } answers {
+            kotlinx.coroutines.flow.flow {
+                subscriptions++
+                if (subscriptions == 1) {
+                    emit(listOf(unreadAlert))
+                    throw RuntimeException("SQLiteException: database is locked")
+                }
+                emit(listOf(unreadAlert, readAlert))
+            }
+        }
+        viewModel = AlertsViewModel(getAlertsUseCase, getFilteredAlertsUseCase, markAlertReadUseCase)
+
+        viewModel.uiState.test {
+            val first = awaitItem() as AlertsUiState.Success
+            assertEquals(1, first.alerts.size)
+
+            // No Error in between — the retry recovers transparently
+            val recovered = awaitItem() as AlertsUiState.Success
+            assertEquals(2, recovered.alerts.size)
+            cancelAndIgnoreRemainingEvents()
+        }
+        assertEquals(2, subscriptions)
+    }
+
+    @Test
+    fun `filter change after an error re-subscribes`() = runTest {
+        every { getAlertsUseCase() } returns kotlinx.coroutines.flow.flow {
+            throw RuntimeException("Room error")
+        }
+        every { getFilteredAlertsUseCase(setOf(AlertType.PRICE_ALERT)) } returns
+            flowOf(listOf(unreadAlert))
+        viewModel = AlertsViewModel(getAlertsUseCase, getFilteredAlertsUseCase, markAlertReadUseCase)
+
+        viewModel.uiState.test {
+            assertEquals(AlertsUiState.Loading, awaitItem())
+            assertTrue(awaitItem() is AlertsUiState.Error)
+
+            // Before the fix the outer chain had completed on `.catch`: this was a no-op.
+            viewModel.setTypeFilter(setOf(AlertType.PRICE_ALERT))
+
+            val state = awaitItem() as AlertsUiState.Success
+            assertEquals(listOf(unreadAlert), state.alerts)
+            assertEquals(setOf(AlertType.PRICE_ALERT), state.activeFilter)
+            cancelAndIgnoreRemainingEvents()
+        }
+        verify(exactly = 1) { getFilteredAlertsUseCase(setOf(AlertType.PRICE_ALERT)) }
     }
 
     // ── markAsRead ─────────────────────────────────────────────────────────────

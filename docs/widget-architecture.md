@@ -19,10 +19,10 @@ XML `appwidget-provider` dans `res/xml/`.
   semaine, mois). La periode est stockee dans `SharedPreferences` sous la cle
   `period_$appWidgetId` (fichier `pnl_widget_prefs`).
 - **Donnees affichees** :
-  - P&L total de la periode configuree (`totalReturn`, `totalReturnPct`)
+  - P&L total de la periode configuree (`totalPnl`, `totalPnlPercent` — fraction, forme `/pnl`)
   - Couleur verte si positif, rouge si negatif (via `WidgetColors`)
   - Timestamp `syncedAt` de la derniere synchronisation
-- **Source Room** : table `pnl_snapshots` via `PnlDao.getLatestByPeriod(period)`
+- **Source Room** : table `pnl_snapshots` (une ligne par periode) via `PnlDao.getByPeriod(period)` ; le Worker synchronise DAY + `PnlWidget.configuredPeriods()`
 - **Action tap** : ouvre `MainActivity` (DashboardScreen)
 
 > **Note** : `PnlWidgetConfigureActivity` existe dans le code mais n'est pas encore referencee
@@ -301,7 +301,7 @@ a jour de ces tables (sauf `alerts` qui vient de FCM).
 
 | Widget             | Table Room        | Champs utilises par le widget                               | TTL     |
 |--------------------|-------------------|--------------------------------------------------------------|---------|
-| PnlWidget          | `pnl_snapshots`   | `period`, `totalReturn`, `totalReturnPct`, `syncedAt`        | 5 min   |
+| PnlWidget          | `pnl_snapshots`   | `period`, `totalPnl`, `totalPnlPercent`, `syncedAt`          | 5 min   |
 | PositionsWidget    | `positions`       | `symbol`, `unrealizedPnl`, `syncedAt`                        | 5 min   |
 | AlertsWidget       | `alerts`          | `title`, `read`, `receivedAt`                                | 30j/500 |
 | SystemStatusWidget | `devices`         | `status`, `name`, `id`, `lastHeartbeat`, `syncedAt`          | 1 min   |
@@ -310,6 +310,13 @@ a jour de ces tables (sauf `alerts` qui vient de FCM).
 Toutes les entites Room portent un champ `syncedAt: Long` (epoch millis). Les widgets affichent
 ce timestamp systematiquement -- c'est une contrainte pour une application de trading ou un
 cours sans indication d'age serait trompeur.
+
+**Source unique des TTL : `data/local/db/CacheTtl.kt`** (`POSITIONS_MS`, `PNL_MS`, `QUOTES_MS`,
+`DEVICES_MS`, `ALERTS_RETENTION_MS` -- la colonne TTL ci-dessus reflete ces constantes, jamais
+une valeur redeclaree localement). Le badge « perime » d'un widget n'utilise pas directement le
+TTL de la table : le seuil affiche est `maxOf(TTL entite, CacheTtl.WIDGET_STALE_GRACE_MS)`, soit
+**20 min** (periode Worker 15 min + 5 min de grace) -- sans ce plancher, un TTL de 5-10 min
+ferait apparaitre le badge « perime » pendant la majeure partie de chaque cycle du Worker.
 
 ---
 
@@ -386,9 +393,10 @@ avec une interface complete :
 - Apercu visuel du widget avec la periode selectionnee
 - Persistance dans `SharedPreferences` (fichier `pnl_widget_prefs`, cle `period_$appWidgetId`)
 
-> **Note** : cette activite n'est pas encore referencee dans `pnl_widget_info.xml` (pas
-> d'attribut `android:configure`) et n'est pas declaree dans `AndroidManifest.xml`. La periode
-> par defaut utilisee est `"day"`.
+> **Note** : cette activite est referencee dans `pnl_widget_info.xml`
+> (`android:configure="com.tradingplatform.app.widget.PnlWidgetConfigureActivity"`) et declaree
+> dans `AndroidManifest.xml` (meme pattern que `QuoteWidgetConfigureActivity` : intent-filter
+> `APPWIDGET_CONFIGURE`). La periode par defaut utilisee est `"day"`.
 
 ---
 
@@ -426,7 +434,7 @@ persiste dans Room, sans synchronisation reseau.
 widget/
   PnlWidget.kt                         GlanceAppWidget P&L
   PnlWidgetReceiver.kt                 GlanceAppWidgetReceiver
-  PnlWidgetConfigureActivity.kt        Configuration periode (non enregistree dans le manifest)
+  PnlWidgetConfigureActivity.kt        Configuration periode (declaree dans AndroidManifest.xml)
   PositionsWidget.kt                    GlanceAppWidget positions
   PositionsWidgetReceiver.kt            GlanceAppWidgetReceiver
   AlertsWidget.kt                       GlanceAppWidget alertes

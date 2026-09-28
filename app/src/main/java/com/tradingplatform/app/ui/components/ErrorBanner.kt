@@ -48,9 +48,7 @@ fun ErrorBanner(
     onRetry: (() -> Unit)? = null,
 ) {
     Surface(
-        modifier = modifier
-            .fillMaxWidth()
-            .semantics { contentDescription = "Erreur : $message" },
+        modifier = modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.errorContainer,
         shape = MaterialTheme.shapes.medium,
         tonalElevation = Spacing.xs,
@@ -66,7 +64,11 @@ fun ErrorBanner(
                 text = message,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onErrorContainer,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .weight(1f)
+                    .semantics(mergeDescendants = true) {
+                        contentDescription = "Erreur : $message"
+                    },
             )
 
             if (onRetry != null) {

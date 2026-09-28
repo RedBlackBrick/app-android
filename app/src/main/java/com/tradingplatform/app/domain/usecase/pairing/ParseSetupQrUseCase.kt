@@ -1,6 +1,7 @@
 package com.tradingplatform.app.domain.usecase.pairing
 
 import com.tradingplatform.app.domain.model.SetupQrData
+import com.tradingplatform.app.domain.util.parseInstantLenient
 import org.json.JSONException
 import org.json.JSONObject
 import java.time.Instant
@@ -90,7 +91,7 @@ class ParseSetupQrUseCase @Inject constructor() {
         }
 
         val expiresAt = try {
-            Instant.parse(expiresAtRaw)
+            parseInstantLenient(expiresAtRaw)
         } catch (e: DateTimeParseException) {
             throw MalformedQrException("expires_at (must be ISO-8601: ${e.message})")
         }

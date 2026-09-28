@@ -20,12 +20,15 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
@@ -35,6 +38,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tradingplatform.app.ui.components.ErrorBanner
 import com.tradingplatform.app.ui.components.QrScannerView
+import com.tradingplatform.app.ui.components.rememberHapticFeedback
 import com.tradingplatform.app.ui.theme.Spacing
 
 /**
@@ -56,6 +60,8 @@ fun ScanVpsQrScreen(
     viewModel: PairingViewModel = hiltViewModel(),
 ) {
     val step by viewModel.step.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val haptic = rememberHapticFeedback()
 
     // La navigation vers DeviceScreen est déclenchée par l'utilisateur via la confirmation card
     // (pas automatiquement) — sinon la caméra du prochain écran relit immédiatement le QR VPS.
@@ -65,11 +71,22 @@ fun ScanVpsQrScreen(
         }
     }
 
+    // Misread of a QR while one is already scanned — snackbar + haptic, without losing
+    // the already-scanned QR (see PairingViewModel.onUnrecognizedQr).
+    LaunchedEffect(Unit) {
+        viewModel.scanErrors.collect { message ->
+            haptic.reject()
+            snackbarHostState.currentSnackbarData?.dismiss()
+            snackbarHostState.showSnackbar(message)
+        }
+    }
+
     val isCameraPaused = step is PairingStep.VpsScanned ||
         step is PairingStep.BothScanned ||
         step is PairingStep.Error
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text(text = "Scan QR VPS") },

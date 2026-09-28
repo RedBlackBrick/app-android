@@ -15,6 +15,7 @@ import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.io.IOException
 import java.security.GeneralSecurityException
+import java.security.KeyStore
 
 // Clés de référence (CLAUDE.md §12)
 object DataStoreKeys {
@@ -29,6 +30,9 @@ object DataStoreKeys {
     val WG_SERVER_PUBKEY = stringPreferencesKey("wg_server_pubkey")
     val WG_TUNNEL_IP = stringPreferencesKey("wg_tunnel_ip")
     val WG_DNS = stringPreferencesKey("wg_dns")
+    // Routes du peer VPS provisionnées par le serveur (`allowed_ips` de /register) — relues par
+    // WireGuardManager.reconnect() ; absentes (install antérieure) → full tunnel par défaut.
+    val WG_ALLOWED_IPS = stringPreferencesKey("wg_allowed_ips")
     val SETUP_COMPLETED = booleanPreferencesKey("setup_completed")
     val CSRF_TOKEN = stringPreferencesKey("csrf_token")
     // FCM token registration retry (write-ahead)
@@ -37,6 +41,9 @@ object DataStoreKeys {
     // Biometric inactivity lock state — persisté pour restaurer le verrou après un
     // process kill (app tuée pendant qu'elle était verrouillée → redémarrage → encore verrouillée)
     val BIOMETRIC_LOCKED = booleanPreferencesKey("biometric_locked")
+    // Timestamp (epoch ms) de la dernière interaction utilisateur — permet de re-verrouiller au
+    // démarrage à froid si le process a été tué après > 5 min d'inactivité (BiometricLockManager).
+    val LAST_INTERACTION_AT = longPreferencesKey("biometric_last_interaction_at")
     // Symbole par défaut affiché par le Dashboard et utilisé pour le sync quote initial
     // des widgets (fallback). Configurable par l'utilisateur via ProfileScreen. Non sensible
     // stricto-sensu, mais stocké dans EncryptedDataStore pour homogénéité avec les autres
@@ -45,27 +52,127 @@ object DataStoreKeys {
     // Cookies : clé dynamique "cookie_${name}"
 }
 
-class EncryptedDataStore(
+private const val PREFS_NAME = "trading_secure_prefs"
+private const val ANDROID_KEYSTORE = "AndroidKeyStore"
+private const val RESET_ATTEMPTS = 2
+private const val RESET_RETRY_DELAY_MS = 250L
+
+/** Factory de production : MasterKey (Android Keystore) + EncryptedSharedPreferences. */
+private fun createEncryptedPrefs(context: Context): SharedPreferences {
+    val masterKey = MasterKey.Builder(context)
+        .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+        .build()
+    return EncryptedSharedPreferences.create(
+        context,
+        PREFS_NAME,
+        masterKey,
+        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+    )
+}
+
+/** Supprime l'alias MasterKey par défaut de l'Android Keystore (reset après corruption). */
+private fun deleteDefaultMasterKeyAlias() {
+    val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE)
+    keyStore.load(null)
+    if (keyStore.containsAlias(MasterKey.DEFAULT_MASTER_KEY_ALIAS)) {
+        keyStore.deleteEntry(MasterKey.DEFAULT_MASTER_KEY_ALIAS)
+    }
+}
+
+/**
+ * Stockage chiffré (EncryptedSharedPreferences + Android Keystore).
+ *
+ * ## Récupération après corruption (audit #17)
+ * L'instance [SharedPreferences] est tenue dans un holder réinitialisable (pas de `by lazy`,
+ * qui mettait `null` en cache pour toute la durée du @Singleton) :
+ * - si la création échoue (Keystore invalidé, keyset Tink illisible), [prefs] retourne null
+ *   et la création est retentée au prochain accès ;
+ * - [resetCorruptedStore] supprime le fichier chiffré ET l'alias MasterKey puis recrée un
+ *   store vide. **Rien ne survit** (tokens, cookies, config WireGuard, SETUP_COMPLETED,
+ *   local_token_*) — l'utilisateur doit rescanner le QR de setup.
+ *
+ * Le constructeur interne permet aux tests JVM d'injecter une factory de prefs et un
+ * suppresseur d'alias (pas d'Android Keystore sous Robolectric). La production (Hilt,
+ * via [com.tradingplatform.app.di.SecurityModule]) utilise le constructeur public.
+ */
+class EncryptedDataStore internal constructor(
     private val context: Context,
+    private val prefsFactory: (Context) -> SharedPreferences,
+    private val masterKeyDeleter: () -> Unit,
 ) {
-    private val sharedPreferences: SharedPreferences? by lazy {
-        try {
-            val masterKey = MasterKey.Builder(context)
-                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-                .build()
-            EncryptedSharedPreferences.create(
-                context,
-                "trading_secure_prefs",
-                masterKey,
-                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
-            )
-        } catch (e: GeneralSecurityException) {
-            Timber.e(e, "EncryptedDataStore: MasterKey creation failed — encrypted storage unavailable")
-            null
-        } catch (e: IOException) {
-            Timber.e(e, "EncryptedDataStore: IO error during init")
-            null
+    constructor(context: Context) : this(
+        context,
+        { ctx -> createEncryptedPrefs(ctx) },
+        { deleteDefaultMasterKeyAlias() },
+    )
+
+    private val initLock = Any()
+
+    @Volatile
+    private var cachedPrefs: SharedPreferences? = null
+
+    /**
+     * Retourne l'instance courante, en la créant si nécessaire (double-checked locking).
+     * null si le stockage chiffré est indisponible — la création sera retentée au prochain appel.
+     */
+    private fun prefs(): SharedPreferences? {
+        cachedPrefs?.let { return it }
+        return synchronized(initLock) {
+            cachedPrefs ?: createPrefs().also { cachedPrefs = it }
+        }
+    }
+
+    /** Appelé sous [initLock]. Ne logge jamais de valeur stockée. */
+    private fun createPrefs(): SharedPreferences? = try {
+        prefsFactory(context)
+    } catch (e: GeneralSecurityException) {
+        Timber.e(e, "EncryptedDataStore: MasterKey/keyset creation failed — encrypted storage unavailable")
+        null
+    } catch (e: IOException) {
+        Timber.e(e, "EncryptedDataStore: IO error during init")
+        null
+    } catch (e: RuntimeException) {
+        // security-crypto alpha / Tink lèvent SecurityException / IllegalStateException
+        Timber.e(e, "EncryptedDataStore: runtime error during init — encrypted storage unavailable")
+        null
+    }
+
+    /**
+     * Réinitialise un store corrompu : supprime le fichier chiffré et l'alias MasterKey,
+     * puis recrée un store vide. **Toutes les données sont perdues** (y compris la config
+     * WireGuard et SETUP_COMPLETED) — l'appelant doit renvoyer l'utilisateur vers le Setup.
+     *
+     * @return true si un store fonctionnel a pu être recréé, false sinon.
+     */
+    suspend fun resetCorruptedStore(): Boolean = withContext(Dispatchers.IO) {
+        synchronized(initLock) {
+            // Détacher l'ancienne instance AVANT la suppression du fichier pour qu'aucun
+            // lecteur concurrent ne la réutilise (prefs() repasse par le lock).
+            cachedPrefs = null
+            runCatching { context.deleteSharedPreferences(PREFS_NAME) }
+                .onFailure { Timber.e(it, "EncryptedDataStore reset: failed to delete prefs file") }
+            runCatching { masterKeyDeleter() }
+                .onFailure { Timber.e(it, "EncryptedDataStore reset: failed to delete MasterKey alias") }
+            // Un écrivain retardataire tenant encore l'ancienne SharedPreferencesImpl (commit()
+            // parti avant `cachedPrefs = null`) peut réécrire le fichier ENTIER — anciens keysets
+            // Tink inclus, chiffrés avec la MasterKey qu'on vient de supprimer — entre la
+            // suppression et la recréation : Tink lit alors ces keysets → AEADBadTagException
+            // (observé sur l'émulateur CI api30, logcat de EncryptedDataStoreResetTest). D'où :
+            // nouvelle tentative bornée, avec re-suppression du fichier avant chaque essai.
+            var recreated: SharedPreferences? = null
+            for (attempt in 1..RESET_ATTEMPTS) {
+                if (attempt > 1) {
+                    Thread.sleep(RESET_RETRY_DELAY_MS)
+                    runCatching { context.deleteSharedPreferences(PREFS_NAME) }
+                        .onFailure { Timber.e(it, "EncryptedDataStore reset: failed to re-delete prefs file") }
+                }
+                recreated = createPrefs()
+                if (recreated != null) break
+            }
+            cachedPrefs = recreated
+            Timber.w("EncryptedDataStore reset: store recreated=${recreated != null}")
+            recreated != null
         }
     }
 
@@ -78,7 +185,11 @@ class EncryptedDataStore(
         DataStoreKeys.WG_SERVER_PUBKEY.name,
         DataStoreKeys.WG_TUNNEL_IP.name,
         DataStoreKeys.WG_DNS.name,
+        DataStoreKeys.WG_ALLOWED_IPS.name,
         DataStoreKeys.SETUP_COMPLETED.name,
+        // Verrou biométrique : un apply() perdu au kill ferait redémarrer déverrouillé.
+        DataStoreKeys.BIOMETRIC_LOCKED.name,
+        DataStoreKeys.LAST_INTERACTION_AT.name,
     )
 
     // Clés préservées par clearSession() — identité device, pas session utilisateur.
@@ -89,6 +200,7 @@ class EncryptedDataStore(
         DataStoreKeys.WG_SERVER_PUBKEY.name,
         DataStoreKeys.WG_TUNNEL_IP.name,
         DataStoreKeys.WG_DNS.name,
+        DataStoreKeys.WG_ALLOWED_IPS.name,
         DataStoreKeys.SETUP_COMPLETED.name,
         DataStoreKeys.DEFAULT_QUOTE_SYMBOL.name,
     )
@@ -100,7 +212,7 @@ class EncryptedDataStore(
      * Si null est retourné suite à une exception auth : logout forcé vers LoginScreen.
      */
     suspend fun readString(key: Preferences.Key<String>): String? = withContext(Dispatchers.IO) {
-        val prefs = sharedPreferences ?: return@withContext null
+        val prefs = prefs() ?: return@withContext null
         try {
             prefs.getString(key.name, null)
         } catch (e: IOException) {
@@ -108,6 +220,10 @@ class EncryptedDataStore(
             null
         } catch (e: GeneralSecurityException) {
             Timber.e(e, "EncryptedDataStore Keystore invalidated (reboot/biometric reset)")
+            null
+        } catch (e: SecurityException) {
+            // security-crypto alpha enveloppe les échecs de déchiffrement en SecurityException
+            Timber.e(e, "EncryptedDataStore decrypt failed (SecurityException)")
             null
         }
     }
@@ -128,7 +244,7 @@ class EncryptedDataStore(
     suspend fun readStringSafe(
         key: Preferences.Key<String>,
     ): SecureReadResult<String> = withContext(Dispatchers.IO) {
-        val prefs = sharedPreferences
+        val prefs = prefs()
         if (prefs == null) {
             // Le store n'a pas pu etre initialise (MasterKey creation failure)
             return@withContext SecureReadResult.Corrupted(
@@ -148,11 +264,46 @@ class EncryptedDataStore(
         } catch (e: GeneralSecurityException) {
             Timber.e(e, "EncryptedDataStore readStringSafe — Keystore invalidated")
             SecureReadResult.Corrupted(e)
+        } catch (e: SecurityException) {
+            Timber.e(e, "EncryptedDataStore readStringSafe — decrypt failed (SecurityException)")
+            SecureReadResult.Corrupted(e)
+        }
+    }
+
+    /**
+     * Équivalent de [readStringSafe] pour un Boolean : distingue présent / absent / corrompu.
+     * Utile aux lecteurs qui doivent réagir à une corruption plutôt que de la confondre avec
+     * "jamais écrit" (ex. widgets, état de setup).
+     */
+    suspend fun readBooleanSafe(
+        key: Preferences.Key<Boolean>,
+    ): SecureReadResult<Boolean> = withContext(Dispatchers.IO) {
+        val prefs = prefs()
+        if (prefs == null) {
+            return@withContext SecureReadResult.Corrupted(
+                IllegalStateException("EncryptedDataStore unavailable — MasterKey creation failed")
+            )
+        }
+        try {
+            if (prefs.contains(key.name)) {
+                SecureReadResult.Found(prefs.getBoolean(key.name, false))
+            } else {
+                SecureReadResult.NotFound
+            }
+        } catch (e: IOException) {
+            Timber.e(e, "EncryptedDataStore readBooleanSafe — file corrupted")
+            SecureReadResult.Corrupted(e)
+        } catch (e: GeneralSecurityException) {
+            Timber.e(e, "EncryptedDataStore readBooleanSafe — Keystore invalidated")
+            SecureReadResult.Corrupted(e)
+        } catch (e: SecurityException) {
+            Timber.e(e, "EncryptedDataStore readBooleanSafe — decrypt failed (SecurityException)")
+            SecureReadResult.Corrupted(e)
         }
     }
 
     suspend fun readLong(key: Preferences.Key<Long>): Long? = withContext(Dispatchers.IO) {
-        val prefs = sharedPreferences ?: return@withContext null
+        val prefs = prefs() ?: return@withContext null
         try {
             val v = prefs.getLong(key.name, Long.MIN_VALUE)
             if (v == Long.MIN_VALUE) null else v
@@ -163,7 +314,7 @@ class EncryptedDataStore(
     }
 
     suspend fun readInt(key: Preferences.Key<Int>): Int? = withContext(Dispatchers.IO) {
-        val prefs = sharedPreferences ?: return@withContext null
+        val prefs = prefs() ?: return@withContext null
         try {
             val v = prefs.getInt(key.name, Int.MIN_VALUE)
             if (v == Int.MIN_VALUE) null else v
@@ -174,7 +325,7 @@ class EncryptedDataStore(
     }
 
     suspend fun readBoolean(key: Preferences.Key<Boolean>): Boolean? = withContext(Dispatchers.IO) {
-        val prefs = sharedPreferences ?: return@withContext null
+        val prefs = prefs() ?: return@withContext null
         try {
             if (!prefs.contains(key.name)) null
             else prefs.getBoolean(key.name, false)
@@ -185,20 +336,20 @@ class EncryptedDataStore(
     }
 
     suspend fun writeString(key: Preferences.Key<String>, value: String) = withContext(Dispatchers.IO) {
-        val prefs = sharedPreferences ?: return@withContext
+        val prefs = prefs() ?: return@withContext
         val commit = key.name in criticalKeys
         prefs.edit(commit = commit) { putString(key.name, value) }
     }
 
     /** Écriture avec une clé String brute (pour les clés dynamiques, ex: "device_wg_pubkey_{id}"). */
     suspend fun writeString(key: String, value: String) = withContext(Dispatchers.IO) {
-        val prefs = sharedPreferences ?: return@withContext
+        val prefs = prefs() ?: return@withContext
         prefs.edit { putString(key, value) }
     }
 
     /** Lit une valeur String avec une clé String brute. */
     suspend fun readString(key: String): String? = withContext(Dispatchers.IO) {
-        val prefs = sharedPreferences ?: return@withContext null
+        val prefs = prefs() ?: return@withContext null
         try {
             prefs.getString(key, null)
         } catch (e: IOException) {
@@ -206,6 +357,9 @@ class EncryptedDataStore(
             null
         } catch (e: GeneralSecurityException) {
             Timber.e(e, "EncryptedDataStore Keystore invalidated (reboot/biometric reset)")
+            null
+        } catch (e: SecurityException) {
+            Timber.e(e, "EncryptedDataStore decrypt failed (SecurityException)")
             null
         }
     }
@@ -217,7 +371,7 @@ class EncryptedDataStore(
      * Commit synchrone : token critique utilisé pour le chiffrement LAN.
      */
     suspend fun writeLocalToken(deviceId: String, token: String) = withContext(Dispatchers.IO) {
-        val prefs = sharedPreferences ?: return@withContext
+        val prefs = prefs() ?: return@withContext
         prefs.edit(commit = true) { putString("local_token_$deviceId", token) }
     }
 
@@ -226,7 +380,7 @@ class EncryptedDataStore(
      * Retourne null si absent ou en cas d'erreur Keystore.
      */
     suspend fun readLocalToken(deviceId: String): String? = withContext(Dispatchers.IO) {
-        val prefs = sharedPreferences ?: return@withContext null
+        val prefs = prefs() ?: return@withContext null
         try {
             prefs.getString("local_token_$deviceId", null)
         } catch (e: IOException) {
@@ -235,33 +389,72 @@ class EncryptedDataStore(
         } catch (e: GeneralSecurityException) {
             Timber.e(e, "EncryptedDataStore readLocalToken — Keystore invalidated")
             null
+        } catch (e: SecurityException) {
+            Timber.e(e, "EncryptedDataStore readLocalToken — decrypt failed (SecurityException)")
+            null
         }
     }
 
     suspend fun writeLong(key: Preferences.Key<Long>, value: Long) = withContext(Dispatchers.IO) {
-        val prefs = sharedPreferences ?: return@withContext
-        prefs.edit { putLong(key.name, value) }
+        val prefs = prefs() ?: return@withContext
+        val commit = key.name in criticalKeys
+        prefs.edit(commit = commit) { putLong(key.name, value) }
     }
 
     suspend fun writeInt(key: Preferences.Key<Int>, value: Int) = withContext(Dispatchers.IO) {
-        val prefs = sharedPreferences ?: return@withContext
+        val prefs = prefs() ?: return@withContext
         prefs.edit { putInt(key.name, value) }
     }
 
     suspend fun writeBoolean(key: Preferences.Key<Boolean>, value: Boolean) = withContext(Dispatchers.IO) {
-        val prefs = sharedPreferences ?: return@withContext
+        val prefs = prefs() ?: return@withContext
         val commit = key.name in criticalKeys
         prefs.edit(commit = commit) { putBoolean(key.name, value) }
     }
 
     suspend fun remove(key: Preferences.Key<*>) = withContext(Dispatchers.IO) {
-        val prefs = sharedPreferences ?: return@withContext
+        val prefs = prefs() ?: return@withContext
         prefs.edit { remove(key.name) }
     }
 
+    /**
+     * Supprime [key] uniquement si sa valeur actuelle est toujours [expected] (compare-and-remove).
+     *
+     * Utilisé après un enregistrement FCM réussi pour nettoyer le token "pending" écrit en
+     * write-ahead (voir [DataStoreKeys.PENDING_FCM_TOKEN]) : si un nouveau token a été reçu
+     * (rotation) pendant que l'ancien était en cours d'enregistrement, la valeur en base ne
+     * correspond plus à celle qu'on vient de confirmer — on ne doit pas l'effacer, sous peine
+     * de perdre la trace du nouveau token en attente.
+     *
+     * `synchronized(initLock)` : même verrou que [prefs] — la lecture-comparaison-suppression
+     * est atomique vis-à-vis des autres accès qui passent par ce lock (double-checked locking
+     * de [prefs]), évitant une race avec une écriture concurrente sur la même clé.
+     *
+     * @return true si la clé a été supprimée (valeur inchangée), false sinon (valeur différente,
+     *         absente, ou stockage indisponible).
+     */
+    suspend fun removeIfEquals(key: Preferences.Key<String>, expected: String): Boolean =
+        withContext(Dispatchers.IO) {
+            val prefs = prefs() ?: return@withContext false
+            synchronized(initLock) {
+                val current = try {
+                    prefs.getString(key.name, null)
+                } catch (e: Exception) {
+                    Timber.e(e, "EncryptedDataStore removeIfEquals — read failed")
+                    return@synchronized false
+                }
+                if (current != expected) {
+                    false
+                } else {
+                    prefs.edit { remove(key.name) }
+                    true
+                }
+            }
+        }
+
     /** Efface toutes les données (reset device complet — pas utilisé par le logout normal). */
     suspend fun clearAll() = withContext(Dispatchers.IO) {
-        val prefs = sharedPreferences ?: return@withContext
+        val prefs = prefs() ?: return@withContext
         prefs.edit { clear() }
     }
 
@@ -271,7 +464,7 @@ class EncryptedDataStore(
      * local_token_*) — un logout ne doit pas forcer un re-scan du QR d'onboarding.
      */
     suspend fun clearSession() = withContext(Dispatchers.IO) {
-        val prefs = sharedPreferences ?: return@withContext
+        val prefs = prefs() ?: return@withContext
         val toRemove = try {
             prefs.all.keys.filter { key ->
                 key !in devicePersistentKeys && !key.startsWith("local_token_")
@@ -291,13 +484,13 @@ class EncryptedDataStore(
      * Commit synchrone : le refresh_token est critique — une perte entraîne un logout forcé.
      */
     suspend fun saveCookie(name: String, value: String) = withContext(Dispatchers.IO) {
-        val prefs = sharedPreferences ?: return@withContext
+        val prefs = prefs() ?: return@withContext
         prefs.edit(commit = true) { putString("cookie_$name", value) }
     }
 
     /** Charge tous les cookies sauvegardés */
     suspend fun loadCookies(): List<String> = withContext(Dispatchers.IO) {
-        val prefs = sharedPreferences ?: return@withContext emptyList()
+        val prefs = prefs() ?: return@withContext emptyList()
         try {
             prefs.all
                 .filter { (key, _) -> key.startsWith("cookie_") }

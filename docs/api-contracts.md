@@ -162,21 +162,32 @@ Réutiliser pour tous les appels suivants sans re-fetch.
 
 ### GET /v1/portfolios/{portfolio_id}/pnl
 
-**Query params :** `period = day | week | month | year | all`
+**Query params :** `period = day | week | month | ytd | all` (backend `router.py` —
+`PnlPeriod.YEAR.toApiString() == "ytd"` ; une valeur inconnue comme `year` n'est pas rejetée
+mais retombe silencieusement sur `all`).
 
 **Response 200 :**
 ```json
 {
   "period": "day",
-  "realized_pnl": "250.00000000",
-  "unrealized_pnl": "1500.00000000",
-  "total_pnl": "1750.00000000",
+  "realized_pnl": "250.00",
+  "unrealized_pnl": "1500.00",
+  "total_pnl": "1750.00",
   "total_pnl_percent": 1.75,
   "trades_count": 3,
   "winning_trades": 2,
   "losing_trades": 1
 }
 ```
+
+**Unités :** `total_pnl_percent` est un **pourcentage** (1.75 = 1,75 %) ; l'app le convertit en
+**fraction** (0.0175) dans les mappers (`PnlResponseDto.toPnlSummary()` / `toEntity()`) — le domaine
+et la table `pnl_snapshots` ne manipulent que des fractions. Les montants P&L sont cumulés sur la
+vie du portefeuille ; `period` ne borne que `trades_count` / `winning_trades` / `losing_trades`.
+
+**Cache :** seul chemin PnL de l'app. `PortfolioRepositoryImpl.getPnlSummary` (Dashboard et
+`WidgetUpdateWorker` via `GetPnlUseCase`) upsert une ligne `pnl_snapshots` par période
+(`period` = clé primaire), lue par `PnlWidget`.
 
 ---
 
@@ -262,36 +273,69 @@ Auth : JWT Bearer. Appelé depuis `TradingFirebaseMessagingService.onNewToken()`
 
 ### GET /v1/market-data/symbols
 
-Retourne la liste de tous les symboles trackés par le backend.
+Catalogue paginé des symboles trackés par le backend, avec recherche serveur.
+`MarketDataViewModel` débounce la recherche (300 ms) et pagine par offset
+(`GetAvailableSymbolsUseCase(search, limit, offset)`) pour `SymbolPickerSheet`.
+
+**Query params :** `search` (optionnel), `exchange` (optionnel), `currency` (optionnel),
+`index_sid` (optionnel), `limit` (défaut 100, max 500), `offset` (défaut 0)
 
 **Response 200 :**
 ```json
-["CAC40", "SP500", "NASDAQ", "DOW", "SBF120"]
+{
+  "symbols": [
+    {"sid": 1, "ticker": "AAPL", "name": "Apple Inc.", "exchange": "NASDAQ", "currency": "USD", "is_active": true}
+  ],
+  "total": 4,
+  "limit": 100,
+  "offset": 0,
+  "has_more": false
+}
 ```
+
+Décodé en `SymbolListResponseDto` (`SymbolListItemDto` par entrée). Le repository filtre
+`is_active=false` et mappe vers `SymbolInfo(ticker, name, exchange?, currency?)` /
+`SymbolPage(items, hasMore, nextOffset)`. `MarketDataRepository.getAvailableSymbols()`
+(sans argument) reste disponible comme raccourci — première page, non filtrée par recherche —
+pour les appelants qui n'ont pas besoin de pagination (widgets).
 
 ---
 
 ### GET /v1/market-data/{symbol}/history
 
-Historique OHLCV pour les sparklines de la watchlist.
+Historique OHLCV pour les sparklines de la watchlist (30 derniers points close).
+Utilise `get_range` (et non `GET /v1/market-data/` = `get_latest`, qui est trié DESC) :
+la réponse est déjà chronologique (plus ancien en premier), donc **aucun** `asReversed()`
+n'est appliqué côté app.
 
-**Query params :** `interval` (défaut `1d`), `limit` (défaut 30)
+**Query params :** `start`, `end` (ISO-8601, **requis** côté backend — l'app envoie une
+fenêtre glissante `now - 45 jours` à `now`), `timeframe` (défaut `1d`), `limit` (défaut 1000,
+l'app passe la valeur de `GetSymbolHistoryUseCase`, défaut 30), `cursor` (optionnel),
+`adjusted` (optionnel, défaut `false`)
 
 **Response 200 :**
 ```json
-[
-  {
-    "timestamp": "2026-03-01T00:00:00Z",
-    "open": "7800.00",
-    "high": "7900.00",
-    "low": "7750.00",
-    "close": "7850.50",
-    "volume": 1234500
-  }
-]
+{
+  "symbol": "AAPL",
+  "data": [
+    {
+      "timestamp": "2026-09-23T00:00:00Z",
+      "open": "226.1000",
+      "high": "229.4500",
+      "low": "225.8000",
+      "close": "228.9200",
+      "volume": 51234567
+    }
+  ],
+  "count": 1,
+  "timeframe": "1d",
+  "next_cursor": null
+}
 ```
 
-Utilisé par `MarketDataScreen` via `GetSymbolHistoryUseCase` (extraction du champ `close` pour sparklines).
+Décodé en `MarketDataResponseDto` (`data: List<MarketDataPointDto>`). Utilisé par
+`MarketDataScreen` via `GetSymbolHistoryUseCase` (extraction du champ `close` pour
+sparklines, ordre préservé tel quel).
 
 ### GET /v1/portfolios/{portfolio_id}/performance
 
@@ -301,12 +345,12 @@ Retourne les métriques de performance calculées côté serveur.
 ```json
 {
   "total_return": "5250.00",
-  "total_return_pct": 10.5,
+  "total_return_pct": 0.105,
   "sharpe_ratio": 1.45,
   "sortino_ratio": 2.1,
   "max_drawdown": 8.3,
-  "volatility": 15.2,
-  "cagr": 12.5,
+  "volatility": 0.152,
+  "cagr": 0.125,
   "win_rate": 0.65,
   "profit_factor": 2.3,
   "avg_trade_return": "125.00"
@@ -315,12 +359,22 @@ Retourne les métriques de performance calculées côté serveur.
 
 Tous les champs sont nullable (retournent `null` si données insuffisantes).
 
+**Unités :** `total_return_pct`, `volatility`, `cagr` et `win_rate` sont des **fractions**
+(0.105 = 10,5 %). **Exception : `max_drawdown` est un pourcentage positif** (8.3 = 8,3 %,
+`calculators/performance.py` `* 100`) — converti en fraction côté app dans
+`PerformanceResponseDto.toPerformanceMetrics()` (8.3 → 0.083). Le domaine `PerformanceMetrics`
+ne contient que des fractions ; `PerformanceScreen` multiplie par 100 à l'affichage.
+Endpoint consommé uniquement par `getPerformance()` → `PerformanceMetrics` (jamais écrit dans Room).
+
 ---
 
 ## Devices Edge
 
-> **Réservé aux comptes admin** (`user.is_admin == true`). L'onglet Devices et le workflow
-> de pairing sont masqués pour les comptes standard.
+> **Réservé aux comptes admin** (`user.is_admin == true`). L'onglet Devices (flotte, liste tous
+> les devices) est masqué pour les comptes standard. **Le workflow de pairing n'est pas
+> concerné** : il est accessible à tout utilisateur authentifié depuis `Settings > Mes
+> appareils` (décision D5, `docs/architecture-decisions.md`) — seul le pairing lancé depuis
+> l'écran Devices admin réutilise ce même flux sous garde `isAdmin`.
 
 ### GET /v1/edge/devices (admin uniquement)
 
@@ -529,7 +583,7 @@ Le `nonce` est un token anti-replay one-time-use (64 caractères hex) avec TTL 5
 ## Pairing — POST LAN /pin (format chiffré)
 
 ```
-POST http://{radxa_ip}:8099/pin
+POST https://{radxa_ip}:8099/pin
 Content-Type: application/octet-stream
 
 Body: crypto_box_seal(
@@ -537,6 +591,10 @@ Body: crypto_box_seal(
   radxa_wg_pubkey
 )
 ```
+
+HTTPS avec certificat auto-signé (le pairing-server refuse de démarrer sans TLS) — accepté côté
+app par `security/LanTrustManager.kt`, pas par le certificate pinning Root CA du VPS. Voir
+`CLAUDE.md §8`.
 
 Réponse : `200 OK` (body vide ou `{"status": "ok"}`).
 En cas de nonce invalide ou rejoué, le VPS retourne `409 Conflict` à la Radxa.
@@ -588,3 +646,83 @@ Response 200:
   "last_error": null
 }
 ```
+
+---
+
+## Garde de drift de contrats
+
+Audit `PLAN.md` Phase 0 §3 / PR 5c — conception détaillée : `audit/plan-ui-tests-ci.md` PART 2
+§(3). Objectif : détecter automatiquement un décalage entre ce que l'app suppose (DTOs Moshi,
+chemins Retrofit, clés lues dans les payloads WebSocket) et ce que le backend envoie
+réellement, sans dépendre d'un VPS/MockWebServer — la source de vérité est l'OpenAPI backend
+commité (`trading-platform2/audit/front/openapi.json`, 3.1, ~490 chemins) plus un fichier
+maintenu à la main pour les événements WebSocket (qui n'ont pas d'export OpenAPI/AsyncAPI).
+
+### Fichiers
+
+| Fichier | Rôle |
+|---|---|
+| `scripts/extract_openapi_contracts.py` | Lit l'OpenAPI backend, ne garde que les chemins appelés par les interfaces Retrofit d'`app/src/main/.../data/api/*.kt` et les schémas `components.schemas` référencés transitivement par leurs requêtes/réponses. Écrit `app/src/test/resources/contracts/openapi.json` (trié, formaté). |
+| `app/src/test/resources/contracts/openapi.json` | Sortie du script ci-dessus — **généré, à regénérer et commiter**, jamais édité à la main. |
+| `app/src/test/resources/contracts/ws_events.json` | Maintenu à la main : pour chaque type d'événement WS privé/public, la liste des clés JSON que le backend envoie réellement (union sur tous les points d'émission), avec la référence au fichier backend source. |
+| `app/src/test/java/com/tradingplatform/app/contracts/DtoContractTest.kt` | Les 4 tests JUnit qui comparent le code app à ces deux fichiers (réflexion Kotlin sur `@Json(name)` / nullabilité / valeurs par défaut des DTOs, réflexion sur les annotations Retrofit `@GET`/`@POST`/…). |
+
+### Quand regénérer
+
+```bash
+python3 scripts/extract_openapi_contracts.py
+# ou, si l'export OpenAPI backend n'est pas au chemin par défaut :
+python3 scripts/extract_openapi_contracts.py /chemin/vers/openapi.json
+```
+
+À relancer (et commiter le fichier `openapi.json` régénéré) :
+- après tout changement de schéma backend touchant un endpoint que l'app appelle (champ
+  renommé/supprimé, `required` modifié, ajout d'un endpoint consommé côté app) ;
+- avant de merger toute PR qui modifie un DTO Android ou une interface Retrofit `data/api/*Api.kt` ;
+- en CI, idéalement via une future cible `make openapi-android` côté backend qui régénère et
+  copie l'export réduit (non encore câblée — actuellement un geste manuel).
+
+`ws_events.json` n'a pas de script d'extraction (pas d'export WS côté backend) — le mettre à
+jour à la main en relisant les fichiers cités dans son champ `source` par événement
+(`app/portfolio/consumer.py`, `app/execution/consumer.py`, `app/execution/exit_consumer.py`,
+`app/notification/service.py`, `app/notification/consumer.py`, `app/strategy/consumer/base.py`,
+`app/events/catalyst/consumer.py`, `app/websocket/market_data_bridge.py` côté trading-platform2).
+
+### Ce que `DtoContractTest` vérifie
+
+1. **Champs DTO présents dans le schéma** — chaque `@Json(name=...)` (ou nom de paramètre à
+   défaut) d'un DTO de la table `DTO_SCHEMA_TABLE` existe dans `schema.properties` (en suivant
+   `allOf`/`$ref`).
+2. **Champs DTO non-nullables sans défaut couverts par le schéma** — chaque paramètre non-nullable
+   sans valeur par défaut doit correspondre à un champ `required` **ou** portant un `default`
+   explicite dans le schéma (Pydantic sérialise toujours un champ avec défaut, même absent de
+   `required`). Sinon : risque réel de crash Moshi (le backend peut légalement omettre ou
+   `null`-er le champ).
+3. **Chemins Retrofit présents dans l'OpenAPI réduit** — chaque `@GET/@POST/@PUT/@DELETE/@PATCH`
+   des interfaces `data/api/*Api.kt` (lu par réflexion sur les annotations, pas par re-parsing
+   du `.kt`) existe dans `openapi.json`, aux noms de `{param}` près.
+4. **Clés WS lues par l'app ⊆ clés envoyées par le backend** — pour chaque type d'événement WS,
+   l'ensemble de clés lu (codé en dur dans le test, miroir de `WsRepository.kt` /
+   `PrivateWsClient.kt` / `PublicWsClient.kt`) doit être un sous-ensemble de `ws_events.json`.
+
+Aurait attrapé les findings d'audit #6, #7 et #23 (formes d'enveloppe market-data, noms de
+champs des payloads WS position/portfolio) s'il avait existé avant leurs correctifs en PRs
+2.1/2.3.
+
+### Findings PR 5c (nouveaux, non corrigés dans cette PR)
+
+En écrivant ce test, plusieurs dérives **non tracées auparavant** dans `audit/PLAN.md` sont
+apparues. Cette PR ne modifie pas le code source principal (hors périmètre) — les tests
+suivants sont donc **rouges intentionnellement** tant qu'un correctif dédié n'est pas fait :
+
+| Test | Constat |
+|---|---|
+| DTO non-nullables | `PositionDto.quantity` / `PositionDto.avgPrice` (← `average_price`) sont non-nullables sans défaut côté Kotlin, mais `PositionResponse.quantity`/`average_price` sont `Decimal \| None = None` côté backend (trading-platform2 `app/portfolio/schemas.py:980-981`) — ni `required`, ni `default`. |
+| DTO champs présents | `DeviceDto.hostname` / `.scrapersCircuit` / `.availableMemoryMb` n'ont aucune propriété correspondante dans `DeviceResponse` (`app/edge/schemas.py:186-221`) — toujours `null`, code mort côté app. |
+| WS `order_update` | L'app lit `fill_price` (`WsRepository.kt:102`) ; aucun point d'émission (`execution/consumer.py`, `execution/exit_consumer.py`) n'envoie cette clé, seulement `price`. |
+| WS `notification` | L'app lit `data.type` avec fallback `"info"` (`PrivateWsClient.kt:445`) ; le backend envoie `notification_type`, jamais `type`. |
+| WS `catalyst_event` | L'app lit `event_type`/`title`/`description` (`WsRepository.kt:123-126`) ; le backend envoie `catalyst_type` (pas `event_type`) et aucun `title`/`description` au niveau racine (seulement `data` imbriqué). |
+| WS `market_data` (public) | L'app lit `source_name`/`source_type`/`quality` (`PublicWsClient.kt:143-147`) ; le canal public n'envoie que `source` (texte libre) — `source_name`/`source_type`/`quality` n'existent que sur le canal admin (`app/websocket/admin_events.py`). |
+
+Voir le rapport de la PR 5c pour les citations complètes (fichier:ligne backend) et les
+recommandations de correctif.

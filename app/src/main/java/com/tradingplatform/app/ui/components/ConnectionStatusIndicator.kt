@@ -16,8 +16,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import com.tradingplatform.app.domain.model.WsConnectionState
 import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.Spacing
@@ -72,7 +72,7 @@ fun ConnectionStatusIndicator(
     }
 
     Row(
-        modifier = modifier.semantics { contentDescription = description },
+        modifier = modifier.clearAndSetSemantics { contentDescription = description },
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(

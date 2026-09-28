@@ -29,6 +29,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.tradingplatform.app.data.local.db.CacheTtl
 import com.tradingplatform.app.domain.model.Position
 import com.tradingplatform.app.domain.model.PositionStatus
 import com.tradingplatform.app.domain.model.Transaction
@@ -260,7 +261,7 @@ private fun PositionSummaryCard(
                 },
             )
 
-            CacheTimestamp(syncedAt = syncedAt)
+            CacheTimestamp(syncedAt = syncedAt, ttlMs = CacheTtl.POSITIONS_MS)
         }
     }
 }

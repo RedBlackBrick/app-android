@@ -3,11 +3,6 @@ package com.tradingplatform.app.di
 import android.content.Context
 import androidx.room.Room
 import com.tradingplatform.app.data.local.db.AppDatabase
-import com.tradingplatform.app.data.local.db.MIGRATION_2_3
-import com.tradingplatform.app.data.local.db.MIGRATION_3_4
-import com.tradingplatform.app.data.local.db.MIGRATION_4_5
-import com.tradingplatform.app.data.local.db.MIGRATION_5_6
-import com.tradingplatform.app.data.local.db.MIGRATION_6_7
 import com.tradingplatform.app.data.local.db.dao.AlertDao
 import com.tradingplatform.app.data.local.db.dao.DeviceDao
 import com.tradingplatform.app.data.local.db.dao.PnlDao
@@ -35,12 +30,17 @@ object DatabaseModule {
         AppDatabase::class.java,
         "trading_platform_db"
     )
-        .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+        // v7 est la baseline du premier release (CLAUDE.md §2) : aucune migration
+        // n'existe avant elle, donc rien à déclarer ici via .addMigrations(...).
         .apply {
             if (BuildConfig.DEBUG) {
                 fallbackToDestructiveMigration(dropAllTables = true)
             }
-            // En release, pas de fallback → crash explicite si migration manquante
+            // En release, PAS de fallback par design : la baseline v7 ne cible que
+            // les installations fraîches (versionCode 1, personne en v<7). Un futur
+            // changement de schéma (v8+) devra ajouter une migration explicite
+            // (MIGRATION_7_8) avant d'être livré — sinon crash explicite au boot,
+            // ce qui est préférable à une perte silencieuse des alertes locales.
         }
         .build()
 

@@ -1,0 +1,135 @@
+name: Android CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Machine CI a RAM limitee : pas de daemon Gradle, heap plafonne pour eviter l'OOM
+  # (coherent avec forkEvery=1 / maxHeapSize=4g deja configures pour les tests unitaires).
+  GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx3g -Dorg.gradle.daemon=false
+
+jobs:
+  unit:
+    name: Unit tests + lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # JDK 17 : correspond exactement a `kotlin { jvmToolchain(17) }` et
+      # `compileOptions { sourceCompatibility/targetCompatibility = VERSION_17 }` dans
+      # app/build.gradle.kts, et c'est la version minimale requise pour executer Gradle avec
+      # AGP 9.0.1 / Gradle 9.2.1. Utiliser la meme version que le toolchain projet evite tout
+      # aller-chercher de JDK annexe (foojay-resolver) pendant le build CI.
+      - name: Set up JDK 17 (temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # Secrets requis (voir docs/gradle-setup.md §CI/CD) :
+      # - LOCAL_PROPERTIES_B64 : local.properties encode en base64 (VPS_BASE_URL, pins cert,
+      #   endpoint/pubkey WireGuard). build.gradle.kts a des valeurs par defaut pour chaque
+      #   buildConfigField donc le build ne casse pas si le secret est vide, mais le decoder
+      #   dans ce cas ecrit un local.properties vide sans consequence.
+      # - GOOGLE_SERVICES_B64 : app/google-services.json encode en base64. Le plugin
+      #   com.google.gms.google-services echoue a la configuration si ce fichier est absent,
+      #   meme pour un job qui ne fait que testDebugUnitTest/lintDebug.
+      - name: Decode local.properties
+        env:
+          LOCAL_PROPERTIES_B64: ${{ secrets.LOCAL_PROPERTIES_B64 }}
+        run: echo "$LOCAL_PROPERTIES_B64" | base64 -d > local.properties
+
+      - name: Decode google-services.json
+        env:
+          GOOGLE_SERVICES_B64: ${{ secrets.GOOGLE_SERVICES_B64 }}
+        run: echo "$GOOGLE_SERVICES_B64" | base64 -d > app/google-services.json
+
+      - name: Unit tests + lint
+        run: ./gradlew testDebugUnitTest lintDebug --no-daemon --stacktrace
+
+      - name: Upload test/lint reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reports
+          path: app/build/reports
+          retention-days: 14
+
+  # ── Job instrumente (Gradle Managed Devices) ────────────────────────────────
+  # Active en Phase 5 (audit/PLAN.md Phase 5, audit/plan-ui-tests-ci.md PART 2 §1) : les
+  # prerequis (verrou biometrique reel, baseline Room v7, onboarding) sont en place, les
+  # devices api30/api34 sont declares dans android.testOptions.managedDevices (app/build.gradle.kts)
+  # et les androidTest significatifs existent (MigrationTest, BiometricLockOverlayInstrumentedTest,
+  # EncryptedDataStoreResetTest, SealedBoxHelperInstrumentedTest, SetupSmokeTest).
+  instrumented:
+    name: Instrumented tests (Gradle Managed Devices)
+    needs: unit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17 (temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Decode local.properties
+        env:
+          LOCAL_PROPERTIES_B64: ${{ secrets.LOCAL_PROPERTIES_B64 }}
+        run: echo "$LOCAL_PROPERTIES_B64" | base64 -d > local.properties
+
+      - name: Decode google-services.json
+        env:
+          GOOGLE_SERVICES_B64: ${{ secrets.GOOGLE_SERVICES_B64 }}
+        run: echo "$GOOGLE_SERVICES_B64" | base64 -d > app/google-services.json
+
+      # KVM : Gradle Managed Devices (emulateur) a besoin de l'acceleration materielle sur
+      # le runner ubuntu-latest (sinon l'emulateur tourne en mode logiciel, trop lent/instable).
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      # Les images systeme des Gradle Managed Devices sont telechargees par AGP via sdkmanager :
+      # les licences doivent etre acceptees au prealable (sinon LicenceNotAcceptedException).
+      - name: Accept Android SDK licenses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+
+      # Devices declares dans android.testOptions.managedDevices (api30, api34) —
+      # voir audit/plan-ui-tests-ci.md PART 2 §1. gpu=swiftshader_indirect : rendu logiciel,
+      # pas de GPU materiel sur le runner ubuntu-latest.
+      # --continue : api34 s'execute meme si api30 echoue (un run = les deux images).
+      - name: Instrumented tests
+        run: >
+          ./gradlew api30DebugAndroidTest api34DebugAndroidTest --continue
+          --no-daemon --stacktrace -Pandroid.testoptions.manageddevices.emulator.gpu=swiftshader_indirect
+
+      # outputs/androidTest-results contient les logcat par test (UTP) : indispensable pour
+      # diagnostiquer un echec dont la cause n'est visible que dans les logs device
+      # (Keystore/Tink, Timber.e dans EncryptedDataStore, etc.).
+      - name: Upload instrumented test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instrumented-reports
+          path: |
+            app/build/reports/androidTests
+            app/build/outputs/androidTest-results
+          retention-days: 14

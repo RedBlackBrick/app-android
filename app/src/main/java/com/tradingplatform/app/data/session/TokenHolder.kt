@@ -7,9 +7,15 @@ import javax.inject.Singleton
  * Cache in-memory du JWT access token, partagé entre [AuthInterceptor] et [TokenAuthenticator].
  *
  * Évite un accès disque (EncryptedSharedPreferences AES256-GCM) sur chaque requête HTTP.
- * Le token est lu depuis [accessToken] par [AuthInterceptor] ; si null (cold start après
- * process kill), l'intercepteur fait un fallback unique vers [EncryptedDataStore] puis peuple
- * ce cache.
+ * [AuthInterceptor] lit uniquement [accessToken] — il n'existe AUCUN fallback DataStore :
+ * holder vide ⇒ 401 synthétique + logout forcé.
+ *
+ * ## Qui peuple le cache
+ * - `TradingApplication.onCreate` : preload asynchrone depuis EncryptedDataStore au démarrage.
+ * - [com.tradingplatform.app.domain.usecase.auth.GetAuthContextUseCase] : si le holder est
+ *   encore vide quand il lit le token sur disque (preload pas terminé), il le peuple — la
+ *   porte de navigation, qui attend ce use case, implique donc un holder peuplé.
+ * - AuthRepositoryImpl (login / 2fa verify) et [TokenAuthenticator] (refresh).
  *
  * ## Invariants
  * - Toute écriture dans EncryptedDataStore(ACCESS_TOKEN) DOIT aussi appeler [setToken].

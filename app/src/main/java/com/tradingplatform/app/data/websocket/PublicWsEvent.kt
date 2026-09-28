@@ -17,6 +17,10 @@ sealed class PublicWsEvent {
      * Champs fournis par le Redis Stream `clean-market-data` via MarketDataBridge.
      * `change` et `changePercent` ne sont pas émis par le WS public — ils sont
      * calculés à partir du cours REST (non disponible en streaming). Valeur : 0.
+     *
+     * `sourceType`/`quality` n'ont pas d'équivalent backend sur ce canal (PR-5c finding —
+     * seul `source`, texte libre, est envoyé ; mappé vers [sourceName]) et restent donc
+     * toujours null — les défauts sont conservés pour ne pas casser les consommateurs.
      */
     data class MarketData(
         val symbol: String,

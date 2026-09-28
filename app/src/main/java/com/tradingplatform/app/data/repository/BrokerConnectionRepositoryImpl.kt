@@ -3,6 +3,7 @@ package com.tradingplatform.app.data.repository
 import com.tradingplatform.app.data.api.BrokerConnectionApi
 import com.tradingplatform.app.domain.model.BrokerConnection
 import com.tradingplatform.app.domain.repository.BrokerConnectionRepository
+import com.tradingplatform.app.domain.util.runCatchingCancellable
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -11,7 +12,7 @@ class BrokerConnectionRepositoryImpl @Inject constructor(
     private val api: BrokerConnectionApi,
 ) : BrokerConnectionRepository {
 
-    override suspend fun getConnections(deviceId: String): Result<List<BrokerConnection>> = runCatching {
+    override suspend fun getConnections(deviceId: String): Result<List<BrokerConnection>> = runCatchingCancellable {
         val response = api.getBrokerConnections(deviceId)
         if (!response.isSuccessful) {
             error("Get broker connections failed: HTTP ${response.code()}")
@@ -22,7 +23,6 @@ class BrokerConnectionRepositoryImpl @Inject constructor(
                 portfolioId = it.portfolioId,
                 brokerCode = it.brokerCode,
                 connectionStatus = it.connectionStatus,
-                executionMode = it.executionMode,
             )
         } ?: emptyList()
     }
