@@ -115,15 +115,21 @@ jobs:
       # Devices declares dans android.testOptions.managedDevices (api30, api34) —
       # voir audit/plan-ui-tests-ci.md PART 2 §1. gpu=swiftshader_indirect : rendu logiciel,
       # pas de GPU materiel sur le runner ubuntu-latest.
+      # --continue : api34 s'execute meme si api30 echoue (un run = les deux images).
       - name: Instrumented tests
         run: >
-          ./gradlew api30DebugAndroidTest api34DebugAndroidTest
+          ./gradlew api30DebugAndroidTest api34DebugAndroidTest --continue
           --no-daemon --stacktrace -Pandroid.testoptions.manageddevices.emulator.gpu=swiftshader_indirect
 
+      # outputs/androidTest-results contient les logcat par test (UTP) : indispensable pour
+      # diagnostiquer un echec dont la cause n'est visible que dans les logs device
+      # (Keystore/Tink, Timber.e dans EncryptedDataStore, etc.).
       - name: Upload instrumented test reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: instrumented-reports
-          path: app/build/reports/androidTests
+          path: |
+            app/build/reports/androidTests
+            app/build/outputs/androidTest-results
           retention-days: 14
