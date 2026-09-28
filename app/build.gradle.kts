@@ -321,6 +321,7 @@ dependencies {
     androidTestImplementation(libs.test.core)
     androidTestImplementation(libs.test.runner)
     androidTestImplementation(libs.test.rules)
+    androidTestImplementation(libs.espresso.core) // Espresso.pressBack() dans BiometricLockOverlayInstrumentedTest
     androidTestImplementation(libs.test.ext.junit)
     // MockWebServer — SetupSmokeTest (MobileProvisioningRepositoryImpl réel, plain HTTP)
     androidTestImplementation(libs.okhttp.mockwebserver)

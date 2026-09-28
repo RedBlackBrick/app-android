@@ -64,6 +64,7 @@ test-core           = "1.7.0"
 # ext:junit suit son propre cycle (1.3.0), déjà utilisé par MigrationTest.
 test-runner         = "1.7.0"
 test-ext-junit      = "1.3.0"
+espresso            = "3.7.0"
 
 [libraries]
 # ── Compose ──────────────────────────────────────────────────────────────────
@@ -171,6 +172,7 @@ test-core                   = { group = "androidx.test", name = "core", version.
 test-runner                 = { group = "androidx.test", name = "runner", version.ref = "test-runner" }
 test-rules                  = { group = "androidx.test", name = "rules", version.ref = "test-runner" }
 test-ext-junit              = { group = "androidx.test.ext", name = "junit", version.ref = "test-ext-junit" }
+espresso-core               = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espresso" }
 # MockWebServer — tests intercepteurs OkHttp (CsrfInterceptor, TokenAuthenticator, VpnRequiredInterceptor)
 okhttp-mockwebserver        = { group = "com.squareup.okhttp3", name = "mockwebserver", version.ref = "okhttp" }
 # LeakCanary — debug uniquement (détection fuites mémoire ViewModels, services, coroutines)
