@@ -24,6 +24,8 @@ import com.tradingplatform.app.domain.model.Transaction
 import com.tradingplatform.app.domain.model.User
 import com.tradingplatform.app.domain.model.VpnPeer
 import com.tradingplatform.app.domain.model.VpnPeerType
+import com.tradingplatform.app.domain.util.parseInstantLenient
+import com.tradingplatform.app.domain.util.parseInstantOrNull
 import java.math.BigDecimal
 import java.time.Instant
 
@@ -71,7 +73,7 @@ fun PositionDto.toDomain(): Position = Position(
     unrealizedPnl = unrealizedPnl,
     unrealizedPnlPercent = unrealizedPnlPercent,
     status = if (isActive) PositionStatus.OPEN else PositionStatus.CLOSED,
-    openedAt = openedAt?.let { Instant.parse(it) },
+    openedAt = openedAt.parseInstantOrNull(),
 )
 
 /**
@@ -125,7 +127,7 @@ fun TransactionDto.toDomain(): Transaction = Transaction(
     price = price,
     commission = commission,
     total = total,
-    executedAt = Instant.parse(executedAt),
+    executedAt = parseInstantLenient(executedAt),
 )
 
 fun QuoteDto.toDomain(): Quote = Quote(
@@ -136,7 +138,7 @@ fun QuoteDto.toDomain(): Quote = Quote(
     volume = volume,
     change = change,
     changePercent = changePercent,
-    timestamp = Instant.parse(timestamp),
+    timestamp = parseInstantLenient(timestamp),
     source = source,
     sourceName = sourceName,
     sourceType = sourceType,
@@ -149,7 +151,7 @@ fun DeviceDto.toDomain(): Device = Device(
     name = name,
     status = DeviceStatus.fromApiString(status),
     wgIp = wgIp,
-    lastHeartbeat = lastHeartbeat?.let { Instant.parse(it) },
+    lastHeartbeat = lastHeartbeat.parseInstantOrNull(),
     cpuPct = cpuPct,
     memoryPct = memoryPct,
     temperature = temperature,
@@ -185,8 +187,8 @@ fun VpnPeerDto.toDomain(): VpnPeer = VpnPeer(
     },
     wgTunnelIp = wgTunnelIp,
     isActive = isActive,
-    pairedAt = Instant.parse(pairedAt),
-    lastHandshake = lastHandshake?.let { Instant.parse(it) },
+    pairedAt = parseInstantLenient(pairedAt),
+    lastHandshake = lastHandshake.parseInstantOrNull(),
 )
 
 // ── Entity → Domain ───────────────────────────────────────────────────────────

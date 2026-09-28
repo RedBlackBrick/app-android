@@ -72,7 +72,7 @@ com.tradingplatform.app/
 │   ├── repository/        # Interfaces Repository (définies dans domain, implémentées dans data)
 │   │                      # Inclut : WatchlistRepository, BrokerConnectionRepository (lecture seule), MobileProvisioningRepository, SetupRepository
 │   ├── exception/         # HttpStatusException (isRetryable — pilote les retries FCM/worker), UnrecognizedQrException, etc.
-│   ├── util/              # RunCatchingCancellable.kt (domain/util/runCatchingCancellable — relance CancellationException)
+│   ├── util/              # RunCatchingCancellable (relance CancellationException), InstantParsing (parseInstantLenient/parseInstantOrNull)
 │   └── usecase/
 │       ├── auth/          # LoginUseCase, LogoutUseCase, GetUserProfileUseCase
 │       ├── portfolio/     # GetPortfolioUseCase, GetPositionsUseCase, GetPositionWsUpdatesUseCase, GetPerformanceUseCase
@@ -474,6 +474,11 @@ domain/usecase/alerts/
 ```
 
 ### Pattern Result<T> — Repository et UseCase (obligatoire)
+
+Timestamps : toujours `parseInstantLenient` (champ requis) / `parseInstantOrNull` (champ nullable)
+depuis `domain/util/InstantParsing.kt`, jamais `Instant.parse` nu — le backend sérialise via
+Python `.isoformat()` (offset numérique `+00:00`, pas `Z`), qu'`Instant.parse` seul rejette sur
+Android <= 13 (libcore antérieur à JDK-8166138). Voir audit finding #9 / B-dto-3.
 
 ```kotlin
 // Toutes les méthodes des interfaces Repository retournent Result<T> (stdlib Kotlin)

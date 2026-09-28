@@ -41,7 +41,9 @@ import java.util.concurrent.atomic.AtomicBoolean
  * Règles impératives (CLAUDE.md §2 WorkManager) :
  * - VPN absent → Result.success() sans rien faire (garder le cache daté affiché)
  * - Purge APRÈS sync réussie — jamais avant
- * - IOException → Result.retry() si au moins un bloc a échoué (BackoffPolicy.EXPONENTIAL)
+ * - IOException → Result.retry() uniquement si TOUTES les sections IO (positions, PnL, quotes)
+ *   ont échoué (BackoffPolicy.EXPONENTIAL) — un échec isolé n'entraîne pas de retry global, le
+ *   cycle périodique 15 min re-tentera de toute façon
  * - VpnNotConnectedException → Result.success() (pas de retry — cas prévisible)
  * - Alertes NON synchronisées ici — elles viennent de FCM uniquement
  * - Chaque bloc est indépendant — un échec portfolio ne bloque pas les quotes

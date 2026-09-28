@@ -8,9 +8,8 @@ import com.tradingplatform.app.domain.model.OrderStatus
 import com.tradingplatform.app.domain.model.OrderType
 import com.tradingplatform.app.domain.model.Page
 import com.tradingplatform.app.domain.repository.OrdersRepository
+import com.tradingplatform.app.domain.util.parseInstantOrNull
 import com.tradingplatform.app.domain.util.runCatchingCancellable
-import java.time.Instant
-import java.time.format.DateTimeParseException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -59,12 +58,4 @@ class OrdersRepositoryImpl @Inject constructor(
         createdAt = dto.createdAt.parseInstantOrNull(),
         updatedAt = dto.updatedAt.parseInstantOrNull(),
     )
-
-    private fun String?.parseInstantOrNull(): Instant? = this?.let {
-        try {
-            Instant.parse(it)
-        } catch (_: DateTimeParseException) {
-            null
-        }
-    }
 }

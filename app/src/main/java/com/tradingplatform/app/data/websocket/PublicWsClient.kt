@@ -5,6 +5,7 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import com.tradingplatform.app.BuildConfig
 import com.tradingplatform.app.domain.model.WsConnectionState
+import com.tradingplatform.app.domain.util.parseInstantLenient
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -184,7 +185,7 @@ class PublicWsClient @Inject constructor(
                     if (it.isNotEmpty()) BigDecimal(it) else null
                 }
                 val timestamp = if (timestampStr.isNotEmpty()) {
-                    Instant.parse(timestampStr)
+                    parseInstantLenient(timestampStr)
                 } else {
                     Instant.now()
                 }

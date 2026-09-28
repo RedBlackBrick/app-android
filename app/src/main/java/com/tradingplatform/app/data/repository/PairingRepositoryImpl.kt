@@ -33,7 +33,9 @@ class PairingRepositoryImpl @Inject constructor(
      * Règles critiques (CLAUDE.md §8) :
      * - Valide que l'IP est RFC-1918 avant tout appel réseau (anti-DNS-rebinding)
      * - Le session_pin et le local_token ne sont JAMAIS loggés — [REDACTED] uniquement
-     * - Connexion HTTP uniquement (pas de certificate pinning — LAN local)
+     * - Connexion HTTPS (cert auto-signé Radxa validé par [com.tradingplatform.app.security.LanTrustManager],
+     *   pas le certificate pinning Root CA du VPS) — `di/NetworkModule.kt` `lanOnlyHttpsGuard()`
+     *   refuse toute cible non-HTTPS ou non-RFC-1918 avant même l'ouverture de la socket
      * - Le payload JSON est chiffré avec crypto_box_seal (clé publique Curve25519 du Radxa)
      * - Le body envoyé est un octet-stream (bytes chiffrés, pas de JSON en clair)
      */

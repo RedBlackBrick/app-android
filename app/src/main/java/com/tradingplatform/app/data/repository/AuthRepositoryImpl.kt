@@ -22,8 +22,8 @@ import com.tradingplatform.app.domain.model.WsTokenInfo
 import com.tradingplatform.app.data.session.SessionManager
 import com.tradingplatform.app.data.session.TokenHolder
 import com.tradingplatform.app.domain.repository.AuthRepository
+import com.tradingplatform.app.domain.util.parseInstantLenient
 import com.tradingplatform.app.domain.util.runCatchingCancellable
-import java.time.Instant
 import kotlinx.coroutines.CancellationException
 import okhttp3.OkHttpClient
 import retrofit2.Response
@@ -243,7 +243,7 @@ class AuthRepositoryImpl @Inject constructor(
         val body = response.body() ?: error("Empty WS token response")
         WsTokenInfo(
             token = body.token,
-            expiresAt = Instant.parse(body.expiresAt),
+            expiresAt = parseInstantLenient(body.expiresAt),
         )
     }
 

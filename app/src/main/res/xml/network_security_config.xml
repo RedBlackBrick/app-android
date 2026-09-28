@@ -12,22 +12,18 @@
         </trust-anchors>
     </base-config>
 
-    <!-- LAN only: Radxa pairing server (HTTP:8099, RFC-1918 addresses).
-         Android <domain> does not support CIDR ranges, so common private
-         subnets are listed as best-effort hints. The real enforcement is
-         code-level: isLocalNetwork() in NetworkUtils.kt validates RFC-1918
-         before any LAN HTTP call, and crypto_box_seal() encrypts payloads.
+    <!-- No cleartext exception for the Radxa LAN pairing server: it is HTTPS-only.
+         `di/NetworkModule.kt` provideLanOkHttpClient() talks to it through a dedicated
+         OkHttpClient whose `lanOnlyHttpsGuard()` interceptor rejects any request that is
+         not HTTPS or not RFC-1918 before the socket is even opened, and LanTrustManager
+         validates the Radxa's self-signed cert. The `"http://localhost/"` Retrofit base
+         URL for that client (`@Named("lan") provideLanRetrofit`) is an unused fallback —
+         every real call supplies a full HTTPS `@Url`. There is therefore no cleartext
+         traffic anywhere in the app, and no LAN IP domain-config carve-out is needed here.
 
-         Defense-in-depth layers:
-         1. This XML: cleartext restricted to LAN IP prefixes
-         2. VpnRequiredInterceptor blocks non-VPN traffic to VPS
-         3. isLocalNetwork() validates RFC-1918 before LAN calls
-         4. crypto_box_seal() encrypts session_pin/local_token
-
-         Decision architecture C (docs/architecture-decisions.md). -->
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">10.0.0.0</domain>
-        <domain includeSubdomains="true">172.16.0.0</domain>
-        <domain includeSubdomains="true">192.168.0.0</domain>
-    </domain-config>
+         Defense-in-depth layers for the LAN pairing call:
+         1. lanOnlyHttpsGuard() rejects non-HTTPS / non-RFC-1918 targets
+         2. VpnRequiredInterceptor blocks the call when the tunnel is down
+         3. isLocalNetwork() validates RFC-1918 in PairingRepositoryImpl before the call
+         4. crypto_box_seal() encrypts session_pin/local_token in the request body -->
 </network-security-config>
