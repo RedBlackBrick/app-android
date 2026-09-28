@@ -107,6 +107,11 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
+      # Les images systeme des Gradle Managed Devices sont telechargees par AGP via sdkmanager :
+      # les licences doivent etre acceptees au prealable (sinon LicenceNotAcceptedException).
+      - name: Accept Android SDK licenses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+
       # Devices declares dans android.testOptions.managedDevices (api30, api34) —
       # voir audit/plan-ui-tests-ci.md PART 2 §1. gpu=swiftshader_indirect : rendu logiciel,
       # pas de GPU materiel sur le runner ubuntu-latest.
