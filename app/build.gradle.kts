@@ -329,7 +329,13 @@ dependencies {
     androidTestImplementation(libs.test.rules)
     androidTestImplementation(libs.espresso.core) // Espresso.pressBack() dans BiometricLockOverlayInstrumentedTest
     androidTestImplementation(libs.test.ext.junit)
-    // MockWebServer — SetupSmokeTest (MobileProvisioningRepositoryImpl réel, plain HTTP)
+    // MockWebServer + okhttp-tls — SetupSmokeTest (MobileProvisioningRepositoryImpl réel). Le
+    // serveur tourne en HTTPS avec un certificat éphémère (HeldCertificate) : le
+    // network_security_config interdit tout cleartext, y compris vers localhost.
     androidTestImplementation(libs.okhttp.mockwebserver)
+    androidTestImplementation(libs.okhttp.tls)
+    // Aligne kotlinx-serialization (transitif via lifecycle 2.10.0 = 1.7.3) sur la version
+    // exigée par room-migration 2.8.4 (1.8.1) — voir libs.versions.toml.
+    implementation(platform(libs.kotlinx.serialization.bom))
     debugImplementation(libs.compose.ui.test.manifest)
 }

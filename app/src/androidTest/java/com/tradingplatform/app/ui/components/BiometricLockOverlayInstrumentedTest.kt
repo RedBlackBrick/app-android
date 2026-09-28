@@ -21,7 +21,9 @@ import java.util.concurrent.atomic.AtomicBoolean
  * a genuine `BiometricPrompt` success callback, and the Android back button must never dismiss
  * the overlay.
  *
- * Uses a bare [FragmentActivity] host (declared in `app/src/androidTest/AndroidManifest.xml`)
+ * Uses a bare [FragmentActivity] host (declared in `app/src/debug/AndroidManifest.xml`, the app's
+ * debug manifest — an activity declared in the test APK manifest would live in the
+ * `com.tradingplatform.app.test` process and could not be launched by the instrumentation)
  * rather than [com.tradingplatform.app.MainActivity] — no Hilt graph is needed since
  * [BiometricManager] and [KeystoreManager] are constructed directly (both have public,
  * argument-light constructors precisely so they can be built outside of DI in tests).

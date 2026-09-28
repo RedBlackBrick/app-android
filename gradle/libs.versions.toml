@@ -17,6 +17,11 @@ hilt-androidx       = "1.3.0"
 
 retrofit            = "2.11.0"
 okhttp              = "4.12.0"
+# BOM kotlinx-serialization : room-testing/room-migration 2.8.4 exigent json >= 1.8.1 ; sans ce
+# BOM, la "consistent resolution" AGP aligne androidTest sur le classpath main (1.7.3 via
+# lifecycle 2.10.0) -> AbstractMethodError GeneratedSerializer.typeParametersSerializers()
+# au parsing de 7.json dans MigrationTest.
+kotlinx-serialization = "1.8.1"
 moshi               = "1.15.2"
 
 room                = "2.8.4"
@@ -175,6 +180,8 @@ test-ext-junit              = { group = "androidx.test.ext", name = "junit", ver
 espresso-core               = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espresso" }
 # MockWebServer — tests intercepteurs OkHttp (CsrfInterceptor, TokenAuthenticator, VpnRequiredInterceptor)
 okhttp-mockwebserver        = { group = "com.squareup.okhttp3", name = "mockwebserver", version.ref = "okhttp" }
+okhttp-tls                  = { group = "com.squareup.okhttp3", name = "okhttp-tls", version.ref = "okhttp" }
+kotlinx-serialization-bom   = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-bom", version.ref = "kotlinx-serialization" }
 # LeakCanary — debug uniquement (détection fuites mémoire ViewModels, services, coroutines)
 leakcanary                  = { group = "com.squareup.leakcanary", name = "leakcanary-android", version.ref = "leakcanary" }
 # Timber — logging structuré avec strip automatique en release via ProGuard

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <!-- Hôte nu pour BiometricLockOverlayInstrumentedTest
+             (createAndroidComposeRule<FragmentActivity>()). BiometricPrompt exige une
+             FragmentActivity dans la chaîne de Context (CLAUDE.md §4).
+
+             Déclarée dans le manifest *debug de l'app* (même mécanisme que
+             androidx.compose.ui:ui-test-manifest pour ComponentActivity) et NON dans
+             src/androidTest : une Activity déclarée dans le manifest du test APK appartient au
+             process "com.tradingplatform.app.test", alors que l'instrumentation tourne dans
+             "com.tradingplatform.app" -> Instrumentation.startActivitySync refuse le lancement
+             ("Intent in process ... resolved to different process ...").
+             Absente du build release. Pas de logique métier ni de Hilt attaché. -->
+        <activity
+            android:name="androidx.fragment.app.FragmentActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+    </application>
+
+</manifest>

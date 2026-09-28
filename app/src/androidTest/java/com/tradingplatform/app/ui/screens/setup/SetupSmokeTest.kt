@@ -7,6 +7,8 @@ import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.tls.HandshakeCertificates
+import okhttp3.tls.HeldCertificate
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -35,8 +37,11 @@ import java.util.concurrent.TimeUnit
  * would crash with `NetworkOnMainThreadException` instead of completing successfully.
  *
  * `testClientOverride`/`testBaseUrlOverride` are `internal` test seams on the repository (see
- * its KDoc) that point `register()` at a plain-HTTP [MockWebServer] instead of the pinned
- * production HTTPS client. They are set here via reflection rather than direct assignment:
+ * its KDoc) that point `register()` at a local [MockWebServer] instead of the pinned
+ * production HTTPS client. The server runs over TLS with an ephemeral [HeldCertificate]
+ * (okhttp-tls) that the override client trusts explicitly: `network_security_config.xml`
+ * forbids cleartext everywhere, localhost included, so a plain-HTTP server would be rejected
+ * with `UnknownServiceException: CLEARTEXT communication ... not permitted`. They are set here via reflection rather than direct assignment:
  * Kotlin's `internal` visibility is a *compile-time* friend-module check, and whether
  * `androidTest` is wired as a friend module of `main` is not guaranteed for every AGP/KGP
  * version — reflection sidesteps that entirely (the backing field is `public` at the bytecode
@@ -46,10 +51,24 @@ import java.util.concurrent.TimeUnit
 class SetupSmokeTest {
 
     private lateinit var server: MockWebServer
+    private lateinit var clientCertificates: HandshakeCertificates
 
     @Before
     fun setUp() {
+        val localhost = HeldCertificate.Builder()
+            .commonName("localhost")
+            .addSubjectAlternativeName("localhost")
+            .addSubjectAlternativeName("127.0.0.1")
+            .build()
+        val serverCertificates = HandshakeCertificates.Builder()
+            .heldCertificate(localhost)
+            .build()
+        clientCertificates = HandshakeCertificates.Builder()
+            .addTrustedCertificate(localhost.certificate)
+            .build()
+
         server = MockWebServer()
+        server.useHttps(serverCertificates.sslSocketFactory(), false)
         server.start()
     }
 
@@ -103,9 +122,11 @@ class SetupSmokeTest {
 
     private fun buildRepositoryPointedAt(server: MockWebServer): MobileProvisioningRepositoryImpl {
         val repository = MobileProvisioningRepositoryImpl(io = Dispatchers.IO)
-        val plainClient = OkHttpClient.Builder().build()
+        val tlsClient = OkHttpClient.Builder()
+            .sslSocketFactory(clientCertificates.sslSocketFactory(), clientCertificates.trustManager)
+            .build()
 
-        setInternalField(repository, "testClientOverride", plainClient)
+        setInternalField(repository, "testClientOverride", tlsClient)
         setInternalField(repository, "testBaseUrlOverride", server.url("/").toString().trimEnd('/'))
 
         return repository
