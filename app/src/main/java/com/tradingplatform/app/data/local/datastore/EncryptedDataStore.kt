@@ -154,15 +154,21 @@ class EncryptedDataStore internal constructor(
                 .onFailure { Timber.e(it, "EncryptedDataStore reset: failed to delete prefs file") }
             runCatching { masterKeyDeleter() }
                 .onFailure { Timber.e(it, "EncryptedDataStore reset: failed to delete MasterKey alias") }
-            // Juste après deleteEntry(), la régénération MasterKey + keyset Tink peut échouer
-            // de façon transitoire (Keystore émulateur/OEM) — observé une fois sur l'émulateur
-            // CI api30. Une seconde tentative après une courte pause suffit ; au-delà, le
-            // dialog « stockage indisponible » propose de réessayer.
+            // Un écrivain retardataire tenant encore l'ancienne SharedPreferencesImpl (commit()
+            // parti avant `cachedPrefs = null`) peut réécrire le fichier ENTIER — anciens keysets
+            // Tink inclus, chiffrés avec la MasterKey qu'on vient de supprimer — entre la
+            // suppression et la recréation : Tink lit alors ces keysets → AEADBadTagException
+            // (observé sur l'émulateur CI api30, logcat de EncryptedDataStoreResetTest). D'où :
+            // nouvelle tentative bornée, avec re-suppression du fichier avant chaque essai.
             var recreated: SharedPreferences? = null
             for (attempt in 1..RESET_ATTEMPTS) {
+                if (attempt > 1) {
+                    Thread.sleep(RESET_RETRY_DELAY_MS)
+                    runCatching { context.deleteSharedPreferences(PREFS_NAME) }
+                        .onFailure { Timber.e(it, "EncryptedDataStore reset: failed to re-delete prefs file") }
+                }
                 recreated = createPrefs()
                 if (recreated != null) break
-                if (attempt < RESET_ATTEMPTS) Thread.sleep(RESET_RETRY_DELAY_MS)
             }
             cachedPrefs = recreated
             Timber.w("EncryptedDataStore reset: store recreated=${recreated != null}")
