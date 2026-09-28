@@ -72,31 +72,26 @@ class PortfolioRepositoryImpl @Inject constructor(
             positions
         }
 
-    override suspend fun getPnl(portfolioId: String, period: PnlPeriod): Result<PnlSummary> =
-        runCatching {
-            val response = portfolioApi.getPerformance(portfolioId)
-            if (!response.isSuccessful) {
-                error("Get performance failed: HTTP ${response.code()}")
-            }
-            val pnl = response.body()?.toDomain() ?: error("Empty performance response")
-
-            // Purge Room APRÈS sync réussie — transaction atomique
-            val now = System.currentTimeMillis()
-            pnlDao.upsertAndPurge(
-                pnl.toEntity(period, syncedAt = now),
-                cutoffMillis = now - PNL_TTL_MS,
-            )
-
-            pnl
-        }
-
+    /**
+     * Unique writer de `pnl_snapshots` : Dashboard et WidgetUpdateWorker passent tous deux
+     * par `GetPnlUseCase` → ici. Une ligne par période (upsert REPLACE sur `period`).
+     */
     override suspend fun getPnlSummary(portfolioId: String, period: PnlPeriod): Result<PnlSummary> =
         runCatching {
             val response = portfolioApi.getPnl(portfolioId, period.toApiString())
             if (!response.isSuccessful) {
                 error("Get PnL failed: HTTP ${response.code()}")
             }
-            response.body()?.toPnlSummary() ?: error("Empty PnL response")
+            val dto = response.body() ?: error("Empty PnL response")
+
+            // Purge Room APRÈS sync réussie — transaction atomique (upsert + purge)
+            val now = System.currentTimeMillis()
+            pnlDao.upsertAndPurge(
+                dto.toEntity(period, syncedAt = now),
+                cutoffMillis = now - PNL_TTL_MS,
+            )
+
+            dto.toPnlSummary()
         }
 
     override suspend fun getPerformance(portfolioId: String): Result<PerformanceMetrics> =

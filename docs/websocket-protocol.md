@@ -48,8 +48,8 @@ Tous les messages serveur ont la forme `{"type": "...", "data": {...}, "timestam
 
 | `type` serveur | Classe `WsEvent` | Description |
 |----------------|------------------|-------------|
-| `portfolio_update` | `WsEvent.PortfolioUpdate(data: JSONObject)` | NAV, P&L global |
-| `position_update` | `WsEvent.PositionUpdate(data: JSONObject)` | Position individuelle (prix, P&L non realise) |
+| `portfolio_update` | `WsEvent.PortfolioUpdate(data: JSONObject)` | Trade execute + totaux portfolio resultants (voir §3.1 pour les cles exactes) |
+| `position_update` | `WsEvent.PositionUpdate(data: JSONObject)` | Position individuelle (prix, P&L non realise/realise, is_active) |
 | `order_update` | `WsEvent.OrderUpdate(data: JSONObject)` | Statut d'ordre, fill |
 | `notification` | `WsEvent.Notification(notifType, title, body, data)` | Alerte utilisateur |
 | `strategy_signal` | `WsEvent.StrategySignal(data: JSONObject)` | Signal de strategie (informatif) |
@@ -183,18 +183,27 @@ Le canal public n'expose pas de `WsConnectionState` vers l'UI — l'indicateur d
 ```
                       PrivateWsClient                    WsRepository (data)
 Message JSON -----> WsEvent (sealed class) ------> WsUpdate (domain sealed class)
-  {"type":            - PortfolioUpdate(JSONObject)      - PortfolioUpdate(portfolioId?, nav?, dailyPnl?, totalPnl?)
-   "...",             - PositionUpdate(JSONObject)        - PositionUpdate(positionId?, symbol?, unrealizedPnl?, currentPrice?)
-   "data":            - OrderUpdate(JSONObject)           - OrderUpdate(orderId?, symbol?, side?, status?, quantity?, fillPrice?)
-   {...}}             - Notification(notifType,           - Notification(notifType, title, body)
-                        title, body, JSONObject)          - StrategySignal(signalId?, strategyId?, symbol?, action?,
-                      - StrategySignal(JSONObject)          confidence?, strategyType?)
-                      - CatalystEvent(JSONObject)         - CatalystEvent(symbol?, eventType?, title?, description?)
-                      - Connected
-                      - Disconnected(reason?)
+  {"type":            - PortfolioUpdate(JSONObject)      - PortfolioUpdate(portfolioId?, symbol?, side?, quantity?,
+   "...",             - PositionUpdate(JSONObject)          price?, totalValue?, cashBalance?, positionsValue?,
+   "data":            - OrderUpdate(JSONObject)             nav?, dailyPnl?, totalPnl?)
+   {...}}             - Notification(notifType,           - PositionUpdate(positionId?, symbol?, side?, quantity?,
+                        title, body, JSONObject)             averagePrice?, lastPrice?, unrealizedPnl?, realizedPnl?,
+                      - StrategySignal(JSONObject)            isActive)
+                      - CatalystEvent(JSONObject)         - OrderUpdate(orderId?, symbol?, side?, status?, quantity?, fillPrice?)
+                      - Connected                         - Notification(notifType, title, body)
+                      - Disconnected(reason?)             - StrategySignal(signalId?, strategyId?, symbol?, action?,
+                                                             confidence?, strategyType?)
+                                                          - CatalystEvent(symbol?, eventType?, title?, description?)
 ```
 
-La couche `WsRepository` (data) extrait les champs du `JSONObject` brut avec des extensions null-safe (`optDoubleOrNull`, `optIntOrNull`). Les champs sont **tous nullable** (sauf `Notification.notifType/title/body`) pour tolerer les payloads partiels du serveur.
+La couche `WsRepository` (data) extrait les champs du `JSONObject` brut avec des extensions null-safe (`optDoubleOrNull`, `optIntOrNull`). Les champs sont **tous nullable** (sauf `Notification.notifType/title/body` et `PositionUpdate.isActive`, qui defaut a `true` quand la cle est absente) pour tolerer les payloads partiels du serveur.
+
+**Champs reels envoyes par le backend** (`app/portfolio/consumer.py`, construits a chaque execution d'ordre — pas de push periodique independant) :
+
+| Evenement | Payload backend (cles exactes) | Notes |
+|-----------|--------------------------------|-------|
+| `position_update` (`ws_position_payload`, ~L2164-2199) | `portfolio_id`, `symbol`, `side`, `quantity`, `average_price`, `last_price` (nullable), `unrealized_pnl` (nullable), `realized_pnl` (nullable), `is_active` | **Pas de `position_id`** — le mapping garde `WsUpdate.PositionUpdate.positionId` nullable pour un futur ajout backend. `last_price` est mappe avec fallback sur `current_price` (ancien nom potentiel). `is_active == false` signifie que ce fill a cloture completement la position |
+| `portfolio_update` (`ws_payload`, ~L2151-2160) | `portfolio_id`, `symbol`, `side`, `quantity`, `price`, `total_value`, `cash_balance`, `positions_value` | **Pas de `nav`, `daily_pnl` ni `total_pnl`** — le payload decrit le trade qui vient de s'executer, pas un snapshot NAV/P&L. `WsUpdate.PortfolioUpdate.nav` est renseigne depuis `total_value` pour compatibilite arriere des consommateurs existants ; `dailyPnl`/`totalPnl` restent `null` |
 
 ### 3.2 WsUpdate -> ActivityItem (activity feed)
 
@@ -205,8 +214,10 @@ La couche `WsRepository` (data) extrait les champs du `JSONObject` brut avec des
 | `wsRepository.orderUpdates` | `ActivityItem.OrderFilled(orderId, symbol, side, status, quantity?, timestamp)` |
 | `wsRepository.strategySignals` | `ActivityItem.Signal(symbol, action, confidence, strategyType, timestamp)` |
 | `wsRepository.notifications` | `ActivityItem.RiskAlert(title, body, severity, timestamp)` |
-| `wsRepository.portfolioUpdates` | `ActivityItem.PortfolioChange(nav?, dailyPnl?, timestamp)` |
+| `wsRepository.portfolioUpdates` | `ActivityItem.PortfolioChange(totalValue?, symbol?, side?, quantity?, price?, dailyPnl?, timestamp)` |
 | `wsRepository.catalystEvents` | `ActivityItem.CatalystEvent(symbol, eventType, title, timestamp)` |
+
+`ActivityItem.PortfolioChange` affiche le trade execute (side + quantite + symbole) et la valeur totale du portfolio plutot qu'une NAV/P&L qui n'existe pas sur ce canal — `dailyPnl` reste `null` en pratique (le backend ne l'envoie jamais sur `portfolio_update`) et n'apparait dans l'UI que s'il devient un jour non-null.
 
 Le `timestamp` de chaque `ActivityItem` est `Instant.now()` cote client (les payloads WS prives ne portent pas de timestamp serveur exploitable). Les champs manquants sont remplaces par des valeurs de fallback (`"unknown"`, `"--"`, `0.0`).
 
@@ -222,7 +233,11 @@ Le `DashboardViewModel` collecte trois flux independants :
 
 ### 3.4 Consommation dans PositionsViewModel
 
-Le `PositionsViewModel` collecte `GetPositionWsUpdatesUseCase` pour mettre a jour `currentPrice` et `unrealizedPnl` des positions en temps reel (affichage via `AnimatedPnlText`).
+Le `PositionsViewModel` collecte `GetPositionWsUpdatesUseCase` pour mettre a jour `currentPrice`, `unrealizedPnl` et `quantity` des positions en temps reel (affichage via `AnimatedPnlText`).
+
+**Matching (`matchesPosition`)** : le backend n'envoie pas encore `position_id`, donc le matching se fait par symbole, **scope au statut OPEN** — un symbole seul ne peut pas distinguer une position cloturee d'une position rouverte sur le meme ticker (ex: deux lignes TSLA, une OPEN et une CLOSED, visibles ensemble sous le filtre ALL). Si `position_id` est fourni par un futur payload backend, le match se fait par id exact, sans contrainte de statut.
+
+**Merge** : si `is_active == false` (le fill a completement cloture la position), la ligne est retiree de la liste sous le filtre OPEN, ou marquee `CLOSED` sous ALL/CLOSED. Sinon, `currentPrice <- last_price`, `unrealizedPnl <- unrealized_pnl`, `quantity <- quantity` (chaque champ ne remplace la valeur existante que s'il est present dans le payload).
 
 ### 3.5 Canal public : PublicWsEvent -> Quote -> UiState
 

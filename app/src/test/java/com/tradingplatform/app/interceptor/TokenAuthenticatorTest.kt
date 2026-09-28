@@ -18,8 +18,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
@@ -48,18 +50,19 @@ import java.util.concurrent.atomic.AtomicInteger
  * - `/v1/auth/refresh` optionally sleeps, counts its calls and returns `{"access_token":"new"}`
  *   (or 401 when [refreshStatus] is 401).
  *
- * The refresh [AuthApi] is built on a bare client (no Authenticator) so that the
- * tests isolate the dedup logic of #15 from the connection-pool starvation of #16.
+ * The refresh [AuthApi] is built on a bare client (no Authenticator) — the shape of the
+ * production `@Named("refresh")` client (#16), minus VPN/pinning/timeout interceptors.
  * The resource client carries only the authenticator; the Authorization header is set
  * by hand to simulate what AuthInterceptor sent at the time of the original request.
  *
- * Expected on current code:
- * - (a) parallel 401s → RED (N refreshes instead of 1: the mutex is held across await()
- *   and refreshDeferred is reset to null before the next waiter gets the lock);
- * - (b) stale bearer → RED (no comparison with tokenHolder.accessToken);
- * - (c) refresh 401 → forced logout → GREEN (regression guard);
- * - (d) persistent 401 → RED (no priorResponse guard: ~20 refreshes, then
- *   ProtocolException "Too many follow-up requests").
+ * Cases:
+ * - (a) parallel 401s → exactly one refresh, every request retried with the new token;
+ * - (b) stale bearer → retried with the holder's token, no refresh;
+ * - (c) refresh 401 → forced logout (regression guard);
+ * - (d) persistent 401 → one refresh, then the priorResponse guard gives up;
+ * - (e) refresh slower than the wait timeout → null, but the refresh completes in the
+ *   background and fills TokenHolder (the timeout cancels only the waiter);
+ * - (f) 401 on /v1/auth/login is a business failure → no refresh, no logout.
  */
 class TokenAuthenticatorTest {
 
@@ -113,6 +116,8 @@ class TokenAuthenticatorTest {
                                 .setBody("""{"detail":{"code":"AUTH_1002"}}""")
                         }
                     }
+                    "/v1/auth/login" -> MockResponse().setResponseCode(401)
+                        .setBody("""{"detail":{"code":"AUTH_1001"}}""")
                     else -> MockResponse().setResponseCode(404)
                 }
             }
@@ -130,7 +135,7 @@ class TokenAuthenticatorTest {
             applicationScope = applicationScope,
             tokenHolder = tokenHolder,
             dataStore = dataStore,
-            authApi = dagger.Lazy { authApi },
+            authApi = authApi,
             sessionManager = sessionManager,
             appDatabase = appDatabase,
             cookieJar = cookieJar,
@@ -233,5 +238,53 @@ class TokenAuthenticatorTest {
             refreshCalls.get() <= 1,
         )
         assertEquals(401, result.getOrNull())
+    }
+
+    // (e) ───────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `refresh slower than the wait timeout gives up but still fills TokenHolder`() {
+        tokenHolder.setToken("old")
+        authenticator.authenticateTimeoutMs = 200
+        refreshDelayMs = 1_000
+
+        val code = get("old").use { it.code }
+
+        assertEquals("the waiter times out → original 401 surfaces", 401, code)
+        verify(exactly = 0) { sessionManager.notifyForcedLogout() }
+
+        // The shared refresh was not cancelled by the waiter's timeout: it completes in
+        // applicationScope and updates the holder.
+        val deadline = System.currentTimeMillis() + 5_000
+        while (tokenHolder.accessToken != "new" && System.currentTimeMillis() < deadline) {
+            Thread.sleep(20)
+        }
+        assertEquals("new", tokenHolder.accessToken)
+        assertEquals(1, refreshCalls.get())
+
+        // A retry from the UI (still carrying the old bearer) takes the stale-bearer fast path.
+        val retryCode = get("old").use { it.code }
+        assertEquals(200, retryCode)
+        assertEquals("no second refresh after the background one completed", 1, refreshCalls.get())
+    }
+
+    // (f) ───────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `401 on login is a business failure - no refresh and no logout`() {
+        tokenHolder.setToken("old")
+
+        val code = client.newCall(
+            Request.Builder()
+                .url(server.url("/v1/auth/login"))
+                .post("""{"email":"a@b.c","password":"x"}""".toRequestBody("application/json".toMediaType()))
+                .build()
+        ).execute().use { it.code }
+
+        assertEquals(401, code)
+        assertEquals(0, refreshCalls.get())
+        assertEquals("old", tokenHolder.accessToken)
+        verify(exactly = 0) { sessionManager.notifyForcedLogout() }
+        verify(exactly = 0) { cookieJar.clear() }
     }
 }

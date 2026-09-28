@@ -55,7 +55,7 @@ conservent l'etat precedent sans afficher d'erreur.
 | Table Room | Cle primaire | TTL indicatif | Purge | Utilisee par |
 |------------|-------------|---------------|-------|-------------|
 | `positions` | `id: Int` | 5 min | `DELETE WHERE synced_at < now - 5 min` | PositionsScreen, PositionsWidget, PortfolioRepositoryImpl (fast-path) |
-| `pnl_snapshots` | `id: Long` (auto) | 5 min | `DELETE WHERE synced_at < now - 5 min` | DashboardScreen, PnlWidget |
+| `pnl_snapshots` | `period: String` (une ligne par periode, forme `/pnl`) | 5 min | `DELETE WHERE synced_at < now - 5 min` | PnlWidget (ecrite par `getPnlSummary`) |
 | `quotes` | `symbol: String` | 10 min | `DELETE WHERE synced_at < now - 10 min` | QuoteWidget, MarketDataScreen, MarketDataRepositoryImpl |
 | `alerts` | `id: Long` (auto) | 30 jours OU 500 max | `DELETE WHERE received_at < now - 30j` puis `DELETE sauf les 500 plus recentes` | AlertListScreen, AlertsWidget |
 | `devices` | `id: String` | 1 min | `DELETE WHERE synced_at < now - 1 min` | DeviceListScreen, DeviceDetailScreen, SystemStatusWidget |

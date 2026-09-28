@@ -6,28 +6,29 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 
 /**
- * Room entity for caching portfolio performance snapshots.
+ * Room entity caching the P&L summary of one period — **one row per period**.
  *
- * Sourced from `GET /v1/portfolios/{id}/performance` (backend `PerformanceMetrics` schema).
- * All fields except [period] and [syncedAt] are nullable — the backend may not have
- * enough data to compute them (e.g. brand-new portfolio with no trades).
+ * Sourced from `GET /v1/portfolios/{id}/pnl?period=…` (backend `PnlResponse` schema),
+ * written only by `PortfolioRepositoryImpl.getPnlSummary` (Dashboard and
+ * `WidgetUpdateWorker` both go through `GetPnlUseCase`). Read by `PnlWidget`.
+ *
+ * [period] is the primary key, so `OnConflictStrategy.REPLACE` is a true upsert.
+ * Amounts are stored as BigDecimal plain strings (TEXT). [totalPnlPercent] is stored
+ * as a **fraction** (backend sends a percent — converted in the mapper), consistent
+ * with the domain convention (fractions everywhere).
  */
 @Entity(
     tableName = "pnl_snapshots",
     indices = [Index(value = ["synced_at"])]
 )
 data class PnlSnapshotEntity(
-    @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    @ColumnInfo(name = "period") val period: String,
-    @ColumnInfo(name = "total_return") val totalReturn: String?,
-    @ColumnInfo(name = "total_return_pct") val totalReturnPct: Double?,
-    @ColumnInfo(name = "sharpe_ratio") val sharpeRatio: Double?,
-    @ColumnInfo(name = "sortino_ratio") val sortinoRatio: Double?,
-    @ColumnInfo(name = "max_drawdown") val maxDrawdown: Double?,
-    @ColumnInfo(name = "volatility") val volatility: Double?,
-    @ColumnInfo(name = "cagr") val cagr: Double?,
-    @ColumnInfo(name = "win_rate") val winRate: Double?,
-    @ColumnInfo(name = "profit_factor") val profitFactor: Double?,
-    @ColumnInfo(name = "avg_trade_return") val avgTradeReturn: String?,
+    @PrimaryKey @ColumnInfo(name = "period") val period: String,
+    @ColumnInfo(name = "realized_pnl") val realizedPnl: String,
+    @ColumnInfo(name = "unrealized_pnl") val unrealizedPnl: String,
+    @ColumnInfo(name = "total_pnl") val totalPnl: String,
+    @ColumnInfo(name = "total_pnl_percent") val totalPnlPercent: Double,
+    @ColumnInfo(name = "trades_count") val tradesCount: Int,
+    @ColumnInfo(name = "winning_trades") val winningTrades: Int,
+    @ColumnInfo(name = "losing_trades") val losingTrades: Int,
     @ColumnInfo(name = "synced_at") val syncedAt: Long,
 )

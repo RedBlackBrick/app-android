@@ -29,7 +29,7 @@ import dagger.hilt.components.SingletonComponent
  *     val ep = EntryPointAccessors
  *         .fromApplication(context.applicationContext, WidgetEntryPoint::class.java)
  *     val portfolioId = ep.encryptedDataStore().readString(DataStoreKeys.PORTFOLIO_ID) ?: ""
- *     val pnl = ep.pnlDao().getLatestByPeriod("day")
+ *     val pnl = ep.pnlDao().getByPeriod("day")
  * }
  * ```
  *

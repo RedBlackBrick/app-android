@@ -41,9 +41,20 @@ sealed class ActivityItem {
         override val timestamp: Instant,
     ) : ActivityItem()
 
-    /** Portfolio-level change (NAV or daily P&L update). */
+    /**
+     * Portfolio-level change, sent on every order execution.
+     *
+     * The backend event describes the trade that just executed ([symbol],
+     * [side], [quantity], [price]) plus the resulting portfolio [totalValue] —
+     * it does not carry a NAV/daily-P&L snapshot, so [dailyPnl] is null in
+     * practice (kept nullable for forward compatibility).
+     */
     data class PortfolioChange(
-        val nav: Double?,
+        val totalValue: Double?,
+        val symbol: String?,
+        val side: String?,
+        val quantity: Double?,
+        val price: Double?,
         val dailyPnl: Double?,
         override val timestamp: Instant,
     ) : ActivityItem()

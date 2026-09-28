@@ -11,7 +11,10 @@ import com.tradingplatform.app.domain.model.Transaction
 interface PortfolioRepository {
     suspend fun getPositions(portfolioId: String, status: PositionStatus): Result<List<Position>>
     suspend fun getPosition(portfolioId: String, positionId: Int): Result<Position>
-    suspend fun getPnl(portfolioId: String, period: PnlPeriod): Result<PnlSummary>
+    /**
+     * `GET /pnl?period=…` — seul chemin PnL. En cas de succès, persiste aussi la ligne
+     * `pnl_snapshots` de la période (lue par `PnlWidget`).
+     */
     suspend fun getPnlSummary(portfolioId: String, period: PnlPeriod): Result<PnlSummary>
     suspend fun getPerformance(portfolioId: String): Result<PerformanceMetrics>
     suspend fun getNav(portfolioId: String): Result<NavSummary>

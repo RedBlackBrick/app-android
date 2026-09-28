@@ -18,13 +18,15 @@ import javax.inject.Singleton
  * - Authorization: Bearer <access_token> (depuis [TokenHolder] in-memory uniquement)
  * - X-App-Version: {versionCode} (pour détection upgrade requis 426)
  *
- * Le token est lu depuis [TokenHolder] (volatile read, ~0ns) — aucun accès disque
- * sur le thread OkHttp. Le cache est peuplé au startup par [TradingApplication.onCreate]
- * et maintenu par [TokenAuthenticator] sur refresh.
+ * Le token est lu depuis [TokenHolder] uniquement (volatile read, ~0ns) — aucun accès
+ * disque sur le thread OkHttp, et pas de fallback DataStore. Le holder est peuplé par le
+ * preload de `TradingApplication.onCreate`, par `GetAuthContextUseCase` (porte de
+ * navigation au démarrage, si le preload n'a pas encore fini), par AuthRepositoryImpl au
+ * login / 2FA, et maintenu par [TokenAuthenticator] sur refresh.
  *
- * Si le token est absent (cold start non encore terminé, EncryptedDataStore corrompu
- * ou Keystore invalidé), un logout forcé est déclenché via [SessionManager] et une
- * réponse 401 synthétique est retournée — la requête n'est pas envoyée au serveur.
+ * Si le token est absent (logout en vol, EncryptedDataStore corrompu ou Keystore
+ * invalidé), un logout forcé est déclenché via [SessionManager] et une réponse 401
+ * synthétique est retournée — la requête n'est pas envoyée au serveur.
  */
 @Singleton
 class AuthInterceptor @Inject constructor(
@@ -62,9 +64,10 @@ class AuthInterceptor @Inject constructor(
             )
         }
 
-        // TokenHolder vide : soit le preload n'est pas encore terminé (rare, course
-        // improbable — preload démarre au super.onCreate() avant toute composition UI),
-        // soit le token a été invalidé (logout en vol) ou le Keystore est corrompu.
+        // TokenHolder vide : le token a été invalidé (logout en vol) ou le Keystore est
+        // corrompu. Le cold start n'est pas un cas attendu : la porte de navigation attend
+        // GetAuthContextUseCase, qui peuple le holder si le preload n'a pas encore fini
+        // (seuls les appels hors UI — Worker, FCM — peuvent encore précéder le preload).
         // Dans tous les cas : refuser la requête sans bloquer un thread OkHttp.
         Timber.tag(TAG).w("AuthInterceptor: token absent in TokenHolder — forced logout")
         sessionManager.notifyForcedLogout()

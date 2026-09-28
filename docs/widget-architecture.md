@@ -19,10 +19,10 @@ XML `appwidget-provider` dans `res/xml/`.
   semaine, mois). La periode est stockee dans `SharedPreferences` sous la cle
   `period_$appWidgetId` (fichier `pnl_widget_prefs`).
 - **Donnees affichees** :
-  - P&L total de la periode configuree (`totalReturn`, `totalReturnPct`)
+  - P&L total de la periode configuree (`totalPnl`, `totalPnlPercent` — fraction, forme `/pnl`)
   - Couleur verte si positif, rouge si negatif (via `WidgetColors`)
   - Timestamp `syncedAt` de la derniere synchronisation
-- **Source Room** : table `pnl_snapshots` via `PnlDao.getLatestByPeriod(period)`
+- **Source Room** : table `pnl_snapshots` (une ligne par periode) via `PnlDao.getByPeriod(period)` ; le Worker synchronise DAY + `PnlWidget.configuredPeriods()`
 - **Action tap** : ouvre `MainActivity` (DashboardScreen)
 
 > **Note** : `PnlWidgetConfigureActivity` existe dans le code mais n'est pas encore referencee
@@ -301,7 +301,7 @@ a jour de ces tables (sauf `alerts` qui vient de FCM).
 
 | Widget             | Table Room        | Champs utilises par le widget                               | TTL     |
 |--------------------|-------------------|--------------------------------------------------------------|---------|
-| PnlWidget          | `pnl_snapshots`   | `period`, `totalReturn`, `totalReturnPct`, `syncedAt`        | 5 min   |
+| PnlWidget          | `pnl_snapshots`   | `period`, `totalPnl`, `totalPnlPercent`, `syncedAt`          | 5 min   |
 | PositionsWidget    | `positions`       | `symbol`, `unrealizedPnl`, `syncedAt`                        | 5 min   |
 | AlertsWidget       | `alerts`          | `title`, `read`, `receivedAt`                                | 30j/500 |
 | SystemStatusWidget | `devices`         | `status`, `name`, `id`, `lastHeartbeat`, `syncedAt`          | 1 min   |

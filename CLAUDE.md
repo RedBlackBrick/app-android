@@ -226,7 +226,7 @@ affichent le cache daté sans déclencher d'erreur bloquante.
 | Table Room | TTL indicatif | Utilisée par |
 |------------|---------------|-------------|
 | `positions` | 5 min | PositionsScreen offline, PositionsWidget |
-| `pnl_snapshots` | 5 min | DashboardScreen, PnlWidget |
+| `pnl_snapshots` | 5 min | PnlWidget — une ligne par période, forme `/pnl` (écrite par `getPnlSummary`) |
 | `alerts` | permanent | AlertListScreen (filtrable par type), AlertsWidget |
 | `devices` | 1 min | DeviceListScreen offline (admin) |
 | `quotes` | 10 min | QuoteWidget, MarketDataScreen (offline-first cohérent) |
@@ -451,7 +451,9 @@ CsrfInterceptor           → récupère et injecte le token CSRF (header X-CSRF
 VpnRequiredInterceptor    → bloque si VpnState ≠ Connected
 AuthInterceptor           → injecte Authorization: Bearer <access_token>
 TokenAuthenticator        → sur 401 AUTH_1002 : refresh puis retry
-HttpLoggingInterceptor    → debug uniquement, tokens [REDACTED]
+HttpLoggingInterceptor    → debug uniquement (NetworkModule.debugLogger) : Authorization,
+                            X-CSRF-Token, Cookie, Set-Cookie expurgés ; HEADERS seulement
+                            sur AuthPaths.isSensitive() (auth, csrf, fcm-token), BODY ailleurs
 ```
 
 Le middleware CSRF du VPS **ne fait pas d'exemption** sur les requêtes Bearer — le `CsrfInterceptor` est obligatoire pour tous les `POST/PUT/DELETE/PATCH`.
@@ -1171,9 +1173,11 @@ class CsrfInterceptor(
 
 **Risque `runBlocking` sous charge :** sur le thread pool OkHttp, `runBlocking` pendant le
 fetch CSRF peut saturer les threads si plusieurs requêtes parallèles attendent simultanément.
-**Alternative recommandée :** pre-fetcher le token CSRF immédiatement après le login réussi
-(dans `LoginUseCase` ou `TokenAuthenticator.authenticate()`) pour qu'il soit disponible en
-cache avant la première vraie requête. Réduit le risque de contention à zéro dans le cas nominal.
+**Mitigation implémentée :** `CsrfInterceptor.preFetch()` pré-charge le token CSRF juste après
+un login / une vérification 2FA réussis (`AuthRepositoryImpl`) et au démarrage si une session
+existe (`TradingApplication`), si bien qu'il est en cache avant la première vraie requête —
+contention nulle dans le cas nominal. Ne pas le déplacer dans `TokenAuthenticator` : le refresh
+est exempt de CSRF et passe par un client dédié (voir ci-dessous).
 
 ### Token refresh transparent — TokenAuthenticator
 
@@ -1185,48 +1189,57 @@ cache avant la première vraie requête. Réduit le risque de contention à zér
         → Échec 401 AUTH_1003 : logout forcé → LoginScreen
 ```
 
-**Mécanisme de refresh concurrent (Mutex + Deferred) :**
+**Mécanisme de refresh concurrent (Deferred partagé, Mutex sur le champ uniquement) :**
 Si plusieurs requêtes reçoivent un `401 AUTH_1002` simultanément, une seule doit déclencher
-le refresh — les autres doivent attendre et réutiliser le nouveau token.
+le refresh — les autres attendent le même `Deferred` et réutilisent le nouveau token.
 
-`TokenAuthenticator` est un `Authenticator` OkHttp (pas un Composable ni un ViewModel) — il
-n'a pas de scope intrinsèque. Injecter un `CoroutineScope` applicatif via Hilt :
+**Client refresh dédié — `@Named("refresh")` (NetworkModule) :** `TokenAuthenticator` reçoit un
+`@Named("refresh") AuthApi` construit sur un `OkHttpClient` propre : `Dispatcher` dédié
+(maxRequests = maxRequestsPerHost = 2), `TimeoutInterceptor`, `VpnRequiredInterceptor`,
+`EncryptedCookieJar`, timeouts 5 s, certificate pinning, logger debug HEADERS seulement.
+**Jamais** de `CsrfInterceptor` (le refresh est exempt côté backend), d'`AuthInterceptor` ni
+d'`Authenticator` (pas de refresh récursif). Aucune de ses dépendances ne dépend de
+`TokenAuthenticator` → pas de cycle Hilt, pas de `dagger.Lazy`.
+
+`TokenAuthenticator` est un `Authenticator` OkHttp sans scope intrinsèque : il reçoit le
+`CoroutineScope` applicatif (`AppModule.provideApplicationScope()`, `SupervisorJob + IO`).
 
 ```kotlin
-// Dans NetworkModule.kt
-@Provides @Singleton
-fun provideApplicationScope(): CoroutineScope =
-    CoroutineScope(SupervisorJob() + Dispatchers.IO)
-
-// TokenAuthenticator reçoit ce scope par injection
 class TokenAuthenticator @Inject constructor(
-    private val applicationScope: CoroutineScope,  // @Singleton — survit aux requêtes
-    private val dataStore: EncryptedDataStore,
-    private val authApi: AuthApi,
-    private val logoutHandler: LogoutHandler,
+    private val applicationScope: CoroutineScope,          // @Singleton — survit aux requêtes
+    private val tokenHolder: TokenHolder,
+    @Named("refresh") private val authApi: AuthApi,         // client refresh dédié
+    /* dataStore, sessionManager, appDatabase, cookieJar */
 ) : Authenticator {
     private val mutex = Mutex()
     private var refreshDeferred: Deferred<String?>? = null
 
     override fun authenticate(route: Route?, response: Response): Request? {
-        val newToken = runBlocking {
-            mutex.withLock {
-                // Si un refresh est déjà en vol, réutiliser son résultat
-                refreshDeferred?.await() ?: run {
-                    val deferred = applicationScope.async { doRefresh() }
-                    refreshDeferred = deferred
-                    val token = deferred.await()
-                    refreshDeferred = null
-                    token
-                }
-            }
-        } ?: return null  // refresh échoué → logout géré dans doRefresh()
-        return response.request.newBuilder()
-            .header("Authorization", "Bearer $newToken").build()
+        if (response.priorResponse?.code == 401) return null           // 1 retry max par requête
+        val path = response.request.url.encodedPath
+        if (path == AuthPaths.REFRESH) { handleLogout(); return null }  // refresh token invalide
+        if (path in AuthPaths.PUBLIC) return null                       // 401 login/2FA = échec métier
+        val failed = response.request.header("Authorization")?.removePrefix("Bearer ")
+        tokenHolder.accessToken?.let { if (it != failed) return retryWith(response, it) } // bearer périmé
+        val token = runBlocking {
+            withTimeoutOrNull(AUTHENTICATE_TIMEOUT_MS) { refreshOnce(failed).await() }  // n'annule que l'attente
+        } ?: return null
+        return retryWith(response, token)
     }
+
+    // Le lock ne garde que le champ : jamais tenu pendant l'appel réseau.
+    private suspend fun refreshOnce(failed: String?): Deferred<String?> = mutex.withLock {
+        refreshDeferred?.takeIf { !it.isCompleted }
+            ?: tokenHolder.accessToken?.takeIf { it != failed }?.let { CompletableDeferred(it) }
+            ?: applicationScope.async { doRefresh() }.also { refreshDeferred = it }
+    }
+    // doRefresh() : tokenHolder.setToken() AVANT dataStore.writeString() ; non-2xx → handleLogout() ;
+    // `catch (e: CancellationException) { throw e }` avant le catch générique.
 }
 ```
 Pas de `delay(5000)` — les threads en attente bloquent sur le `Deferred`, pas sur un timer.
+Le timeout (8 s) n'annule que l'attente : le refresh finit dans `applicationScope` et alimente
+`TokenHolder`, donc la requête suivante prend le chemin « bearer périmé » sans nouveau refresh.
 
 ### Découverte du portfolio_id — flow post-login
 

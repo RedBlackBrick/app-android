@@ -26,25 +26,57 @@ class WsRepository(
     private val wsClient: PrivateWsClient,
 ) : WsRepositoryInterface {
 
-    /** Toutes les mises à jour de portfolio reçues en temps réel. */
+    /**
+     * Toutes les mises à jour de portfolio reçues en temps réel.
+     *
+     * Le payload backend (`ws_payload` dans `app/portfolio/consumer.py`) ne
+     * porte pas de NAV/P&L jour — c'est un instantané de l'exécution qui vient
+     * d'avoir lieu (symbol/side/quantity/price) plus les totaux résultants
+     * (total_value/cash_balance/positions_value). [WsUpdate.PortfolioUpdate.nav]
+     * est renseigné depuis `total_value` pour compatibilité arrière ;
+     * dailyPnl/totalPnl ne sont jamais envoyés par ce canal et restent null.
+     */
     override val portfolioUpdates: Flow<WsUpdate.PortfolioUpdate> =
         wsClient.events.filterIsInstance<WsEvent.PortfolioUpdate>().map { event ->
+            val totalValue = event.data.optDoubleOrNull("total_value")
             WsUpdate.PortfolioUpdate(
                 portfolioId = event.data.optString("portfolio_id", null),
-                nav = event.data.optDoubleOrNull("nav"),
+                symbol = event.data.optString("symbol", null),
+                side = event.data.optString("side", null),
+                quantity = event.data.optDoubleOrNull("quantity"),
+                price = event.data.optDoubleOrNull("price"),
+                totalValue = totalValue,
+                cashBalance = event.data.optDoubleOrNull("cash_balance"),
+                positionsValue = event.data.optDoubleOrNull("positions_value"),
+                nav = totalValue,
                 dailyPnl = event.data.optDoubleOrNull("daily_pnl"),
                 totalPnl = event.data.optDoubleOrNull("total_pnl"),
             )
         }
 
-    /** Toutes les mises à jour de positions individuelles. */
+    /**
+     * Toutes les mises à jour de positions individuelles.
+     *
+     * Le payload backend (`ws_position_payload` dans `app/portfolio/consumer.py`)
+     * ne porte pas de `position_id` — [WsUpdate.PositionUpdate.positionId] reste
+     * null tant que le backend ne l'ajoute pas. `last_price` est le nom de champ
+     * actuel côté serveur ; `current_price` est conservé en fallback pour
+     * tolérer un éventuel ancien payload. `is_active` absent est traité comme
+     * `true` (position toujours ouverte).
+     */
     override val positionUpdates: Flow<WsUpdate.PositionUpdate> =
         wsClient.events.filterIsInstance<WsEvent.PositionUpdate>().map { event ->
             WsUpdate.PositionUpdate(
                 positionId = event.data.optString("position_id", null),
                 symbol = event.data.optString("symbol", null),
+                side = event.data.optString("side", null),
+                quantity = event.data.optDoubleOrNull("quantity"),
+                averagePrice = event.data.optDoubleOrNull("average_price"),
+                lastPrice = event.data.optDoubleOrNull("last_price")
+                    ?: event.data.optDoubleOrNull("current_price"),
                 unrealizedPnl = event.data.optDoubleOrNull("unrealized_pnl"),
-                currentPrice = event.data.optDoubleOrNull("current_price"),
+                realizedPnl = event.data.optDoubleOrNull("realized_pnl"),
+                isActive = !event.data.has("is_active") || event.data.optBoolean("is_active", true),
             )
         }
 

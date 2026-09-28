@@ -71,12 +71,18 @@ fun PositionDto.toDomain(): Position = Position(
     openedAt = openedAt?.let { Instant.parse(it) },
 )
 
+/**
+ * `/performance` → domaine. Le domaine exprime tous les ratios en **fractions**.
+ * Le backend renvoie déjà des fractions pour total_return_pct / volatility / cagr / win_rate,
+ * mais `max_drawdown` en **pourcentage positif** (calculators/performance.py `* 100`) :
+ * converti ici (8.3 → 0.083). PerformanceScreen multiplie par 100 à l'affichage.
+ */
 fun PerformanceResponseDto.toPerformanceMetrics(): PerformanceMetrics = PerformanceMetrics(
     totalReturn = totalReturn,
     totalReturnPct = totalReturnPct,
     sharpeRatio = sharpeRatio,
     sortinoRatio = sortinoRatio,
-    maxDrawdown = maxDrawdown,
+    maxDrawdown = maxDrawdown?.div(100.0),
     volatility = volatility,
     cagr = cagr,
     winRate = winRate,
@@ -84,19 +90,7 @@ fun PerformanceResponseDto.toPerformanceMetrics(): PerformanceMetrics = Performa
     avgTradeReturn = avgTradeReturn,
 )
 
-fun PerformanceResponseDto.toDomain(): PnlSummary = PnlSummary(
-    totalReturn = totalReturn,
-    totalReturnPct = totalReturnPct,
-    sharpeRatio = sharpeRatio,
-    sortinoRatio = sortinoRatio,
-    maxDrawdown = maxDrawdown,
-    volatility = volatility,
-    cagr = cagr,
-    winRate = winRate,
-    profitFactor = profitFactor,
-    avgTradeReturn = avgTradeReturn,
-)
-
+/** `/pnl` → domaine. `total_pnl_percent` est un pourcentage côté backend → fraction. */
 fun PnlResponseDto.toPnlSummary(): PnlSummary = PnlSummary(
     totalReturn = totalPnl,
     totalReturnPct = totalPnlPercent / 100.0,
@@ -212,17 +206,24 @@ fun PositionEntity.toDomain(): Position = Position(
     openedAt = openedAt?.let { Instant.ofEpochMilli(it) },
 )
 
+/**
+ * Cache `/pnl` → domaine. [PnlSnapshotEntity.totalPnlPercent] est déjà une fraction.
+ * Les ratios de risque (`/performance` uniquement) sont null.
+ */
 fun PnlSnapshotEntity.toDomain(): PnlSummary = PnlSummary(
-    totalReturn = totalReturn?.let { BigDecimal(it) },
-    totalReturnPct = totalReturnPct,
-    sharpeRatio = sharpeRatio,
-    sortinoRatio = sortinoRatio,
-    maxDrawdown = maxDrawdown,
-    volatility = volatility,
-    cagr = cagr,
-    winRate = winRate,
-    profitFactor = profitFactor,
-    avgTradeReturn = avgTradeReturn?.let { BigDecimal(it) },
+    totalReturn = BigDecimal(totalPnl),
+    totalReturnPct = totalPnlPercent,
+    sharpeRatio = null,
+    sortinoRatio = null,
+    maxDrawdown = null,
+    volatility = null,
+    cagr = null,
+    winRate = if (tradesCount > 0) winningTrades.toDouble() / tradesCount else null,
+    profitFactor = null,
+    avgTradeReturn = null,
+    tradesCount = tradesCount,
+    winningTrades = winningTrades,
+    losingTrades = losingTrades,
 )
 
 fun AlertEntity.toDomain(): Alert = Alert(
@@ -291,18 +292,20 @@ fun Position.toEntity(syncedAt: Long = System.currentTimeMillis()): PositionEnti
     syncedAt = syncedAt,
 )
 
-fun PnlSummary.toEntity(period: PnlPeriod, syncedAt: Long = System.currentTimeMillis()): PnlSnapshotEntity = PnlSnapshotEntity(
+/**
+ * DTO `/pnl` → cache Room, une ligne par [period] (clé primaire = `period.toApiString()`,
+ * la période demandée — celle que `PnlWidget` relit).
+ * `total_pnl_percent` (pourcentage backend) est stocké en **fraction**.
+ */
+fun PnlResponseDto.toEntity(period: PnlPeriod, syncedAt: Long = System.currentTimeMillis()): PnlSnapshotEntity = PnlSnapshotEntity(
     period = period.toApiString(),
-    totalReturn = totalReturn?.toPlainString(),
-    totalReturnPct = totalReturnPct,
-    sharpeRatio = sharpeRatio,
-    sortinoRatio = sortinoRatio,
-    maxDrawdown = maxDrawdown,
-    volatility = volatility,
-    cagr = cagr,
-    winRate = winRate,
-    profitFactor = profitFactor,
-    avgTradeReturn = avgTradeReturn?.toPlainString(),
+    realizedPnl = realizedPnl.toPlainString(),
+    unrealizedPnl = unrealizedPnl.toPlainString(),
+    totalPnl = totalPnl.toPlainString(),
+    totalPnlPercent = totalPnlPercent / 100.0,
+    tradesCount = tradesCount,
+    winningTrades = winningTrades,
+    losingTrades = losingTrades,
     syncedAt = syncedAt,
 )
 

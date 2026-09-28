@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 7,
-    "identityHash": "fe1dddcedb40ca68b9ab4abd2a4f5ce9",
+    "identityHash": "a64e779afcaf81196497de31ab6c6253",
     "entities": [
       {
         "tableName": "positions",
@@ -85,14 +85,8 @@
       },
       {
         "tableName": "pnl_snapshots",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `period` TEXT NOT NULL, `total_return` TEXT, `total_return_pct` REAL, `sharpe_ratio` REAL, `sortino_ratio` REAL, `max_drawdown` REAL, `volatility` REAL, `cagr` REAL, `win_rate` REAL, `profit_factor` REAL, `avg_trade_return` TEXT, `synced_at` INTEGER NOT NULL)",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`period` TEXT NOT NULL, `realized_pnl` TEXT NOT NULL, `unrealized_pnl` TEXT NOT NULL, `total_pnl` TEXT NOT NULL, `total_pnl_percent` REAL NOT NULL, `trades_count` INTEGER NOT NULL, `winning_trades` INTEGER NOT NULL, `losing_trades` INTEGER NOT NULL, `synced_at` INTEGER NOT NULL, PRIMARY KEY(`period`))",
         "fields": [
-          {
-            "fieldPath": "id",
-            "columnName": "id",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
           {
             "fieldPath": "period",
             "columnName": "period",
@@ -100,54 +94,46 @@
             "notNull": true
           },
           {
-            "fieldPath": "totalReturn",
-            "columnName": "total_return",
-            "affinity": "TEXT"
+            "fieldPath": "realizedPnl",
+            "columnName": "realized_pnl",
+            "affinity": "TEXT",
+            "notNull": true
           },
           {
-            "fieldPath": "totalReturnPct",
-            "columnName": "total_return_pct",
-            "affinity": "REAL"
+            "fieldPath": "unrealizedPnl",
+            "columnName": "unrealized_pnl",
+            "affinity": "TEXT",
+            "notNull": true
           },
           {
-            "fieldPath": "sharpeRatio",
-            "columnName": "sharpe_ratio",
-            "affinity": "REAL"
+            "fieldPath": "totalPnl",
+            "columnName": "total_pnl",
+            "affinity": "TEXT",
+            "notNull": true
           },
           {
-            "fieldPath": "sortinoRatio",
-            "columnName": "sortino_ratio",
-            "affinity": "REAL"
+            "fieldPath": "totalPnlPercent",
+            "columnName": "total_pnl_percent",
+            "affinity": "REAL",
+            "notNull": true
           },
           {
-            "fieldPath": "maxDrawdown",
-            "columnName": "max_drawdown",
-            "affinity": "REAL"
+            "fieldPath": "tradesCount",
+            "columnName": "trades_count",
+            "affinity": "INTEGER",
+            "notNull": true
           },
           {
-            "fieldPath": "volatility",
-            "columnName": "volatility",
-            "affinity": "REAL"
+            "fieldPath": "winningTrades",
+            "columnName": "winning_trades",
+            "affinity": "INTEGER",
+            "notNull": true
           },
           {
-            "fieldPath": "cagr",
-            "columnName": "cagr",
-            "affinity": "REAL"
-          },
-          {
-            "fieldPath": "winRate",
-            "columnName": "win_rate",
-            "affinity": "REAL"
-          },
-          {
-            "fieldPath": "profitFactor",
-            "columnName": "profit_factor",
-            "affinity": "REAL"
-          },
-          {
-            "fieldPath": "avgTradeReturn",
-            "columnName": "avg_trade_return",
-            "affinity": "TEXT"
+            "fieldPath": "losingTrades",
+            "columnName": "losing_trades",
+            "affinity": "INTEGER",
+            "notNull": true
           },
           {
             "fieldPath": "syncedAt",
@@ -157,9 +143,9 @@
           }
         ],
         "primaryKey": {
-          "autoGenerate": true,
+          "autoGenerate": false,
           "columnNames": [
-            "id"
+            "period"
           ]
         },
         "indices": [
@@ -487,7 +473,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'fe1dddcedb40ca68b9ab4abd2a4f5ce9')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'a64e779afcaf81196497de31ab6c6253')"
     ]
   }
 }

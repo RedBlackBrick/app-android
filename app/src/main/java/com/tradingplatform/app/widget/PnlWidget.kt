@@ -38,7 +38,8 @@ import java.math.BigDecimal
  * Period is stored in SharedPreferences keyed by appWidgetId.
  *
  * Affiche :
- * - P&L total de la période configurée depuis Room (pnl_snapshots)
+ * - P&L total de la période configurée depuis Room (pnl_snapshots, une ligne par période,
+ *   forme `/pnl` — écrite par getPnlSummary via WidgetUpdateWorker/Dashboard)
  * - Couleur verte si positif, rouge si négatif
  * - Timestamp synced_at (obligatoire — données de trading)
  * - Tap → ouvre l'app sur DashboardScreen
@@ -57,7 +58,7 @@ class PnlWidget : GlanceAppWidget() {
         // Read configured period for this widget instance
         val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(id)
         val period = readConfiguredPeriod(context, appWidgetId)
-        val pnlSnapshot = pnlDao.getLatestByPeriod(period)
+        val pnlSnapshot = pnlDao.getByPeriod(period)
 
         // Timestamp de la dernière tentative de sync (non sensible — SharedPreferences plain)
         val lastSyncAttempt = WidgetUpdateWorker.readLastSyncAttempt(context)
@@ -82,18 +83,33 @@ class PnlWidget : GlanceAppWidget() {
         // EncryptedDataStore, never here.
         const val PREFS_NAME = "pnl_widget_prefs"
         const val DEFAULT_PERIOD = "day"
+        private const val PERIOD_KEY_PREFIX = "period_"
 
         val AVAILABLE_PERIODS = listOf("day", "week", "month")
 
         fun readConfiguredPeriod(context: Context, appWidgetId: Int): String {
             return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .getString("period_$appWidgetId", DEFAULT_PERIOD) ?: DEFAULT_PERIOD
+                .getString("$PERIOD_KEY_PREFIX$appWidgetId", DEFAULT_PERIOD) ?: DEFAULT_PERIOD
         }
 
         fun saveConfiguredPeriod(context: Context, appWidgetId: Int, period: String) {
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .edit { putString("period_$appWidgetId", period) }
+                .edit { putString("$PERIOD_KEY_PREFIX$appWidgetId", period) }
         }
+
+        /**
+         * Toutes les périodes configurées par une instance de widget (clés `period_<appWidgetId>`),
+         * pour que [WidgetUpdateWorker] synchronise chacune d'elles. Les valeurs inconnues
+         * (hors [AVAILABLE_PERIODS]) sont ignorées. Peut contenir la période d'un widget
+         * supprimé (les prefs ne sont pas nettoyées) — coût : un appel `/pnl` de plus par cycle.
+         */
+        fun configuredPeriods(context: Context): Set<String> =
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).all
+                .filterKeys { it.startsWith(PERIOD_KEY_PREFIX) }
+                .values
+                .filterIsInstance<String>()
+                .filter { it in AVAILABLE_PERIODS }
+                .toSet()
 
         fun periodDisplayLabel(period: String): String = when (period) {
             "day" -> "Jour"
@@ -169,7 +185,7 @@ private fun PnlWidgetContent(
             return@Column
         }
 
-        val totalReturn = runCatching { pnlSnapshot.totalReturn?.let { BigDecimal(it) } }.getOrNull()
+        val totalReturn = runCatching { BigDecimal(pnlSnapshot.totalPnl) }.getOrNull()
         val isPositive = totalReturn != null && totalReturn > BigDecimal.ZERO
         val isNegative = totalReturn != null && totalReturn < BigDecimal.ZERO
 
@@ -195,18 +211,17 @@ private fun PnlWidgetContent(
             ),
         )
 
-        val totalReturnPct = pnlSnapshot.totalReturnPct
-        if (totalReturnPct != null) {
-            val pctSign = if (totalReturnPct > 0) "+" else ""
-            val pctText = "$pctSign${String.format(java.util.Locale.FRENCH, "%.2f", totalReturnPct * 100)}%"
-            Text(
-                text = pctText,
-                style = TextStyle(
-                    color = ColorProvider(day = pnlColor, night = pnlColor),
-                    fontSize = 12.sp,
-                ),
-            )
-        }
+        // total_pnl_percent est stocké en fraction (mapper /pnl) → ×100 pour l'affichage
+        val totalReturnPct = pnlSnapshot.totalPnlPercent
+        val pctSign = if (totalReturnPct > 0) "+" else ""
+        val pctText = "$pctSign${String.format(java.util.Locale.FRENCH, "%.2f", totalReturnPct * 100)}%"
+        Text(
+            text = pctText,
+            style = TextStyle(
+                color = ColorProvider(day = pnlColor, night = pnlColor),
+                fontSize = 12.sp,
+            ),
+        )
 
         Text(
             text = "Sync ${formatWidgetSyncTime(pnlSnapshot.syncedAt)}",

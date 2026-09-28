@@ -60,7 +60,15 @@ class PositionsViewModel @Inject constructor(
      * Collect real-time position updates from the private WebSocket.
      *
      * Each [WsUpdate.PositionUpdate] is merged into the current positions list
-     * by matching on positionId first, then symbol as fallback.
+     * via [matchesPosition]. The backend does not currently send `position_id`,
+     * so matching falls back to symbol scoped to the OPEN status — this avoids
+     * a symbol match hitting a stale CLOSED row when the same symbol was
+     * traded, closed and reopened (visible under the ALL filter).
+     *
+     * `isActive == false` means the fill fully closed the position: it is
+     * dropped from the list under the OPEN filter (it no longer belongs there)
+     * and marked CLOSED otherwise (ALL/CLOSED filters keep it visible).
+     *
      * Updates are ignored when the UI state is not [PositionsUiState.Success].
      */
     private fun collectPositionWsUpdates() {
@@ -68,17 +76,24 @@ class PositionsViewModel @Inject constructor(
             getPositionWsUpdatesUseCase().collect { wsUpdate ->
                 _uiState.update { current ->
                     if (current !is PositionsUiState.Success) return@update current
-                    val updatedPositions = current.positions.map { position ->
-                        if (matchesPosition(position, wsUpdate)) {
-                            position.copy(
-                                currentPrice = wsUpdate.currentPrice?.toBigDecimal()
-                                    ?: position.currentPrice,
-                                unrealizedPnl = wsUpdate.unrealizedPnl?.toBigDecimal()
-                                    ?: position.unrealizedPnl,
-                            )
-                        } else {
-                            position
+                    val filter = _selectedFilter.value
+                    val updatedPositions = current.positions.mapNotNull { position ->
+                        if (!matchesPosition(position, wsUpdate)) return@mapNotNull position
+                        if (!wsUpdate.isActive) {
+                            return@mapNotNull if (filter == StatusFilter.OPEN) {
+                                null
+                            } else {
+                                position.copy(status = PositionStatus.CLOSED)
+                            }
                         }
+                        position.copy(
+                            currentPrice = wsUpdate.lastPrice?.toBigDecimal()
+                                ?: position.currentPrice,
+                            unrealizedPnl = wsUpdate.unrealizedPnl?.toBigDecimal()
+                                ?: position.unrealizedPnl,
+                            quantity = wsUpdate.quantity?.toBigDecimal()
+                                ?: position.quantity,
+                        )
                     }
                     current.copy(positions = updatedPositions)
                 }
@@ -87,13 +102,22 @@ class PositionsViewModel @Inject constructor(
     }
 
     /**
-     * Match a [WsUpdate.PositionUpdate] to a [Position] — prefer positionId,
-     * fall back to symbol.
+     * Match a [WsUpdate.PositionUpdate] to a [Position].
+     *
+     * When the backend sends an explicit `position_id`, match it exactly —
+     * this is unambiguous regardless of status. Otherwise (current backend
+     * behavior), fall back to symbol matching scoped to OPEN positions only:
+     * a symbol alone cannot disambiguate between a closed and a reopened
+     * position of the same ticker.
      */
     private fun matchesPosition(position: Position, update: WsUpdate.PositionUpdate): Boolean {
-        val byId = update.positionId?.let { it == position.id.toString() } ?: false
-        if (byId) return true
-        return update.symbol?.let { it == position.symbol } ?: false
+        val positionId = update.positionId
+        if (positionId != null) {
+            return positionId == position.id.toString()
+        }
+        return position.status == PositionStatus.OPEN &&
+            update.symbol != null &&
+            update.symbol == position.symbol
     }
 
     fun refresh() {

@@ -162,21 +162,32 @@ Réutiliser pour tous les appels suivants sans re-fetch.
 
 ### GET /v1/portfolios/{portfolio_id}/pnl
 
-**Query params :** `period = day | week | month | year | all`
+**Query params :** `period = day | week | month | ytd | all` (backend `router.py` —
+`PnlPeriod.YEAR.toApiString() == "ytd"` ; une valeur inconnue comme `year` n'est pas rejetée
+mais retombe silencieusement sur `all`).
 
 **Response 200 :**
 ```json
 {
   "period": "day",
-  "realized_pnl": "250.00000000",
-  "unrealized_pnl": "1500.00000000",
-  "total_pnl": "1750.00000000",
+  "realized_pnl": "250.00",
+  "unrealized_pnl": "1500.00",
+  "total_pnl": "1750.00",
   "total_pnl_percent": 1.75,
   "trades_count": 3,
   "winning_trades": 2,
   "losing_trades": 1
 }
 ```
+
+**Unités :** `total_pnl_percent` est un **pourcentage** (1.75 = 1,75 %) ; l'app le convertit en
+**fraction** (0.0175) dans les mappers (`PnlResponseDto.toPnlSummary()` / `toEntity()`) — le domaine
+et la table `pnl_snapshots` ne manipulent que des fractions. Les montants P&L sont cumulés sur la
+vie du portefeuille ; `period` ne borne que `trades_count` / `winning_trades` / `losing_trades`.
+
+**Cache :** seul chemin PnL de l'app. `PortfolioRepositoryImpl.getPnlSummary` (Dashboard et
+`WidgetUpdateWorker` via `GetPnlUseCase`) upsert une ligne `pnl_snapshots` par période
+(`period` = clé primaire), lue par `PnlWidget`.
 
 ---
 
@@ -301,12 +312,12 @@ Retourne les métriques de performance calculées côté serveur.
 ```json
 {
   "total_return": "5250.00",
-  "total_return_pct": 10.5,
+  "total_return_pct": 0.105,
   "sharpe_ratio": 1.45,
   "sortino_ratio": 2.1,
   "max_drawdown": 8.3,
-  "volatility": 15.2,
-  "cagr": 12.5,
+  "volatility": 0.152,
+  "cagr": 0.125,
   "win_rate": 0.65,
   "profit_factor": 2.3,
   "avg_trade_return": "125.00"
@@ -314,6 +325,13 @@ Retourne les métriques de performance calculées côté serveur.
 ```
 
 Tous les champs sont nullable (retournent `null` si données insuffisantes).
+
+**Unités :** `total_return_pct`, `volatility`, `cagr` et `win_rate` sont des **fractions**
+(0.105 = 10,5 %). **Exception : `max_drawdown` est un pourcentage positif** (8.3 = 8,3 %,
+`calculators/performance.py` `* 100`) — converti en fraction côté app dans
+`PerformanceResponseDto.toPerformanceMetrics()` (8.3 → 0.083). Le domaine `PerformanceMetrics`
+ne contient que des fractions ; `PerformanceScreen` multiplie par 100 à l'affichage.
+Endpoint consommé uniquement par `getPerformance()` → `PerformanceMetrics` (jamais écrit dans Room).
 
 ---
 

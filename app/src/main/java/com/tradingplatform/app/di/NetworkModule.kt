@@ -3,6 +3,7 @@ package com.tradingplatform.app.di
 import com.squareup.moshi.Moshi
 import com.tradingplatform.app.BuildConfig
 import com.tradingplatform.app.data.api.AuthApi
+import com.tradingplatform.app.data.api.AuthPaths
 import com.tradingplatform.app.data.api.BrokerConnectionApi
 import com.tradingplatform.app.data.api.OrdersApi
 import com.tradingplatform.app.data.api.RiskApi
@@ -37,6 +38,7 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import okhttp3.Cache
+import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -116,17 +118,6 @@ object NetworkModule {
         encryptedCookieJar: EncryptedCookieJar,
         certPinnerProvider: CertificatePinnerProvider,
     ): OkHttpClient {
-        val loggingInterceptor = HttpLoggingInterceptor().apply {
-            level = if (BuildConfig.DEBUG) {
-                HttpLoggingInterceptor.Level.BODY
-            } else {
-                HttpLoggingInterceptor.Level.NONE
-            }
-            // Masquer les tokens sensibles dans les logs — jamais en clair (CLAUDE.md §1)
-            redactHeader("Authorization")
-            redactHeader("X-CSRF-Token")
-        }
-
         val cache = Cache(
             directory = File(context.cacheDir, "http_cache"),
             maxSize = 10L * 1024L * 1024L,
@@ -140,14 +131,98 @@ object NetworkModule {
             .addInterceptor(vpnRequiredInterceptor)
             .addInterceptor(authInterceptor)
             .authenticator(tokenAuthenticator)
-            .addInterceptor(loggingInterceptor)
             .cookieJar(encryptedCookieJar)
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
+        if (BuildConfig.DEBUG) builder.addInterceptor(debugLogger(headersOnly = false))
         certPinnerProvider.buildCertificatePinner(VPS_HOSTNAME)
             ?.let { builder.certificatePinner(it) }
         return builder.build()
+    }
+
+    // ── OkHttpClient @Named("refresh") ─────────────────────────────────────────
+    // Client dédié à POST /v1/auth/refresh (TokenAuthenticator) — audit #15/#16.
+    // - Dispatcher propre (2 requêtes max) : le refresh ne concourt jamais avec les
+    //   requêtes du client principal pour un slot maxRequestsPerHost.
+    // - SANS Authenticator (pas de refresh récursif), SANS AuthInterceptor (pas de Bearer —
+    //   le refresh s'authentifie par le cookie httpOnly), SANS CsrfInterceptor
+    //   (/v1/auth/refresh est exempt côté backend, csrf.py CSRF_EXEMPT_PATHS).
+    // - Aucune de ses dépendances ne dépend de TokenAuthenticator → pas de cycle Hilt.
+
+    @Provides
+    @Singleton
+    @Named("refresh")
+    fun provideRefreshOkHttpClient(
+        timeoutInterceptor: TimeoutInterceptor,
+        vpnRequiredInterceptor: VpnRequiredInterceptor,
+        encryptedCookieJar: EncryptedCookieJar,
+        certPinnerProvider: CertificatePinnerProvider,
+    ): OkHttpClient {
+        val dispatcher = Dispatcher().apply {
+            maxRequests = 2
+            maxRequestsPerHost = 2
+        }
+        val builder = OkHttpClient.Builder()
+            .dispatcher(dispatcher)
+            .addInterceptor(timeoutInterceptor)
+            .addInterceptor(vpnRequiredInterceptor)
+            .addInterceptor(appVersionHeader())
+            .cookieJar(encryptedCookieJar)
+            .connectTimeout(5, TimeUnit.SECONDS)
+            .readTimeout(5, TimeUnit.SECONDS)
+        if (BuildConfig.DEBUG) builder.addInterceptor(debugLogger(headersOnly = true))
+        certPinnerProvider.buildCertificatePinner(VPS_HOSTNAME)
+            ?.let { builder.certificatePinner(it) }
+        return builder.build()
+    }
+
+    /**
+     * X-App-Version sur le client refresh — normalement posé par [AuthInterceptor], absent
+     * de ce client. Garde le contrat 426 (CLAUDE.md §9) identique pour le refresh.
+     */
+    private fun appVersionHeader(): Interceptor = Interceptor { chain ->
+        chain.proceed(
+            chain.request().newBuilder()
+                .header("X-App-Version", BuildConfig.VERSION_CODE.toString())
+                .build()
+        )
+    }
+
+    // ── Logging debug ─────────────────────────────────────────────────────────
+
+    /** En-têtes jamais loggés en clair (CLAUDE.md §1) — remplacés par « ██ ». */
+    private val REDACTED_HEADERS = listOf("Authorization", "X-CSRF-Token", "Cookie", "Set-Cookie")
+
+    /**
+     * Intercepteur de log HTTP pour les builds debug uniquement (l'appelant teste
+     * `BuildConfig.DEBUG` — jamais ajouté en release).
+     *
+     * - En-têtes [REDACTED_HEADERS] expurgés dans tous les cas.
+     * - [headersOnly] = true : HEADERS pour toutes les requêtes (client refresh).
+     * - Sinon : HEADERS pour les chemins [AuthPaths.isSensitive] (mot de passe, tokens,
+     *   code TOTP, token FCM dans les bodies), BODY pour les autres.
+     *
+     * [logger] est paramétrable pour les tests (capture des lignes).
+     */
+    internal fun debugLogger(
+        headersOnly: Boolean,
+        logger: HttpLoggingInterceptor.Logger = HttpLoggingInterceptor.Logger.DEFAULT,
+    ): Interceptor {
+        fun build(level: HttpLoggingInterceptor.Level) = HttpLoggingInterceptor(logger).apply {
+            this.level = level
+            REDACTED_HEADERS.forEach { redactHeader(it) }
+        }
+        val headers = build(HttpLoggingInterceptor.Level.HEADERS)
+        if (headersOnly) return headers
+        val body = build(HttpLoggingInterceptor.Level.BODY)
+        return Interceptor { chain ->
+            if (AuthPaths.isSensitive(chain.request().url.encodedPath)) {
+                headers.intercept(chain)
+            } else {
+                body.intercept(chain)
+            }
+        }
     }
 
     // ── OkHttpClient @Named("lan") ─────────────────────────────────────────────
@@ -245,6 +320,25 @@ object NetworkModule {
     @Singleton
     fun provideAuthApi(retrofit: Retrofit): AuthApi =
         retrofit.create(AuthApi::class.java)
+
+    /**
+     * AuthApi construit sur le client `@Named("refresh")` — utilisé uniquement par
+     * [TokenAuthenticator] pour POST /v1/auth/refresh. Ne pas l'utiliser pour les autres
+     * endpoints (pas de CSRF ni de Bearer sur ce client).
+     */
+    @Provides
+    @Singleton
+    @Named("refresh")
+    fun provideRefreshAuthApi(
+        @Named("base_url") baseUrl: String,
+        @Named("refresh") refreshOkHttpClient: OkHttpClient,
+        moshi: Moshi,
+    ): AuthApi = Retrofit.Builder()
+        .baseUrl(baseUrl)
+        .client(refreshOkHttpClient)
+        .addConverterFactory(MoshiConverterFactory.create(moshi))
+        .build()
+        .create(AuthApi::class.java)
 
     @Provides
     @Singleton

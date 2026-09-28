@@ -161,8 +161,17 @@ private fun ActivityItemRow(
         }
         is ActivityItem.PortfolioChange -> {
             dotColor = extendedColors.info
+            val sideLabel = when (item.side?.lowercase()) {
+                "buy", "long" -> "Achat"
+                "sell", "short" -> "Vente"
+                else -> item.side
+            }
             val parts = mutableListOf<String>()
-            if (item.nav != null) parts.add("NAV %.2f".format(item.nav))
+            if (item.symbol != null && sideLabel != null) {
+                val qtyText = item.quantity?.let { "%.2f".format(it) } ?: "?"
+                parts.add("$sideLabel $qtyText \u00d7 ${item.symbol}")
+            }
+            if (item.totalValue != null) parts.add("Valeur totale %.2f".format(item.totalValue))
             if (item.dailyPnl != null) parts.add("P&L jour %+.2f".format(item.dailyPnl))
             label = if (parts.isNotEmpty()) "Portfolio : ${parts.joinToString(" | ")}" else "Portfolio mis \u00e0 jour"
             subtext = "Mise \u00e0 jour portfolio"

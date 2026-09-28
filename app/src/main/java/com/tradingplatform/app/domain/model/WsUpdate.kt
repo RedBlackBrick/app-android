@@ -13,24 +13,53 @@ package com.tradingplatform.app.domain.model
 sealed class WsUpdate {
 
     /**
-     * Real-time portfolio-level update (NAV, global P&L).
+     * Real-time portfolio-level update, sent on every order execution
+     * (`app/portfolio/consumer.py` `ws_payload`, built ~L2151-2160).
+     *
+     * The backend does not emit a NAV/daily-P&L snapshot on this channel — the
+     * payload instead describes the trade that just executed (symbol, side,
+     * quantity, price) plus the resulting portfolio totals. [nav] is kept for
+     * backward compatibility with existing consumers and is populated from
+     * [totalValue]. [dailyPnl]/[totalPnl] stay null since the backend never
+     * sends them on this event.
      *
      * Fields are nullable to tolerate partial server payloads — the ViewModel
      * uses the non-null fields to update its state and ignores nulls.
      */
     data class PortfolioUpdate(
         val portfolioId: String? = null,
+        val symbol: String? = null,
+        val side: String? = null,
+        val quantity: Double? = null,
+        val price: Double? = null,
+        val totalValue: Double? = null,
+        val cashBalance: Double? = null,
+        val positionsValue: Double? = null,
         val nav: Double? = null,
         val dailyPnl: Double? = null,
         val totalPnl: Double? = null,
     ) : WsUpdate()
 
-    /** Real-time position-level update (single position changed). */
+    /**
+     * Real-time position-level update (single position changed), sent on every
+     * order execution (`app/portfolio/consumer.py` `ws_position_payload`, built
+     * ~L2164-2199).
+     *
+     * The backend does not currently send a `position_id` — [positionId] stays
+     * nullable so a future backend addition can populate it without an API
+     * change here. [isActive] defaults to `true` (absent on payloads predating
+     * this field) — `false` means the position was fully closed by this fill.
+     */
     data class PositionUpdate(
         val positionId: String? = null,
         val symbol: String? = null,
+        val side: String? = null,
+        val quantity: Double? = null,
+        val averagePrice: Double? = null,
+        val lastPrice: Double? = null,
         val unrealizedPnl: Double? = null,
-        val currentPrice: Double? = null,
+        val realizedPnl: Double? = null,
+        val isActive: Boolean = true,
     ) : WsUpdate()
 
     /** User-facing notification received via the private WebSocket channel. */

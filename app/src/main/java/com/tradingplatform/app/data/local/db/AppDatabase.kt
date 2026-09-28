@@ -59,6 +59,7 @@ import com.tradingplatform.app.data.local.db.entity.WatchlistEntity
         QuoteEntity::class,
         WatchlistEntity::class,
     ],
+    // PnlSnapshotEntity reshaped on /pnl (period = PK) is part of the v7 baseline — no bump (audit PR 2.2).
     version = 7,
     exportSchema = true,
 )

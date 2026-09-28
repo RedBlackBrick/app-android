@@ -23,7 +23,7 @@ class GetPnlUseCaseTest {
         totalReturnPct = 0.035,
         sharpeRatio = 1.1,
         sortinoRatio = 1.4,
-        maxDrawdown = -0.04,
+        maxDrawdown = 0.04,
         volatility = 0.10,
         cagr = 0.07,
         winRate = 0.7,

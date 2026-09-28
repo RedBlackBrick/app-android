@@ -224,24 +224,38 @@ class WidgetUpdateWorker @AssistedInject constructor(
     // ── Sync PnL ────────────────────────────────────────────────────────────────
 
     /**
-     * Synchronise le PnL du portfolio (période journalière pour les widgets).
-     * L'upsert + purge sont atomiques dans le Repository (via [PnlDao.upsertAndPurge]).
+     * Synchronise le PnL du portfolio : DAY + chaque période configurée par une instance de
+     * [PnlWidget] ([PnlWidget.configuredPeriods]).
+     * La persistance est faite par `PortfolioRepositoryImpl.getPnlSummary` (unique writer de
+     * `pnl_snapshots`, upsert + purge atomiques via `PnlDao.upsertAndPurge`) — le Worker
+     * n'écrit pas Room lui-même.
      *
-     * @throws IOException en cas d'erreur réseau transitoire
-     * @throws VpnNotConnectedException si le VPN est coupé pendant la sync
+     * Une IOException sur une période n'empêche pas les autres ; elle est relancée à la fin.
+     *
+     * @throws IOException en cas d'erreur réseau transitoire (sur au moins une période)
+     * @throws VpnNotConnectedException si le VPN est coupé pendant la sync (immédiat)
      */
     private suspend fun syncPnl(portfolioId: String) {
-        getPnlUseCase(portfolioId, PnlPeriod.DAY)
-            .onSuccess {
-                Timber.tag(TAG).d("WidgetUpdateWorker — PnL DAY synced")
+        val periods = buildSet {
+            add(PnlPeriod.DAY)
+            PnlWidget.configuredPeriods(applicationContext)
+                .mapNotNullTo(this) { PnlPeriod.fromApiString(it) }
+        }
+
+        var ioFailure: IOException? = null
+        for (period in periods) {
+            val failure = getPnlUseCase(portfolioId, period).exceptionOrNull()
+            if (failure == null) {
+                Timber.tag(TAG).d("WidgetUpdateWorker — PnL $period synced")
+                continue
             }
-            .onFailure { e ->
-                when (e) {
-                    is VpnNotConnectedException -> throw e
-                    is IOException -> throw e
-                    else -> Timber.tag(TAG).w(e, "WidgetUpdateWorker — PnL sync error (non-retryable): ${e.message}")
-                }
+            when (failure) {
+                is VpnNotConnectedException -> throw failure
+                is IOException -> ioFailure = failure
+                else -> Timber.tag(TAG).w(failure, "WidgetUpdateWorker — PnL $period sync error (non-retryable): ${failure.message}")
             }
+        }
+        ioFailure?.let { throw it }
     }
 
     // ── Sync quotes ────────────────────────────────────────────────────────────

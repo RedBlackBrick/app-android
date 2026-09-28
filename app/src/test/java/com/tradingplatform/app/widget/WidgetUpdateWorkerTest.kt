@@ -76,7 +76,7 @@ class WidgetUpdateWorkerTest {
         totalReturnPct = 0.045,
         sharpeRatio = 1.2,
         sortinoRatio = 1.5,
-        maxDrawdown = -0.05,
+        maxDrawdown = 0.05,
         volatility = 0.12,
         cagr = 0.09,
         winRate = 0.7,
@@ -203,6 +203,38 @@ class WidgetUpdateWorkerTest {
         coVerify(exactly = 1) { getPositionsUseCase("1") }
         coVerify(exactly = 1) { getPnlUseCase("1", PnlPeriod.DAY) }
         coVerify(exactly = 1) { getQuoteUseCase("AAPL") }
+    }
+
+    // ── Tests périodes PnL configurées par les widgets ─────────────────────────
+
+    @Test
+    fun `doWork syncs every PnL period configured by a PnlWidget instance`() = runTest {
+        every { vpnManager.state } returns MutableStateFlow(VpnState.Connected())
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        PnlWidget.saveConfiguredPeriod(context, appWidgetId = 11, period = "day")
+        PnlWidget.saveConfiguredPeriod(context, appWidgetId = 12, period = "week")
+
+        val result = buildWorker().doWork()
+
+        assertEquals(ListenableWorker.Result.success(), result)
+        // DAY une seule fois (toujours synchronisé + configuré par le widget 11)
+        coVerify(exactly = 1) { getPnlUseCase("1", PnlPeriod.DAY) }
+        coVerify(exactly = 1) { getPnlUseCase("1", PnlPeriod.WEEK) }
+        coVerify(exactly = 0) { getPnlUseCase("1", PnlPeriod.MONTH) }
+    }
+
+    @Test
+    fun `doWork keeps syncing other PnL periods when one fails with IOException`() = runTest {
+        every { vpnManager.state } returns MutableStateFlow(VpnState.Connected())
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        PnlWidget.saveConfiguredPeriod(context, appWidgetId = 21, period = "month")
+        coEvery { getPnlUseCase("1", PnlPeriod.DAY) } returns Result.failure(java.io.IOException("Timeout"))
+
+        val result = buildWorker().doWork()
+
+        // Échec partiel (PnL seulement) → pas de retry, mais MONTH est quand même tenté
+        assertEquals(ListenableWorker.Result.success(), result)
+        coVerify(exactly = 1) { getPnlUseCase("1", PnlPeriod.MONTH) }
     }
 
     @Test

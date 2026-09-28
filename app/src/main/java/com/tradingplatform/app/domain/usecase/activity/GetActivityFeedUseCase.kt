@@ -53,7 +53,11 @@ class GetActivityFeedUseCase @Inject constructor(
         },
         wsRepository.portfolioUpdates.map { portfolio ->
             ActivityItem.PortfolioChange(
-                nav = portfolio.nav,
+                totalValue = portfolio.totalValue,
+                symbol = portfolio.symbol,
+                side = portfolio.side,
+                quantity = portfolio.quantity,
+                price = portfolio.price,
                 dailyPnl = portfolio.dailyPnl,
                 timestamp = Instant.now(),
             )
