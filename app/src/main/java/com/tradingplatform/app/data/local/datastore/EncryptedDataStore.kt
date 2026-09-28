@@ -54,6 +54,8 @@ object DataStoreKeys {
 
 private const val PREFS_NAME = "trading_secure_prefs"
 private const val ANDROID_KEYSTORE = "AndroidKeyStore"
+private const val RESET_ATTEMPTS = 2
+private const val RESET_RETRY_DELAY_MS = 250L
 
 /** Factory de production : MasterKey (Android Keystore) + EncryptedSharedPreferences. */
 private fun createEncryptedPrefs(context: Context): SharedPreferences {
@@ -152,7 +154,16 @@ class EncryptedDataStore internal constructor(
                 .onFailure { Timber.e(it, "EncryptedDataStore reset: failed to delete prefs file") }
             runCatching { masterKeyDeleter() }
                 .onFailure { Timber.e(it, "EncryptedDataStore reset: failed to delete MasterKey alias") }
-            val recreated = createPrefs()
+            // Juste après deleteEntry(), la régénération MasterKey + keyset Tink peut échouer
+            // de façon transitoire (Keystore émulateur/OEM) — observé une fois sur l'émulateur
+            // CI api30. Une seconde tentative après une courte pause suffit ; au-delà, le
+            // dialog « stockage indisponible » propose de réessayer.
+            var recreated: SharedPreferences? = null
+            for (attempt in 1..RESET_ATTEMPTS) {
+                recreated = createPrefs()
+                if (recreated != null) break
+                if (attempt < RESET_ATTEMPTS) Thread.sleep(RESET_RETRY_DELAY_MS)
+            }
             cachedPrefs = recreated
             Timber.w("EncryptedDataStore reset: store recreated=${recreated != null}")
             recreated != null

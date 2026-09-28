@@ -172,11 +172,34 @@ class EncryptedDataStoreTest {
 
     @Test
     fun `reset returns false when the store cannot be recreated`() = runTest {
-        val ds = store { throw SecurityException("keystore gone") }
+        var attempts = 0
+        val ds = store { attempts++; throw SecurityException("keystore gone") }
 
         assertFalse(ds.resetCorruptedStore())
         assertEquals(1, masterKeyDeletions)
+        // Une seule nouvelle tentative bornée (2 essais au total), jamais de boucle.
+        assertEquals(2, attempts)
         assertTrue(ds.readStringSafe(DataStoreKeys.ACCESS_TOKEN) is SecureReadResult.Corrupted)
+    }
+
+    @Test
+    fun `reset retries once when the first recreation fails transiently`() = runTest {
+        var attempts = 0
+        val ds = store { ctx ->
+            attempts++
+            // 1er appel : création initiale (write). 2e appel : 1re tentative après reset → échec
+            // transitoire (Keystore). 3e appel : 2e tentative → succès.
+            if (attempts == 2) throw SecurityException("transient keystore failure")
+            ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        }
+        ds.writeString(DataStoreKeys.ACCESS_TOKEN, "old")
+
+        assertTrue(ds.resetCorruptedStore())
+        assertEquals(3, attempts)
+        assertEquals(1, masterKeyDeletions)
+        assertTrue(ds.readStringSafe(DataStoreKeys.ACCESS_TOKEN) is SecureReadResult.NotFound)
+        ds.writeString(DataStoreKeys.ACCESS_TOKEN, "fresh")
+        assertEquals(SecureReadResult.Found("fresh"), ds.readStringSafe(DataStoreKeys.ACCESS_TOKEN))
     }
 
     @Test
