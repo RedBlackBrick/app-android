@@ -110,6 +110,27 @@ android {
                 it.forkEvery = 1
             }
         }
+
+        // Gradle Managed Devices — job CI `instrumented` (.github/workflows/android.yml),
+        // voir audit/plan-ui-tests-ci.md PART 2 §1. ATD (Automated Test Device) images :
+        // pas de Play Store/GMS, démarrage plus rapide, comportement plus déterministe pour
+        // du CI headless. api30 épingle #9 (Instant.parse pré-JDK12 sur un device réel plus
+        // ancien) ; api34 couvre le FGS/VPN (foregroundServiceType="specialUse") et le chemin
+        // BiometricPrompt actuel (minSdk 28, décision D1).
+        managedDevices {
+            localDevices {
+                create("api30") {
+                    device = "Pixel 5"
+                    apiLevel = 30
+                    systemImageSource = "aosp-atd"
+                }
+                create("api34") {
+                    device = "Pixel 6"
+                    apiLevel = 34
+                    systemImageSource = "aosp-atd"
+                }
+            }
+        }
     }
 
     lint {
@@ -268,6 +289,10 @@ dependencies {
     androidTestImplementation(libs.compose.ui.test)
     androidTestImplementation(libs.room.testing)
     androidTestImplementation(libs.test.core)
-    androidTestImplementation("androidx.test.ext:junit:1.3.0")
+    androidTestImplementation(libs.test.runner)
+    androidTestImplementation(libs.test.rules)
+    androidTestImplementation(libs.test.ext.junit)
+    // MockWebServer — SetupSmokeTest (MobileProvisioningRepositoryImpl réel, plain HTTP)
+    androidTestImplementation(libs.okhttp.mockwebserver)
     debugImplementation(libs.compose.ui.test.manifest)
 }

@@ -1,10 +1,13 @@
 package com.tradingplatform.app.ui.screens.market
 
 import androidx.lifecycle.viewModelScope
+import com.tradingplatform.app.domain.model.Quote
 import com.tradingplatform.app.domain.model.SymbolInfo
 import com.tradingplatform.app.domain.model.SymbolPage
+import com.tradingplatform.app.domain.model.WsConnectionState
 import com.tradingplatform.app.domain.usecase.market.AddToWatchlistUseCase
 import com.tradingplatform.app.domain.usecase.market.GetAvailableSymbolsUseCase
+import com.tradingplatform.app.domain.usecase.market.GetPublicWsConnectionStateUseCase
 import com.tradingplatform.app.domain.usecase.market.GetQuoteStreamUseCase
 import com.tradingplatform.app.domain.usecase.market.GetQuoteUseCase
 import com.tradingplatform.app.domain.usecase.market.GetSymbolHistoryUseCase
@@ -17,6 +20,8 @@ import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runTest
@@ -26,6 +31,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import java.io.IOException
+import java.math.BigDecimal
+import java.time.Instant
 
 /**
  * PR 2.1 (audit #6) — server-side search (debounced) and offset pagination for the
@@ -44,14 +52,33 @@ class MarketDataViewModelTest {
     private val removeFromWatchlistUseCase = mockk<RemoveFromWatchlistUseCase>()
     private val getAvailableSymbolsUseCase = mockk<GetAvailableSymbolsUseCase>()
     private val getSymbolHistoryUseCase = mockk<GetSymbolHistoryUseCase>()
+    private val getPublicWsConnectionStateUseCase = mockk<GetPublicWsConnectionStateUseCase>()
+
+    /** État du WS public — Connected par défaut (pas de fallback REST dans les tests picker). */
+    private val publicWsState = MutableStateFlow(WsConnectionState.Connected)
+    private val appForeground = MutableStateFlow(true)
 
     private lateinit var viewModel: MarketDataViewModel
+
+    private val fakeQuote = Quote(
+        symbol = "AAPL",
+        price = BigDecimal("175.50"),
+        bid = BigDecimal("175.48"),
+        ask = BigDecimal("175.52"),
+        volume = 35_000_000L,
+        change = BigDecimal("2.30"),
+        changePercent = 1.33,
+        timestamp = Instant.parse("2026-09-28T10:00:00Z"),
+        source = "yahoo",
+    )
 
     @Before
     fun setUp() {
         every { getWatchlistUseCase() } returns emptyFlow()
         every { getQuoteStreamUseCase(any()) } returns emptyFlow()
         coEvery { getSymbolHistoryUseCase(any(), any()) } returns Result.success(emptyList())
+        every { getPublicWsConnectionStateUseCase() } returns publicWsState
+        every { getPublicWsConnectionStateUseCase.isAppForeground() } returns appForeground
     }
 
     private fun createViewModel(): MarketDataViewModel = MarketDataViewModel(
@@ -62,6 +89,7 @@ class MarketDataViewModelTest {
         removeFromWatchlistUseCase = removeFromWatchlistUseCase,
         getAvailableSymbolsUseCase = getAvailableSymbolsUseCase,
         getSymbolHistoryUseCase = getSymbolHistoryUseCase,
+        getPublicWsConnectionStateUseCase = getPublicWsConnectionStateUseCase,
     ).also { viewModel = it }
 
     // ── Debounce ─────────────────────────────────────────────────────────────
@@ -177,6 +205,91 @@ class MarketDataViewModelTest {
 
         val state = viewModel.symbolPickerState.value
         assertTrue("Expected Error, got $state", state is SymbolPickerUiState.Error)
+
+        viewModel.viewModelScope.cancel()
+    }
+
+    // ── WS public + REST fallback (PR 3.4, audit #13/#14) ────────────────────
+
+    @Test
+    fun `REST fallback polls watchlist symbols only while public WS is not Connected`() = runTest {
+        publicWsState.value = WsConnectionState.Disconnected
+        every { getWatchlistUseCase() } returns MutableStateFlow(listOf("AAPL"))
+        coEvery { getQuoteUseCase("AAPL") } returns Result.success(fakeQuote)
+
+        createViewModel()
+        advanceTimeBy(2_001L) // debounce Disconnected
+
+        coVerify(exactly = 1) { getQuoteUseCase("AAPL") }
+        val state = viewModel.uiState.value as MarketDataUiState.Success
+        assertEquals(fakeQuote, state.quotes["AAPL"])
+
+        // Reconnexion → le polling s'arrête
+        publicWsState.value = WsConnectionState.Connected
+        advanceTimeBy(120_000L)
+        coVerify(exactly = 1) { getQuoteUseCase("AAPL") }
+
+        viewModel.viewModelScope.cancel()
+    }
+
+    @Test
+    fun `public WS drop flags the cached WS quote as stale`() = runTest {
+        val wsFlow = MutableSharedFlow<Quote>()
+        every { getWatchlistUseCase() } returns MutableStateFlow(listOf("AAPL"))
+        every { getQuoteStreamUseCase("AAPL") } returns wsFlow
+        coEvery { getQuoteUseCase("AAPL") } returns Result.failure(IOException("timeout"))
+
+        createViewModel()
+        wsFlow.emit(fakeQuote.copy(source = "ws_public"))
+        assertTrue((viewModel.uiState.value as MarketDataUiState.Success).staleSymbols.isEmpty())
+
+        publicWsState.value = WsConnectionState.Disconnected
+        advanceTimeBy(2_001L)
+
+        val state = viewModel.uiState.value as MarketDataUiState.Success
+        assertEquals(setOf("AAPL"), state.staleSymbols)
+        assertEquals("ws_public", state.quotes["AAPL"]?.source)
+
+        // Cours WS après reconnexion → plus stale (flux jamais annulé)
+        publicWsState.value = WsConnectionState.Connected
+        wsFlow.emit(fakeQuote.copy(source = "ws_public", price = BigDecimal("180.00")))
+        val live = viewModel.uiState.value as MarketDataUiState.Success
+        assertTrue(live.staleSymbols.isEmpty())
+        assertEquals(BigDecimal("180.00"), live.quotes["AAPL"]?.price)
+
+        viewModel.viewModelScope.cancel()
+    }
+
+    @Test
+    fun `removing a symbol from the watchlist stops its REST polling`() = runTest {
+        publicWsState.value = WsConnectionState.Disconnected
+        val watchlist = MutableStateFlow(listOf("AAPL"))
+        every { getWatchlistUseCase() } returns watchlist
+        coEvery { getQuoteUseCase("AAPL") } returns Result.success(fakeQuote)
+
+        createViewModel()
+        advanceTimeBy(2_001L)
+        coVerify(exactly = 1) { getQuoteUseCase("AAPL") }
+
+        // Ancien bug (B-ws-b-2) : catch(Exception) attrapait la CancellationException et
+        // relançait un polling pour le symbole retiré.
+        watchlist.value = emptyList()
+        advanceTimeBy(120_000L)
+        coVerify(exactly = 1) { getQuoteUseCase("AAPL") }
+
+        viewModel.viewModelScope.cancel()
+    }
+
+    @Test
+    fun `no REST polling while the app is in background`() = runTest {
+        publicWsState.value = WsConnectionState.Disconnected
+        appForeground.value = false
+        every { getWatchlistUseCase() } returns MutableStateFlow(listOf("AAPL"))
+        coEvery { getQuoteUseCase("AAPL") } returns Result.success(fakeQuote)
+
+        createViewModel()
+        advanceTimeBy(120_000L)
+        coVerify(exactly = 0) { getQuoteUseCase(any()) }
 
         viewModel.viewModelScope.cancel()
     }

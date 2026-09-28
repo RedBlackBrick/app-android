@@ -12,6 +12,7 @@ import com.tradingplatform.app.domain.model.ActivityItem
 import com.tradingplatform.app.domain.usecase.activity.GetActivityFeedUseCase
 import com.tradingplatform.app.domain.usecase.auth.GetPortfolioIdUseCase
 import com.tradingplatform.app.domain.usecase.market.GetDefaultQuoteSymbolUseCase
+import com.tradingplatform.app.domain.usecase.market.GetPublicWsConnectionStateUseCase
 import com.tradingplatform.app.domain.usecase.market.GetQuoteStreamUseCase
 import com.tradingplatform.app.domain.usecase.market.GetQuoteUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetActiveStrategyCountUseCase
@@ -20,6 +21,7 @@ import com.tradingplatform.app.domain.usecase.portfolio.GetPortfolioNavUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPortfolioWsUpdatesUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetWsConnectionStateUseCase
 import com.tradingplatform.app.domain.usecase.risk.GetPortfolioCircuitBreakerStatusUseCase
+import com.tradingplatform.app.ui.common.QuoteFallbackController
 import com.tradingplatform.app.vpn.VpnNotConnectedException
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -35,7 +37,6 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import java.io.IOException
@@ -100,9 +101,6 @@ data class DashboardUiState(
     val circuitBreakerStatus: PortfolioCircuitBreakerStatus? = null,
 )
 
-// ── Poll interval (fallback REST) ─────────────────────────────────────────────
-private const val QUOTE_POLL_INTERVAL_MS = 30_000L
-
 /**
  * Délai initial de retry pour le flux WS privé (portfolio updates).
  * Backoff exponentiel : 5s → 10s → 20s → 40s → 60s max.
@@ -132,6 +130,7 @@ class DashboardViewModel @Inject constructor(
     private val getActivityFeedUseCase: GetActivityFeedUseCase,
     private val getActiveStrategyCountUseCase: GetActiveStrategyCountUseCase,
     private val getPortfolioCircuitBreakerStatusUseCase: GetPortfolioCircuitBreakerStatusUseCase,
+    getPublicWsConnectionStateUseCase: GetPublicWsConnectionStateUseCase,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(DashboardUiState())
@@ -178,16 +177,27 @@ class DashboardViewModel @Inject constructor(
             initialValue = false,
         )
 
-    /**
-     * Job du polling REST en cours — annulé quand le WS public prend le relais,
-     * rétabli si le WS échoue.
-     */
-    private var pollingJob: Job? = null
+    /** État de la connexion WS publique (cours) — consulté par [refresh]. */
+    private val publicWsState: StateFlow<WsConnectionState> = getPublicWsConnectionStateUseCase()
 
     /**
-     * Job d'abonnement au WS public en cours.
+     * Cours du Dashboard : flux WS public + fallback REST piloté par [publicWsState]
+     * (audit #13/#14). Le polling 30 s ne tourne que si le WS n'est pas Connected
+     * (debounce 2 s) et que l'app est au premier plan ; il s'arrête dès la reconnexion.
      */
-    private var wsQuoteJob: Job? = null
+    private val quoteFallback = QuoteFallbackController(
+        scope = viewModelScope,
+        connectionState = publicWsState,
+        isForeground = getPublicWsConnectionStateUseCase.isAppForeground(),
+        stream = { symbol -> getQuoteStreamUseCase(symbol) },
+        fetch = { symbol -> getQuoteUseCase(symbol) },
+        onQuote = { _, quote -> _uiState.update { it.copy(quote = QuoteUiState.Success(quote)) } },
+        onStale = { markQuoteStale() },
+        onFetchError = { _, e -> onQuoteFetchError(e) },
+    )
+
+    /** Job de surveillance du cours (WS + fallback REST). */
+    private var quoteWatchJob: Job? = null
 
     /**
      * Job de collection du flux WS privé (portfolio updates) — relancé automatiquement
@@ -238,8 +248,8 @@ class DashboardViewModel @Inject constructor(
         // Démarrer l'abonnement WS public pour les cours en temps réel.
         // Symbole résolu via [GetDefaultQuoteSymbolUseCase] — préférence utilisateur,
         // sinon premier symbole de la watchlist, sinon fallback hardcodé.
-        // Si le WS échoue (erreur de connexion, VPN coupé), le fallback polling REST
-        // prend le relais via startPollingFallback().
+        // Si le WS public n'est pas Connected (VPN coupé, serveur injoignable), le
+        // QuoteFallbackController bascule sur le polling REST puis l'arrête à la reconnexion.
         viewModelScope.launch {
             val symbol = getDefaultQuoteSymbolUseCase()
             dashboardQuoteSymbol = symbol
@@ -317,76 +327,24 @@ class DashboardViewModel @Inject constructor(
     }
 
     /**
-     * Démarre l'abonnement au WebSocket public pour les cours en temps réel.
+     * Démarre la surveillance du cours [symbol] : flux WS public (jamais annulé sur coupure →
+     * resouscription automatique) + polling REST 30 s tant que le WS public n'est pas
+     * Connected et que l'app est au premier plan (cf. [quoteFallback]).
      *
-     * Le flow [GetQuoteStreamUseCase] active la subscription WS à la collecte
-     * et la désactive à l'annulation. Si la connexion WS échoue (exception
-     * non transitoire), on bascule sur le polling REST via [startPollingFallback].
-     *
-     * La gestion VPN est identique au polling : [VpnNotConnectedException] transite
-     * le cours vers [QuoteUiState.Stale] sans bloquer l'UI.
+     * La souscription WS est ref-comptée côté client : si MarketData suit le même symbole
+     * et le retire de la watchlist, le Dashboard garde sa propre souscription (audit #13).
      */
     private fun startWsQuoteSubscription(symbol: String) {
-        wsQuoteJob?.cancel()
-        pollingJob?.cancel()
-        pollingJob = null
-
-        wsQuoteJob = viewModelScope.launch {
-            try {
-                Timber.tag(TAG).d("DashboardViewModel: starting public WS quote subscription for $symbol")
-                getQuoteStreamUseCase(symbol).collect { quote ->
-                    _uiState.update { it.copy(quote = QuoteUiState.Success(quote)) }
-                }
-            } catch (e: VpnNotConnectedException) {
-                // VPN coupé — garder la valeur précédente, basculer en Stale
-                _uiState.update { state ->
-                    val newQuote = when (val prev = state.quote) {
-                        is QuoteUiState.Success -> QuoteUiState.Stale(prev.data)
-                        is QuoteUiState.Stale -> prev
-                        else -> state.quote
-                    }
-                    state.copy(quote = newQuote)
-                }
-                // Basculer sur le polling REST comme fallback — le VPN peut se reconnecter
-                Timber.tag(TAG).w("DashboardViewModel: VPN not connected — falling back to REST polling")
-                startPollingFallback(symbol)
-            } catch (e: SocketTimeoutException) {
-                // Timeout transitoire — basculer sur le polling REST
-                Timber.tag(TAG).w("DashboardViewModel: WS quote timeout — falling back to REST polling")
-                startPollingFallback(symbol)
-            } catch (e: IOException) {
-                // Erreur réseau — basculer sur le polling REST
-                Timber.tag(TAG).w(e, "DashboardViewModel: WS quote IO error — falling back to REST polling")
-                startPollingFallback(symbol)
-            } catch (e: Exception) {
-                // Autre erreur non transitoire — basculer sur le polling REST
-                Timber.tag(TAG).e(e, "DashboardViewModel: unexpected WS error — falling back to REST polling")
-                startPollingFallback(symbol)
-            }
-        }
+        quoteWatchJob?.cancel()
+        Timber.tag(TAG).d("DashboardViewModel: watching quote $symbol (WS public + REST fallback)")
+        quoteWatchJob = quoteFallback.watch(symbol)
     }
 
-    /**
-     * Polling REST de secours — activé si le WebSocket public est indisponible.
-     *
-     * Utilise `while(isActive)` dans [viewModelScope] (jamais `repeatOnLifecycle`
-     * qui est une extension Lifecycle — non disponible dans un ViewModel).
-     * Côté UI, `collectAsStateWithLifecycle()` suspend automatiquement la
-     * collection quand l'app est en arrière-plan.
-     *
-     * Gestion des exceptions (CLAUDE.md §2 pattern polling Dashboard) :
-     * - [VpnNotConnectedException] → transition en Stale, poursuite du polling
-     * - [SocketTimeoutException] / [IOException] → transitoire, état inchangé
-     * - Autre → affiche erreur
-     */
-    private fun startPollingFallback(symbol: String) {
-        pollingJob?.cancel()
-        pollingJob = viewModelScope.launch {
-            Timber.tag(TAG).d("DashboardViewModel: starting REST polling fallback for $symbol")
-            while (isActive) {
-                fetchQuote(symbol)
-                delay(QUOTE_POLL_INTERVAL_MS)
-            }
+    /** WS public non live (debouncé) — le dernier cours affiché passe en [QuoteUiState.Stale]. */
+    private fun markQuoteStale() {
+        _uiState.update { state ->
+            val prev = state.quote
+            if (prev is QuoteUiState.Success) state.copy(quote = QuoteUiState.Stale(prev.data)) else state
         }
     }
 
@@ -441,9 +399,9 @@ class DashboardViewModel @Inject constructor(
                 _isRefreshing.set(false)
             }
         }
-        // Pour le cours : forcer un fetch REST immédiat si on est en mode polling,
-        // ou si le WS est actif le prochain update arrivera naturellement.
-        if (pollingJob?.isActive == true && dashboardQuoteSymbol.isNotEmpty()) {
+        // Pour le cours : forcer un fetch REST immédiat si le WS public n'est pas live
+        // (mode fallback) ; si le WS est Connected le prochain update arrivera naturellement.
+        if (publicWsState.value != WsConnectionState.Connected && dashboardQuoteSymbol.isNotEmpty()) {
             viewModelScope.launch { fetchQuote(dashboardQuoteSymbol) }
         }
     }
@@ -506,40 +464,30 @@ class DashboardViewModel @Inject constructor(
             }
     }
 
-    /**
-     * Fetches a single quote via REST (fallback). Three distinct error cases (CLAUDE.md §2):
-     * - VpnNotConnectedException → transition to Stale (keep last value) — not a blocking error
-     * - SocketTimeoutException / IOException → transient, keep previous state
-     * - Other → display error
-     */
+    /** One-shot REST fetch of the quote (pull-to-refresh while the WS public is down). */
     private suspend fun fetchQuote(symbol: String) {
         getQuoteUseCase(symbol)
             .onSuccess { quote ->
                 _uiState.update { it.copy(quote = QuoteUiState.Success(quote)) }
             }
-            .onFailure { e ->
-                when (e) {
-                    is VpnNotConnectedException -> {
-                        // VPN coupé — garder la valeur précédente, pas d'erreur bloquante
-                        _uiState.update { state ->
-                            val newQuote = when (val prev = state.quote) {
-                                is QuoteUiState.Success -> QuoteUiState.Stale(prev.data)
-                                is QuoteUiState.Stale -> prev // already stale, no change
-                                else -> state.quote
-                            }
-                            state.copy(quote = newQuote)
-                        }
-                    }
-                    is SocketTimeoutException, is IOException -> {
-                        // Transitoire — garder l'état précédent sans modification
-                        Unit
-                    }
-                    else -> {
-                        _uiState.update {
-                            it.copy(quote = QuoteUiState.Error(e.localizedMessage ?: "Erreur"))
-                        }
-                    }
-                }
+            .onFailure { e -> onQuoteFetchError(e) }
+    }
+
+    /**
+     * REST quote fetch failure (fallback polling or refresh). Three distinct cases (CLAUDE.md §2):
+     * - VpnNotConnectedException → transition to Stale (keep last value) — not a blocking error
+     * - SocketTimeoutException / IOException → transient, keep previous state
+     * - Other → display error
+     */
+    private fun onQuoteFetchError(e: Throwable) {
+        when (e) {
+            // VPN coupé — garder la valeur précédente, pas d'erreur bloquante
+            is VpnNotConnectedException -> markQuoteStale()
+            // Transitoire — garder l'état précédent sans modification
+            is SocketTimeoutException, is IOException -> Unit
+            else -> _uiState.update {
+                it.copy(quote = QuoteUiState.Error(e.localizedMessage ?: "Erreur"))
             }
+        }
     }
 }

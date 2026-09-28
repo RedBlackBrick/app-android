@@ -53,6 +53,11 @@ data class ExtendedColors(
     val cardSurface: Color,
     val cardSurfaceElevated: Color,
     val divider: Color,
+
+    // ── Qualité de la source de données marché (MarketDataScreen SourceQualityDot) ──
+    val dataRealtime: Color,
+    val dataPolling: Color,
+    val dataStale: Color,
 )
 
 // ── Valeurs light ─────────────────────────────────────────────────────────────
@@ -88,6 +93,10 @@ val lightExtendedColors = ExtendedColors(
     cardSurface = White,
     cardSurfaceElevated = Slate50,
     divider = Slate200,
+
+    dataRealtime = Emerald600,          // #059669 (emerald-600) — même teinte que success
+    dataPolling = Amber600,             // #d97706 (amber-600)   — même teinte que warning
+    dataStale = Slate500,               // #64748b (slate-500)   — gris neutre, visible sur fond clair
 )
 
 // ── Valeurs dark ──────────────────────────────────────────────────────────────
@@ -123,6 +132,10 @@ val darkExtendedColors = ExtendedColors(
     cardSurface = Slate900,
     cardSurfaceElevated = Slate800,
     divider = Slate700,
+
+    dataRealtime = Emerald400,          // #34d399 (emerald-400) — même teinte que success dark
+    dataPolling = Amber400,             // #fbbf24 (amber-400)   — même teinte que warning dark
+    dataStale = Slate400,               // #94a3b8 (slate-400)   — gris neutre, visible sur fond sombre
 )
 
 val LocalExtendedColors = staticCompositionLocalOf { darkExtendedColors }

@@ -52,7 +52,7 @@ fun PnlText(
         ),
         color = color,
         textAlign = TextAlign.End,
-        modifier = modifier.semantics {
+        modifier = modifier.semantics(mergeDescendants = true) {
             contentDescription = verboseDescription
         },
     )

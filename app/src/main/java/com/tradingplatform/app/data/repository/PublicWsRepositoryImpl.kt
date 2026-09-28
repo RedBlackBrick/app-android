@@ -3,8 +3,10 @@ package com.tradingplatform.app.data.repository
 import com.tradingplatform.app.data.websocket.PublicWsClient
 import com.tradingplatform.app.data.websocket.PublicWsEvent
 import com.tradingplatform.app.domain.model.Quote
+import com.tradingplatform.app.domain.model.WsConnectionState
 import com.tradingplatform.app.domain.repository.PublicWsRepository
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.map
@@ -21,6 +23,9 @@ import javax.inject.Inject
  * Gère le cycle de vie des subscriptions WS :
  * - Subscribe au symbol à la collecte du flow (via [onStart]).
  * - Unsubscribe au symbol à l'annulation du flow (via [onCompletion]).
+ * - Le client ref-compte les subscriptions : deux flows actifs sur le même symbol
+ *   (Dashboard + MarketData) partagent une subscription serveur.
+ * - [connectionState] / [isAppForeground] sont relayés tels quels depuis [PublicWsClient].
  *
  * La conversion [PublicWsEvent.MarketData] → [Quote] est faite ici.
  * Les champs `change` et `changePercent` ne sont pas fournis par le WS public —
@@ -44,6 +49,12 @@ class PublicWsRepositoryImpl @Inject constructor(
             .onStart { wsClient.subscribe(upper) }
             .onCompletion { wsClient.unsubscribe(upper) }
     }
+
+    override val connectionState: StateFlow<WsConnectionState>
+        get() = wsClient.connectionState
+
+    override val isAppForeground: StateFlow<Boolean>
+        get() = wsClient.isAppForeground
 
     companion object {
         private const val QUOTE_SAMPLE_INTERVAL_MS = 250L

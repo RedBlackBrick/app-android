@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <!-- Hôte nu pour BiometricLockOverlayInstrumentedTest
+             (createAndroidComposeRule<FragmentActivity>()). BiometricPrompt exige une
+             FragmentActivity dans la chaîne de Context (CLAUDE.md §4) ; androidx.compose.ui:
+             ui-test-manifest (debugImplementation) ne déclare que ComponentActivity par
+             défaut, donc cette Activity doit être déclarée explicitement ici pour être
+             lançable par le test runner. Pas de logique métier ni de Hilt attaché : le test
+             construit BiometricManager/KeystoreManager directement. -->
+        <activity
+            android:name="androidx.fragment.app.FragmentActivity"
+            android:exported="true"
+            android:theme="@style/Theme.TradingPlatform" />
+    </application>
+
+</manifest>

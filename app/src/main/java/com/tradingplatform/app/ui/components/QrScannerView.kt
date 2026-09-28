@@ -130,8 +130,15 @@ private fun CameraPreviewWithQrScanner(
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
     val barcodeScanner = remember { BarcodeScanning.getClient() }
 
+    // Held so onDispose can explicitly release the camera — bindToLifecycle() already unbinds
+    // on lifecycle stop, but an explicit unbindAll() here guards against re-entering this
+    // composable (e.g. rapid nav between ScanVpsQrScreen/ScanDeviceQrScreen) leaving the
+    // camera bound to a now-disposed AndroidView and causing "camera already in use" errors.
+    var cameraProvider by remember { mutableStateOf<ProcessCameraProvider?>(null) }
+
     DisposableEffect(Unit) {
         onDispose {
+            cameraProvider?.unbindAll()
             cameraExecutor.shutdown()
             barcodeScanner.close()
         }
@@ -146,7 +153,8 @@ private fun CameraPreviewWithQrScanner(
                 val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
 
                 cameraProviderFuture.addListener({
-                    val cameraProvider = cameraProviderFuture.get()
+                    val provider = cameraProviderFuture.get()
+                    cameraProvider = provider
 
                     val preview = Preview.Builder().build().also {
                         it.surfaceProvider = previewView.surfaceProvider
@@ -194,8 +202,8 @@ private fun CameraPreviewWithQrScanner(
                         }
 
                     try {
-                        cameraProvider.unbindAll()
-                        cameraProvider.bindToLifecycle(
+                        provider.unbindAll()
+                        provider.bindToLifecycle(
                             lifecycleOwner,
                             CameraSelector.DEFAULT_BACK_CAMERA,
                             preview,

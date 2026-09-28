@@ -366,20 +366,45 @@ dependencies {
     androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.compose.ui.test)
     debugImplementation(libs.compose.ui.test.manifest)
+
+    // androidTest (instrumentation — job CI `instrumented`, Gradle Managed Devices)
+    androidTestImplementation(libs.room.testing)     // MigrationTest (MigrationTestHelper)
+    androidTestImplementation(libs.test.core)        // InstrumentationRegistry
+    androidTestImplementation(libs.test.runner)      // AndroidJUnitRunner (testInstrumentationRunner)
+    androidTestImplementation(libs.test.rules)       // ActivityScenarioRule et rules Espresso
+    androidTestImplementation(libs.test.ext.junit)   // AndroidJUnit4
+    androidTestImplementation(libs.okhttp.mockwebserver)  // SetupSmokeTest (MobileProvisioningRepositoryImpl réel)
 }
 ```
 
+Pas de `hilt-android-testing`/`kspAndroidTest` hilt-compiler pour l'instant : aucun androidTest
+n'a besoin du graphe Hilt (`BiometricLockOverlayInstrumentedTest`, `EncryptedDataStoreResetTest`,
+`SealedBoxHelperInstrumentedTest` et `SetupSmokeTest` construisent leurs objets directement —
+`BiometricManager`, `KeystoreManager`, `EncryptedDataStore(context)`, `SealedBoxHelper()` et
+`MobileProvisioningRepositoryImpl` ont tous des constructeurs publics utilisables hors DI, par
+design). `testInstrumentationRunner` reste `androidx.test.runner.AndroidJUnitRunner` — pas de
+`HiltTestRunner` tant qu'aucun androidTest n'utilise `@HiltAndroidTest`.
+
 ### CI/CD — secrets non commites
 
-Le workflow reel vit dans `.github/workflows/android.yml` (job `unit`, JDK 17 temurin —
+Le workflow reel vit dans `.github/workflows/android.yml` (JDK 17 temurin —
 aligne sur `compileOptions`/`kotlin { jvmToolchain(17) }` dans `app/build.gradle.kts` et sur
-la compatibilite AGP 9.0.1 / Gradle 9.2.1). Il lance
-`./gradlew testDebugUnitTest lintDebug --no-daemon --stacktrace` et uploade
-`app/build/reports` en artifact (`if: always()`). Un job `instrumented` (Gradle Managed
-Devices api30/api34) est present mais commente — a activer en phase 5 (voir
-`audit/plan-ui-tests-ci.md`).
+la compatibilite AGP 9.0.1 / Gradle 9.2.1), avec deux jobs :
 
-Fichiers a injecter via variables d'environnement en CI :
+- `unit` : `./gradlew testDebugUnitTest lintDebug --no-daemon --stacktrace`, uploade
+  `app/build/reports` en artifact (`if: always()`).
+- `instrumented` (`needs: unit`) : Gradle Managed Devices `api30`/`api34` (déclarés dans
+  `android.testOptions.managedDevices.localDevices`, `app/build.gradle.kts` — images `aosp-atd`,
+  Pixel 5/Pixel 6, voir `audit/plan-ui-tests-ci.md` PART 2 §1). Active KVM sur le runner
+  (`udevadm ... --name-match=kvm`), lance
+  `./gradlew api30DebugAndroidTest api34DebugAndroidTest --no-daemon --stacktrace
+  -Pandroid.testoptions.manageddevices.emulator.gpu=swiftshader_indirect` (pas de GPU materiel
+  sur `ubuntu-latest` → rendu logiciel), uploade `app/build/reports/androidTests`.
+  Tests exécutés : `MigrationTest` (baseline Room v7), `BiometricLockOverlayInstrumentedTest`,
+  `EncryptedDataStoreResetTest`, `SealedBoxHelperInstrumentedTest`, `SetupSmokeTest`.
+
+Fichiers a injecter via variables d'environnement en CI (les deux jobs les redecodent
+independamment — chacun tourne sur un runner frais) :
 - `local.properties` -> encoder en base64, decoder en step CI avant le build
 - `google-services.json` -> stocker comme secret CI, ecrire dans `app/` au runtime
   (le plugin `com.google.gms.google-services` cherche `app/google-services.json`, a cote du
@@ -394,3 +419,11 @@ Fichiers a injecter via variables d'environnement en CI :
 - name: Decode google-services.json
   run: echo "${{ secrets.GOOGLE_SERVICES_B64 }}" | base64 -d > app/google-services.json
 ```
+
+Point ouvert non verifie (personne n'a pu faire tourner le job en CI pendant cette PR — voir
+`docs/local-dev-testing.md` pour la contrainte RAM locale) : sur `ubuntu-latest`, la license SDK
+`android-sdk-license` couvrant les images systeme `aosp-atd` est normalement deja acceptee sur
+l'image du runner GitHub-hosted, mais si `api30DebugAndroidTest`/`api34DebugAndroidTest` echouent
+avec une erreur de licence non acceptee, ajouter une etape qui accepte les licences
+(`yes | sdkmanager --licenses` ou l'option `-Pandroid.testoptions.manageddevices.emulator.accept.license=true`
+selon la version d'AGP) avant l'etape "Instrumented tests".

@@ -14,8 +14,11 @@ import com.tradingplatform.app.domain.usecase.pairing.StoreDevicePairingResultUs
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import timber.log.Timber
@@ -83,9 +86,27 @@ class PairingViewModel @Inject constructor(
     private val _step = MutableStateFlow<PairingStep>(PairingStep.Idle)
     val step: StateFlow<PairingStep> = _step.asStateFlow()
 
-    /** Device info captured when BothScanned is reached — persists through the pairing flow. */
+    /** Device info captured as soon as the Radxa QR is scanned — persists through the pairing flow. */
     private val _deviceInfo = MutableStateFlow<DevicePairingInfo?>(null)
     val deviceInfo: StateFlow<DevicePairingInfo?> = _deviceInfo.asStateFlow()
+
+    /**
+     * VPS session captured as soon as the VPS QR is scanned — persists through the pairing
+     * flow so [PairingProgressScreen] can display [PairingSession.deviceWgIp] for confirmation
+     * (CLAUDE.md §8). Never sent anywhere — display only.
+     */
+    private val _sessionInfo = MutableStateFlow<PairingSession?>(null)
+    val sessionInfo: StateFlow<PairingSession?> = _sessionInfo.asStateFlow()
+
+    /**
+     * One-shot QR scan errors (misread while a QR was already scanned) — a snackbar + haptic
+     * event, distinct from [PairingStep.Error] which is reserved for the very first misread
+     * (nothing scanned yet). [MutableSharedFlow] with no replay: a screen not currently
+     * collecting (e.g. recreated mid-emission) simply misses it, which is fine for a transient
+     * "try again" hint.
+     */
+    private val _scanErrors = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    val scanErrors: SharedFlow<String> = _scanErrors.asSharedFlow()
 
     /** Tracks the in-flight pairing coroutine so [reset] can abort a 120 s WaitingConfirmation. */
     private var pairingJob: Job? = null
@@ -114,10 +135,7 @@ class PairingViewModel @Inject constructor(
                 return@launch
             }
             Timber.d("PairingViewModel: VPS QR parse failed — ${vpsResult.exceptionOrNull()?.message}")
-            _step.value = PairingStep.Error(
-                message = "QR non reconnu, réessayez",
-                retryable = true,
-            )
+            onUnrecognizedQr()
         }
     }
 
@@ -138,21 +156,37 @@ class PairingViewModel @Inject constructor(
                 return@launch
             }
             Timber.d("PairingViewModel: Device QR parse failed — ${deviceResult.exceptionOrNull()?.message}")
+            onUnrecognizedQr()
+        }
+    }
+
+    /**
+     * Neither parser recognized the scanned QR.
+     *
+     * If nothing has been scanned yet ([PairingStep.Idle]), this is the very first attempt —
+     * transition to [PairingStep.Error] as documented in CLAUDE.md §8. If one QR is already
+     * scanned (or both), a misread must NOT discard that progress: keep [_step] as-is and
+     * emit a one-shot [_scanErrors] event so the screen can show a snackbar + haptic without
+     * losing the already-scanned QR.
+     */
+    private suspend fun onUnrecognizedQr() {
+        if (_step.value is PairingStep.Idle) {
             _step.value = PairingStep.Error(
                 message = "QR non reconnu, réessayez",
                 retryable = true,
             )
+        } else {
+            _scanErrors.emit("QR non reconnu, réessayez")
         }
     }
 
     private fun applyVpsScan(session: PairingSession) {
         Timber.d("PairingViewModel: VPS QR parsed — sessionId=${session.sessionId} pin=[REDACTED]")
+        _sessionInfo.value = session
         val current = _step.value
         _step.value = when (current) {
-            is PairingStep.DeviceScanned -> {
-                _deviceInfo.value = current.device
+            is PairingStep.DeviceScanned ->
                 PairingStep.BothScanned(session = session, device = current.device)
-            }
             is PairingStep.BothScanned ->
                 PairingStep.BothScanned(session = session, device = current.device)
             else -> PairingStep.VpsScanned(session = session)
@@ -161,12 +195,11 @@ class PairingViewModel @Inject constructor(
 
     private fun applyDeviceScan(device: DevicePairingInfo) {
         Timber.d("PairingViewModel: Device QR parsed — deviceId=${device.deviceId} ip=${device.localIp}")
+        _deviceInfo.value = device
         val current = _step.value
         _step.value = when (current) {
-            is PairingStep.VpsScanned -> {
-                _deviceInfo.value = device
+            is PairingStep.VpsScanned ->
                 PairingStep.BothScanned(session = current.session, device = device)
-            }
             is PairingStep.BothScanned ->
                 PairingStep.BothScanned(session = current.session, device = device)
             else -> PairingStep.DeviceScanned(device = device)
@@ -282,6 +315,7 @@ class PairingViewModel @Inject constructor(
         pairingJob = null
         _step.value = PairingStep.Idle
         _deviceInfo.value = null
+        _sessionInfo.value = null
     }
 
     /**
@@ -293,5 +327,6 @@ class PairingViewModel @Inject constructor(
         pairingJob = null
         _step.value = PairingStep.Idle
         _deviceInfo.value = null
+        _sessionInfo.value = null
     }
 }

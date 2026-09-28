@@ -66,59 +66,59 @@ jobs:
           retention-days: 14
 
   # ── Job instrumente (Gradle Managed Devices) ────────────────────────────────
-  # Desactive pour l'instant : necessite KVM sur le runner et les prerequis Phase 1
-  # (verrou biometrique reel, baseline Room v7, onboarding) pour que MigrationTest et les
-  # futurs tests androidTest (BiometricLockOverlayTest, SetupSmokeTest,
-  # SealedBoxHelperInstrumentedTest) soient significatifs. A activer en Phase 5
-  # (voir audit/PLAN.md Phase 5 et audit/plan-ui-tests-ci.md PART 2 §1).
-  #
-  # instrumented:
-  #   name: Instrumented tests (Gradle Managed Devices)
-  #   needs: unit
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - name: Checkout
-  #       uses: actions/checkout@v4
-  #
-  #     - name: Set up JDK 17 (temurin)
-  #       uses: actions/setup-java@v4
-  #       with:
-  #         distribution: temurin
-  #         java-version: "17"
-  #
-  #     - name: Setup Gradle
-  #       uses: gradle/actions/setup-gradle@v4
-  #
-  #     - name: Decode local.properties
-  #       env:
-  #         LOCAL_PROPERTIES_B64: ${{ secrets.LOCAL_PROPERTIES_B64 }}
-  #       run: echo "$LOCAL_PROPERTIES_B64" | base64 -d > local.properties
-  #
-  #     - name: Decode google-services.json
-  #       env:
-  #         GOOGLE_SERVICES_B64: ${{ secrets.GOOGLE_SERVICES_B64 }}
-  #       run: echo "$GOOGLE_SERVICES_B64" | base64 -d > app/google-services.json
-  #
-  #     # KVM : Gradle Managed Devices (emulateur) a besoin de l'acceleration materielle sur
-  #     # le runner ubuntu-latest (sinon l'emulateur tourne en mode logiciel, trop lent/instable).
-  #     - name: Enable KVM
-  #       run: |
-  #         echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
-  #           | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-  #         sudo udevadm control --reload-rules
-  #         sudo udevadm trigger --name-match=kvm
-  #
-  #     # Devices declares dans android.testOptions.managedDevices (api30, api34) —
-  #     # voir audit/plan-ui-tests-ci.md PART 2 §1.
-  #     - name: Instrumented tests
-  #       run: >
-  #         ./gradlew api30DebugAndroidTest api34DebugAndroidTest
-  #         --no-daemon --stacktrace -Pandroid.testoptions.manageddevices.emulator.gpu=swiftshader_indirect
-  #
-  #     - name: Upload instrumented test reports
-  #       if: always()
-  #       uses: actions/upload-artifact@v4
-  #       with:
-  #         name: instrumented-reports
-  #         path: app/build/reports
-  #         retention-days: 14
+  # Active en Phase 5 (audit/PLAN.md Phase 5, audit/plan-ui-tests-ci.md PART 2 §1) : les
+  # prerequis (verrou biometrique reel, baseline Room v7, onboarding) sont en place, les
+  # devices api30/api34 sont declares dans android.testOptions.managedDevices (app/build.gradle.kts)
+  # et les androidTest significatifs existent (MigrationTest, BiometricLockOverlayInstrumentedTest,
+  # EncryptedDataStoreResetTest, SealedBoxHelperInstrumentedTest, SetupSmokeTest).
+  instrumented:
+    name: Instrumented tests (Gradle Managed Devices)
+    needs: unit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17 (temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Decode local.properties
+        env:
+          LOCAL_PROPERTIES_B64: ${{ secrets.LOCAL_PROPERTIES_B64 }}
+        run: echo "$LOCAL_PROPERTIES_B64" | base64 -d > local.properties
+
+      - name: Decode google-services.json
+        env:
+          GOOGLE_SERVICES_B64: ${{ secrets.GOOGLE_SERVICES_B64 }}
+        run: echo "$GOOGLE_SERVICES_B64" | base64 -d > app/google-services.json
+
+      # KVM : Gradle Managed Devices (emulateur) a besoin de l'acceleration materielle sur
+      # le runner ubuntu-latest (sinon l'emulateur tourne en mode logiciel, trop lent/instable).
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      # Devices declares dans android.testOptions.managedDevices (api30, api34) —
+      # voir audit/plan-ui-tests-ci.md PART 2 §1. gpu=swiftshader_indirect : rendu logiciel,
+      # pas de GPU materiel sur le runner ubuntu-latest.
+      - name: Instrumented tests
+        run: >
+          ./gradlew api30DebugAndroidTest api34DebugAndroidTest
+          --no-daemon --stacktrace -Pandroid.testoptions.manageddevices.emulator.gpu=swiftshader_indirect
+
+      - name: Upload instrumented test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instrumented-reports
+          path: app/build/reports/androidTests
+          retention-days: 14

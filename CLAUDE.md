@@ -354,8 +354,9 @@ section a eu une erreur réseau transitoire.
 
 ### Données de marché — stratégie
 
-- **Cours (Dashboard)** : polling REST — `GET /v1/market-data/quote/{symbol}` toutes les **30 secondes** via `while(isActive)` dans `viewModelScope`
-- **Cours (MarketDataScreen)** : souscription WebSocket public `wss://vps/ws/public` par symbole de la watchlist, throttle `Flow.sample(250ms)`, avec fallback REST
+- **Cours (Dashboard + MarketDataScreen)** : WebSocket public `wss://vps/ws/public` (symbole par défaut pour le Dashboard, chaque symbole de la watchlist pour MarketData), throttle `Flow.sample(250ms)`, via le helper partagé `ui/common/QuoteFallbackController` — ne jamais recopier une boucle « collect WS → catch → polling » dans un ViewModel
+- **Subscriptions WS ref-comptées** : `PublicWsClient` compte les collecteurs par symbole — frame `subscribe` seulement à 0→1, `unsubscribe` seulement à 1→0, resouscription de toutes les clés sur `onOpen`, fermeture quand plus aucun symbole. Dashboard et MarketData peuvent donc suivre le même symbole sans se couper mutuellement
+- **Fallback REST piloté par l'état** : `PublicWsClient.connectionState` (`WsConnectionState` : `Connecting` à l'ouverture / pendant le backoff, `Connected` sur onOpen, `Disconnected` sur onFailure/onClosed/disconnect, `Degraded` à partir de 3 tentatives de reconnexion) est exposé via `PublicWsRepository` + `GetPublicWsConnectionStateUseCase` (qui expose aussi `isAppForeground()`). Le flux WS `quoteUpdates` **ne lève jamais** sur coupure — un `catch` autour de sa collecte est du code mort. `QuoteFallbackController` collecte le flux WS en permanence (jamais annulé → resouscription automatique après reconnexion) et, quand l'état n'est pas `Connected` depuis **2 s** (debounce ; `Connected` est propagé immédiatement), appelle `onStale` puis polle `GET /v1/market-data/quote/{symbol}` toutes les **30 secondes** — uniquement si l'app est au premier plan. Le polling s'arrête dès le retour à `Connected` (`collectLatest`). Dans `openWebSocket`, un `catch (e: Exception)` doit relancer `CancellationException`
 - **Portfolio (P&L, positions)** : mises à jour temps réel via `WsRepository` (WebSocket `wss://vps/v1/ws/private`) en complément du polling REST
 - **Positions live** : les `position_update` du WS privé sont mergés dans `PositionsViewModel` pour mettre à jour `currentPrice` et `unrealizedPnl` en temps réel (affichage via `AnimatedPnlText`)
 - **Widgets** : rafraîchissement inclus dans le cycle WorkManager **5 min**
@@ -366,41 +367,38 @@ La table Room `quotes` persiste le dernier cours connu (TTL 10 min) pour le `Quo
 La table Room `watchlist` persiste les symboles suivis par l'utilisateur (pas de TTL).
 L'écran Dashboard ne persiste pas les cours — il affiche uniquement les données live ou rien.
 
-**Gestion des exceptions dans le polling Dashboard** — trois cas distincts à traiter dans le ViewModel.
+**Gestion des exceptions du fallback REST Dashboard** — trois cas distincts, traités dans le
+callback `onFetchError` du `QuoteFallbackController` (le controller relance lui-même une
+`CancellationException` encapsulée dans un `Result`).
 
 `repeatOnLifecycle` est une extension de `Lifecycle` (Activity/Fragment) — **non utilisable
-dans un ViewModel**. Le polling se fait via `while(isActive)` dans `viewModelScope`. Côté UI,
-`collectAsStateWithLifecycle()` suspend automatiquement la collection quand l'app est en
-arrière-plan.
+dans un ViewModel**. Le polling (`while(isActive)` + `delay(30_000)`) vit dans le controller,
+lancé dans `viewModelScope` ; la pause en arrière-plan passe par
+`GetPublicWsConnectionStateUseCase.isAppForeground()` (ProcessLifecycleOwner côté data). Côté UI,
+`collectAsStateWithLifecycle()` suspend en plus la collection quand l'app est en arrière-plan.
 
 ```kotlin
 // Dans DashboardViewModel — pattern correct
-init {
-    viewModelScope.launch {
-        while (isActive) {
-            getQuoteUseCase(symbol)
-                .onSuccess { _quoteState.value = QuoteUiState.Success(it) }
-                .onFailure { e ->
-                    when (e) {
-                        is VpnNotConnectedException ->
-                            // VPN coupé — garder la valeur précédente, pas d'erreur bloquante
-                            _quoteState.update { prev ->
-                                if (prev is QuoteUiState.Success) QuoteUiState.Stale(prev.data)
-                                else prev
-                            }
-                        is SocketTimeoutException, is IOException ->
-                            Unit  // transitoire — garder l'état précédent
-                        else ->
-                            _quoteState.value = QuoteUiState.Error(e.localizedMessage ?: "Erreur")
-                    }
-                }
-            delay(30_000)
+private val quoteFallback = QuoteFallbackController(
+    scope = viewModelScope,
+    connectionState = getPublicWsConnectionStateUseCase(),
+    isForeground = getPublicWsConnectionStateUseCase.isAppForeground(),
+    stream = { getQuoteStreamUseCase(it) },
+    fetch = { getQuoteUseCase(it) },
+    onQuote = { _, q -> _uiState.update { it.copy(quote = QuoteUiState.Success(q)) } },
+    onStale = { markQuoteStale() },                          // Success → Stale(prev.data)
+    onFetchError = { _, e ->
+        when (e) {
+            is VpnNotConnectedException -> markQuoteStale()  // VPN coupé — pas d'erreur bloquante
+            is SocketTimeoutException, is IOException -> Unit // transitoire — état inchangé
+            else -> _uiState.update { it.copy(quote = QuoteUiState.Error(e.localizedMessage ?: "Erreur")) }
         }
-    }
-}
+    },
+)
+// quoteWatchJob = quoteFallback.watch(symbol) — annuler le Job = unsubscribe ref-compté + arrêt du polling
 
 // Dans le Composable — collectAsStateWithLifecycle() gère le lifecycle
-val quoteState by viewModel.quoteState.collectAsStateWithLifecycle()
+val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 ```
 
 ### WebSocket privé — PrivateWsClient

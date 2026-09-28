@@ -54,11 +54,7 @@ fun VpnStatusBanner(
         modifier = modifier,
     ) {
         Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .semantics {
-                    contentDescription = if (isConnecting) "Connexion au VPN..." else "VPN déconnecté"
-                },
+            modifier = Modifier.fillMaxWidth(),
             color = if (isConnecting) MaterialTheme.colorScheme.secondaryContainer else extendedColors.warningContainer,
         ) {
             Row(
@@ -68,27 +64,42 @@ fun VpnStatusBanner(
                 horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (isConnecting) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(Spacing.lg),
-                        strokeWidth = Spacing.xs,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer
-                    )
-                } else {
-                    Icon(
-                        imageVector = Icons.Default.Warning,
-                        contentDescription = null,
-                        tint = extendedColors.onWarningContainer,
-                        modifier = Modifier.size(Spacing.lg),
+                // Icon + text merged into a single accessibility node — the reconnect button
+                // stays outside this group so it remains its own focusable/actionable target.
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .semantics(mergeDescendants = true) {
+                            contentDescription = if (isConnecting) {
+                                "Connexion au VPN..."
+                            } else {
+                                "VPN déconnecté — données en cache"
+                            }
+                        },
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (isConnecting) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(Spacing.lg),
+                            strokeWidth = Spacing.xs,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = null,
+                            tint = extendedColors.onWarningContainer,
+                            modifier = Modifier.size(Spacing.lg),
+                        )
+                    }
+
+                    Text(
+                        text = if (isConnecting) "Connexion au VPN en cours..." else "VPN déconnecté — données en cache",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (isConnecting) MaterialTheme.colorScheme.onSecondaryContainer else extendedColors.onWarningContainer,
                     )
                 }
-                
-                Text(
-                    text = if (isConnecting) "Connexion au VPN en cours..." else "VPN déconnecté — données en cache",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = if (isConnecting) MaterialTheme.colorScheme.onSecondaryContainer else extendedColors.onWarningContainer,
-                    modifier = Modifier.weight(1f)
-                )
 
                 if (isDisconnected && onReconnect != null) {
                     IconButton(

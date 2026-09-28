@@ -50,7 +50,7 @@ fun MoneyText(
         ),
         color = MaterialTheme.colorScheme.onSurface,
         textAlign = TextAlign.End,
-        modifier = modifier.semantics {
+        modifier = modifier.semantics(mergeDescendants = true) {
             contentDescription = "Valeur : $formatted"
         },
     )

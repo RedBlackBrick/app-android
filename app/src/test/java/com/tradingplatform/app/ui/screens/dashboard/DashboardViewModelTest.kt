@@ -8,6 +8,7 @@ import com.tradingplatform.app.domain.model.PnlSummary
 import com.tradingplatform.app.domain.model.Quote
 import com.tradingplatform.app.domain.usecase.activity.GetActivityFeedUseCase
 import com.tradingplatform.app.domain.usecase.auth.GetPortfolioIdUseCase
+import com.tradingplatform.app.domain.usecase.market.GetPublicWsConnectionStateUseCase
 import com.tradingplatform.app.domain.usecase.market.GetQuoteStreamUseCase
 import com.tradingplatform.app.domain.usecase.market.GetQuoteUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPnlUseCase
@@ -18,10 +19,12 @@ import com.tradingplatform.app.domain.usecase.portfolio.GetWsConnectionStateUseC
 import com.tradingplatform.app.util.MainDispatcherRule
 import com.tradingplatform.app.vpn.VpnNotConnectedException
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flow
@@ -57,6 +60,11 @@ class DashboardViewModelTest {
         mockk<com.tradingplatform.app.domain.usecase.portfolio.GetActiveStrategyCountUseCase>()
     private val getPortfolioCircuitBreakerStatusUseCase =
         mockk<com.tradingplatform.app.domain.usecase.risk.GetPortfolioCircuitBreakerStatusUseCase>()
+    private val getPublicWsConnectionStateUseCase = mockk<GetPublicWsConnectionStateUseCase>()
+
+    /** État du WS public (cours) — Disconnected par défaut → fallback REST après le debounce 2 s. */
+    private val publicWsState = MutableStateFlow(WsConnectionState.Disconnected)
+    private val appForeground = MutableStateFlow(true)
 
     private lateinit var viewModel: DashboardViewModel
 
@@ -104,8 +112,11 @@ class DashboardViewModelTest {
         every { getPortfolioWsUpdatesUseCase() } returns emptyFlow()
         // WS connection state — Connected par défaut
         every { getWsConnectionStateUseCase() } returns MutableStateFlow(WsConnectionState.Connected)
-        // WS public — par défaut, échec immédiat → déclenche le fallback polling REST
-        every { getQuoteStreamUseCase(any()) } returns flow { throw IOException("WS not available in tests") }
+        // WS public — aucun cours par défaut ; l'état Disconnected déclenche le fallback REST
+        // (audit #14 : le fallback est piloté par connectionState, plus par une exception du flux).
+        every { getQuoteStreamUseCase(any()) } returns emptyFlow()
+        every { getPublicWsConnectionStateUseCase() } returns publicWsState
+        every { getPublicWsConnectionStateUseCase.isAppForeground() } returns appForeground
         // Activity feed — empty flow by default (not the focus of these tests)
         every { getActivityFeedUseCase() } returns emptyFlow()
         coEvery { getDefaultQuoteSymbolUseCase() } returns "AAPL"
@@ -127,7 +138,11 @@ class DashboardViewModelTest {
         getActivityFeedUseCase = getActivityFeedUseCase,
         getActiveStrategyCountUseCase = getActiveStrategyCountUseCase,
         getPortfolioCircuitBreakerStatusUseCase = getPortfolioCircuitBreakerStatusUseCase,
+        getPublicWsConnectionStateUseCase = getPublicWsConnectionStateUseCase,
     ).also { viewModel = it }
+
+    /** Debounce Disconnected du QuoteFallbackController (2 s) + marge. */
+    private val fallbackDebounce = 2_001L
 
     // ── portfolioId ───────────────────────────────────────────────────────────
 
@@ -179,11 +194,13 @@ class DashboardViewModelTest {
     }
 
     // ── QuoteUiState — via polling REST fallback ───────────────────────────────
-    // Les tests de quote passent par le chemin de fallback REST (WS mocké en échec immédiat).
+    // Le WS public est Disconnected par défaut : le QuoteFallbackController démarre le
+    // polling REST après le debounce de 2 s, puis toutes les 30 s.
 
     @Test
     fun `quote emits Success when REST use case returns data`() = runTest {
         createViewModel()
+        advanceTimeBy(fallbackDebounce)
         val state = viewModel.uiState.value.quote
         assertTrue("Expected Success, got $state", state is QuoteUiState.Success)
         assertEquals(fakeQuote, (state as QuoteUiState.Success).data)
@@ -199,12 +216,13 @@ class DashboardViewModelTest {
         )
 
         createViewModel()
+        advanceTimeBy(fallbackDebounce)
 
-        // After init, state should be Success
+        // After the first poll, state should be Success
         assertTrue(viewModel.uiState.value.quote is QuoteUiState.Success)
 
         // Advance past the 30s poll delay to trigger second call
-        advanceTimeBy(31_000L)
+        advanceTimeBy(30_000L)
 
         val state = viewModel.uiState.value.quote
         assertTrue("Expected Stale after VPN disconnect, got $state", state is QuoteUiState.Stale)
@@ -218,6 +236,7 @@ class DashboardViewModelTest {
         coEvery { getQuoteUseCase(any()) } returns Result.failure(VpnNotConnectedException())
 
         createViewModel()
+        advanceTimeBy(fallbackDebounce)
 
         val state = viewModel.uiState.value.quote
         // Should remain Loading (not transition to Stale since there's no previous data)
@@ -236,12 +255,13 @@ class DashboardViewModelTest {
         )
 
         createViewModel()
+        advanceTimeBy(fallbackDebounce)
 
         // First poll: success
         assertTrue(viewModel.uiState.value.quote is QuoteUiState.Success)
 
         // Advance past the 30s poll delay
-        advanceTimeBy(31_000L)
+        advanceTimeBy(30_000L)
 
         // Should still be Success (IOException kept previous state)
         val state = viewModel.uiState.value.quote
@@ -253,6 +273,7 @@ class DashboardViewModelTest {
     fun `unknown exception transitions to Error`() = runTest {
         coEvery { getQuoteUseCase(any()) } returns Result.failure(IllegalStateException("Unknown"))
         createViewModel()
+        advanceTimeBy(fallbackDebounce)
         val state = viewModel.uiState.value.quote
         assertTrue("Expected Error on unknown exception, got $state", state is QuoteUiState.Error)
         viewModel.viewModelScope.cancel()
@@ -315,15 +336,101 @@ class DashboardViewModelTest {
 
     @Test
     fun `quote emits Success from WS stream when available`() = runTest {
+        publicWsState.value = WsConnectionState.Connected
         val wsQuote = fakeQuote.copy(source = "ws_public")
-        // WS stream retourne un quote immédiatement — pas d'erreur
         every { getQuoteStreamUseCase(any()) } returns flow { emit(wsQuote) }
 
         createViewModel()
+        advanceTimeBy(60_000L)
 
         val state = viewModel.uiState.value.quote
         assertTrue("Expected Success from WS, got $state", state is QuoteUiState.Success)
         assertEquals("ws_public", (state as QuoteUiState.Success).data.source)
+        // WS Connected → aucun polling REST
+        coVerify(exactly = 0) { getQuoteUseCase(any()) }
+        viewModel.viewModelScope.cancel()
+    }
+
+    @Test
+    fun `no REST polling while public WS is Connected`() = runTest {
+        publicWsState.value = WsConnectionState.Connected
+        createViewModel()
+        advanceTimeBy(120_000L)
+        coVerify(exactly = 0) { getQuoteUseCase(any()) }
+        viewModel.viewModelScope.cancel()
+    }
+
+    @Test
+    fun `short disconnection within the debounce window does not start polling`() = runTest {
+        publicWsState.value = WsConnectionState.Connected
+        createViewModel()
+
+        publicWsState.value = WsConnectionState.Connecting
+        advanceTimeBy(1_500L)
+        publicWsState.value = WsConnectionState.Connected
+        advanceTimeBy(60_000L)
+
+        coVerify(exactly = 0) { getQuoteUseCase(any()) }
+        viewModel.viewModelScope.cancel()
+    }
+
+    @Test
+    fun `public WS drop marks the WS quote Stale then polls REST`() = runTest {
+        publicWsState.value = WsConnectionState.Connected
+        val wsFlow = MutableSharedFlow<Quote>()
+        every { getQuoteStreamUseCase(any()) } returns wsFlow
+        // REST en échec transitoire → le Stale reste visible
+        coEvery { getQuoteUseCase(any()) } returns Result.failure(IOException("timeout"))
+
+        createViewModel()
+        val wsQuote = fakeQuote.copy(source = "ws_public")
+        wsFlow.emit(wsQuote)
+        assertTrue(viewModel.uiState.value.quote is QuoteUiState.Success)
+
+        publicWsState.value = WsConnectionState.Disconnected
+        advanceTimeBy(fallbackDebounce)
+
+        val state = viewModel.uiState.value.quote
+        assertTrue("Expected Stale after WS drop, got $state", state is QuoteUiState.Stale)
+        assertEquals(wsQuote, (state as QuoteUiState.Stale).data)
+        coVerify(exactly = 1) { getQuoteUseCase("AAPL") }
+        viewModel.viewModelScope.cancel()
+    }
+
+    @Test
+    fun `REST polling stops when public WS reconnects and WS quotes resume`() = runTest {
+        val wsFlow = MutableSharedFlow<Quote>()
+        every { getQuoteStreamUseCase(any()) } returns wsFlow
+
+        createViewModel()
+        advanceTimeBy(fallbackDebounce)
+        coVerify(exactly = 1) { getQuoteUseCase("AAPL") }
+
+        // Reconnexion : Connected est propagé sans debounce → la boucle de polling est annulée
+        publicWsState.value = WsConnectionState.Connected
+        advanceTimeBy(120_000L)
+        coVerify(exactly = 1) { getQuoteUseCase("AAPL") }
+
+        // Le flux WS n'a jamais été annulé → les cours reprennent sans resouscription manuelle
+        val wsQuote = fakeQuote.copy(source = "ws_public", price = BigDecimal("180.00"))
+        wsFlow.emit(wsQuote)
+        val state = viewModel.uiState.value.quote
+        assertTrue("Expected WS Success, got $state", state is QuoteUiState.Success)
+        assertEquals(wsQuote, (state as QuoteUiState.Success).data)
+        viewModel.viewModelScope.cancel()
+    }
+
+    @Test
+    fun `no REST polling while the app is in background`() = runTest {
+        appForeground.value = false
+        createViewModel()
+        advanceTimeBy(120_000L)
+        coVerify(exactly = 0) { getQuoteUseCase(any()) }
+
+        // Retour au premier plan → polling immédiat
+        appForeground.value = true
+        advanceTimeBy(1L)
+        coVerify(exactly = 1) { getQuoteUseCase("AAPL") }
         viewModel.viewModelScope.cancel()
     }
 }

@@ -12,6 +12,7 @@ import com.tradingplatform.app.data.repository.OrdersRepositoryImpl
 import com.tradingplatform.app.data.repository.PairingRepositoryImpl
 import com.tradingplatform.app.data.repository.PortfolioRepositoryImpl
 import com.tradingplatform.app.data.repository.RiskRepositoryImpl
+import com.tradingplatform.app.data.repository.SetupRepositoryImpl
 import com.tradingplatform.app.data.repository.StrategiesRepositoryImpl
 import com.tradingplatform.app.data.repository.WatchlistRepositoryImpl
 import com.tradingplatform.app.domain.repository.AdminWidgetVisibilityManager
@@ -27,6 +28,7 @@ import com.tradingplatform.app.domain.repository.OrdersRepository
 import com.tradingplatform.app.domain.repository.PairingRepository
 import com.tradingplatform.app.domain.repository.PortfolioRepository
 import com.tradingplatform.app.domain.repository.RiskRepository
+import com.tradingplatform.app.domain.repository.SetupRepository
 import com.tradingplatform.app.domain.repository.StrategiesRepository
 import com.tradingplatform.app.domain.repository.WatchlistRepository
 import com.tradingplatform.app.widget.AdminWidgetVisibilityManagerImpl
@@ -101,4 +103,8 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindAdminWidgetVisibilityManager(impl: AdminWidgetVisibilityManagerImpl): AdminWidgetVisibilityManager
+
+    @Binds
+    @Singleton
+    abstract fun bindSetupRepository(impl: SetupRepositoryImpl): SetupRepository
 }
