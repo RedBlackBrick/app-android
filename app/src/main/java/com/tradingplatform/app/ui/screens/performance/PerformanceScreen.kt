@@ -33,6 +33,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tradingplatform.app.domain.model.PerformanceMetrics
 import com.tradingplatform.app.ui.components.ErrorBanner
 import com.tradingplatform.app.ui.components.PnlText
+import com.tradingplatform.app.ui.components.PortfolioSwitcher
 import com.tradingplatform.app.ui.components.SkeletonDashboardCard
 import com.tradingplatform.app.ui.components.TradingCard
 import com.tradingplatform.app.ui.components.buildPnlDescription
@@ -70,6 +71,9 @@ fun PerformanceScreen(
                             contentDescription = "Retour",
                         )
                     }
+                },
+                actions = {
+                    PortfolioSwitcher()
                 },
             )
         },

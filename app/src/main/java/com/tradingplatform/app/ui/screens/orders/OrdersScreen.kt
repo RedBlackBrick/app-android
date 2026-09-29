@@ -1,5 +1,6 @@
 package com.tradingplatform.app.ui.screens.orders
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -8,14 +9,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -25,24 +27,34 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tradingplatform.app.domain.model.Order
 import com.tradingplatform.app.domain.model.OrderSide
 import com.tradingplatform.app.domain.model.OrderStatus
+import com.tradingplatform.app.ui.components.TradingCard
+import com.tradingplatform.app.ui.components.ConfirmActionSheet
 import com.tradingplatform.app.ui.components.MoneyText
 import com.tradingplatform.app.ui.components.PortfolioSegment
 import com.tradingplatform.app.ui.components.PortfolioSegmentedTabs
+import com.tradingplatform.app.ui.components.PortfolioSwitcher
 import com.tradingplatform.app.ui.theme.IconSize
 import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.Spacing
@@ -51,6 +63,9 @@ import java.time.format.DateTimeFormatter
 
 private val timeFormatter: DateTimeFormatter =
     DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm").withZone(ZoneId.systemDefault())
+
+/** Cible tactile minimale (Material / TalkBack). */
+private val MinTouchTarget = 48.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -62,11 +77,22 @@ fun OrdersScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
+    // Messages de l'annulation (garde bloquée, demande envoyée, résultat de la relecture, échec).
+    val snackbarHostState = remember { SnackbarHostState() }
+    val message = uiState.message
+    LaunchedEffect(message) {
+        if (message != null) {
+            snackbarHostState.showSnackbar(message = message, duration = SnackbarDuration.Long)
+            viewModel.onMessageShown(message)
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Portefeuille") },
                 actions = {
+                    PortfolioSwitcher()
                     IconButton(onClick = onOpenSettings) {
                         Icon(
                             imageVector = Icons.Filled.Settings,
@@ -76,6 +102,7 @@ fun OrdersScreen(
                 },
             )
         },
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         modifier = modifier,
     ) { innerPadding ->
         Column(
@@ -119,14 +146,39 @@ fun OrdersScreen(
                     } else {
                         null
                     },
+                    // Annulation : onglet « Actifs » uniquement ; une seule à la fois.
+                    onCancel = if (uiState.selectedTab == OrdersTab.ACTIVE) {
+                        viewModel::onCancelClicked
+                    } else {
+                        null
+                    },
+                    cancelEnabled = uiState.cancelInFlightId == null,
+                    cancelRequestedIds = uiState.cancelRequestedIds,
                 )
             }
         }
     }
+
+    // Récapitulatif destructif puis biométrie à chaque annulation (docs/write-actions.md) ;
+    // la demande n'est envoyée que depuis le succès du prompt (onConfirmed).
+    val confirmAction = remember(uiState.pendingCancel) {
+        uiState.pendingCancel?.let(::cancelConfirmAction)
+    }
+    ConfirmActionSheet(
+        action = confirmAction,
+        onDismiss = viewModel::dismissCancel,
+        onConfirmed = { viewModel.confirmCancel() },
+    )
 }
 
 @Composable
-private fun OrdersContent(state: OrdersTabState, onLoadMore: (() -> Unit)? = null) {
+private fun OrdersContent(
+    state: OrdersTabState,
+    onLoadMore: (() -> Unit)? = null,
+    onCancel: ((orderId: Long) -> Unit)? = null,
+    cancelEnabled: Boolean = true,
+    cancelRequestedIds: Set<Long> = emptySet(),
+) {
     when (state) {
         is OrdersTabState.Loading -> CenteredLoading()
         is OrdersTabState.Error -> CenteredMessage(text = state.message, isError = true)
@@ -141,7 +193,20 @@ private fun OrdersContent(state: OrdersTabState, onLoadMore: (() -> Unit)? = nul
                     verticalArrangement = Arrangement.spacedBy(Spacing.sm),
                 ) {
                     items(state.orders, key = { it.id }) { order ->
-                        OrderRow(order = order)
+                        val cancelRequested = order.id in cancelRequestedIds
+                        // Bouton seulement pour un statut annulable et pas déjà « demandé ».
+                        val cancelAction: (() -> Unit)? =
+                            if (onCancel != null && !cancelRequested && order.status.isCancellable()) {
+                                ({ onCancel(order.id) })
+                            } else {
+                                null
+                            }
+                        OrderRow(
+                            order = order,
+                            cancelRequested = cancelRequested,
+                            onCancel = cancelAction,
+                            cancelEnabled = cancelEnabled,
+                        )
                     }
                     if (onLoadMore != null && state.hasMore) {
                         item {
@@ -165,27 +230,33 @@ private fun OrdersContent(state: OrdersTabState, onLoadMore: (() -> Unit)? = nul
 }
 
 @Composable
-private fun OrderRow(order: Order) {
+private fun OrderRow(
+    order: Order,
+    cancelRequested: Boolean = false,
+    onCancel: (() -> Unit)? = null,
+    cancelEnabled: Boolean = true,
+) {
     val extendedColors = LocalExtendedColors.current
-    val sideLabel = when (order.side) {
-        OrderSide.BUY -> "Achat"
-        OrderSide.SELL -> "Vente"
-    }
+    val sideLabel = orderSideLabel(order.side)
     val sideColor = when (order.side) {
         OrderSide.BUY -> extendedColors.pnlPositive
         OrderSide.SELL -> extendedColors.pnlNegative
     }
-    val statusLabel = order.status?.displayLabel() ?: "—"
+    // Annulation demandée et pas encore résolue par une relecture : on ne dit jamais « annulé ».
+    val statusLabel = if (cancelRequested) {
+        CANCEL_REQUESTED_LABEL
+    } else {
+        order.status?.displayLabel() ?: "—"
+    }
     val timestamp = order.updatedAt ?: order.createdAt
     val formattedTime = timestamp?.let(timeFormatter::format) ?: "—"
 
-    Card(
+    TradingCard(
         modifier = Modifier
             .fillMaxWidth()
             .semantics {
                 contentDescription = "Ordre $sideLabel ${order.symbol}, statut $statusLabel"
             },
-        colors = CardDefaults.cardColors(containerColor = extendedColors.cardSurface),
     ) {
         Column(
             modifier = Modifier
@@ -211,11 +282,23 @@ private fun OrderRow(order: Order) {
                     )
                 }
                 Column(horizontalAlignment = Alignment.End) {
-                    Text(
-                        text = statusLabel,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = order.status.statusColor(extendedColors),
-                    )
+                    if (cancelRequested) {
+                        // Pastille « en cours » (texte + fond : jamais la seule couleur).
+                        Text(
+                            text = statusLabel,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = extendedColors.onWarningContainer,
+                            modifier = Modifier
+                                .background(extendedColors.warningContainer, RoundedCornerShape(50))
+                                .padding(horizontal = Spacing.sm, vertical = Spacing.xxs),
+                        )
+                    } else {
+                        Text(
+                            text = statusLabel,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = order.status.statusColor(extendedColors),
+                        )
+                    }
                     Text(
                         text = formattedTime,
                         style = MaterialTheme.typography.labelSmall,
@@ -273,7 +356,45 @@ private fun OrderRow(order: Order) {
                     }
                 }
             }
+            if (onCancel != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    CancelOrderButton(
+                        description = cancelButtonDescription(order),
+                        enabled = cancelEnabled,
+                        onClick = onCancel,
+                    )
+                }
+            }
         }
+    }
+}
+
+/**
+ * Action discrète « Annuler » (texte, couleur `error` : action destructive), cible ≥ 48 dp.
+ * Désactivée pendant qu'une autre annulation est en vol (pas de double envoi).
+ */
+@Composable
+private fun CancelOrderButton(
+    description: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    TextButton(
+        onClick = onClick,
+        enabled = enabled,
+        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+        modifier = modifier
+            .heightIn(min = MinTouchTarget)
+            .semantics { contentDescription = description },
+    ) {
+        Text(
+            text = "Annuler",
+            style = MaterialTheme.typography.labelLarge,
+        )
     }
 }
 

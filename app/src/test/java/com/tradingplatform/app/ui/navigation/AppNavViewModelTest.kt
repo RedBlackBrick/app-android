@@ -1,5 +1,10 @@
 package com.tradingplatform.app.ui.navigation
 
+import app.cash.turbine.test
+import com.tradingplatform.app.domain.usecase.alerts.GetInboxUnreadCountUseCase
+import com.tradingplatform.app.domain.usecase.alerts.GetAlertsUseCase
+import com.tradingplatform.app.domain.model.AlertType
+import com.tradingplatform.app.domain.model.Alert
 import com.tradingplatform.app.data.session.SessionManager
 import com.tradingplatform.app.data.session.TokenHolder
 import com.tradingplatform.app.domain.usecase.auth.AuthContext
@@ -68,6 +73,11 @@ class AppNavViewModelTest {
     private val systemVpnMonitor = mockk<SystemVpnMonitor>(relaxed = true) {
         every { active } returns MutableStateFlow(false)
     }
+    private val localAlerts = MutableStateFlow<List<Alert>>(emptyList())
+    private val getAlertsUseCase = mockk<GetAlertsUseCase> {
+        every { this@mockk.invoke() } returns localAlerts
+    }
+    private val getInboxUnreadCountUseCase = mockk<GetInboxUnreadCountUseCase>()
     private val biometricManager = mockk<BiometricManager>(relaxed = true)
     private val recoverUseCase = mockk<RecoverFromKeystoreCorruptionUseCase>()
     private val logoutUseCase = mockk<LogoutUseCase>()
@@ -96,6 +106,8 @@ class AppNavViewModelTest {
             recoverFromKeystoreCorruptionUseCase = recoverUseCase,
             logoutUseCase = logoutUseCase,
             tokenHolder = tokenHolder,
+            getAlertsUseCase = getAlertsUseCase,
+            getInboxUnreadCountUseCase = getInboxUnreadCountUseCase,
         )
     }
 
@@ -460,5 +472,54 @@ class AppNavViewModelTest {
         assertEquals(inApp, computeEffectiveVpnState(inApp, systemVpnActive = true))
         // ConsentRequired sans VPN système : traité comme déconnecté par l'appelant (bannière).
         assertEquals(VpnState.ConsentRequired, computeEffectiveVpnState(VpnState.ConsentRequired, systemVpnActive = false))
+    }
+
+    // ── Badge de l'onglet Alertes ──────────────────────────────────────────────
+
+    private fun alert(id: Long, read: Boolean) = Alert(
+        id = id,
+        title = "t$id",
+        body = "b$id",
+        type = AlertType.entries.first(),
+        receivedAt = java.time.Instant.parse("2026-09-29T10:00:00Z"),
+        read = read,
+    )
+
+    @Test
+    fun `unread badge is the larger of local unread alerts and server unread count - never their sum`() = runTest {
+        coEvery { getInboxUnreadCountUseCase() } returns Result.success(4)
+        localAlerts.value = listOf(alert(1, read = false), alert(2, read = true), alert(3, read = false))
+        viewModel.refreshServerUnread()
+
+        viewModel.unreadAlertCount.test {
+            // 2 alertes locales non lues, 4 côté serveur : le même événement peut exister des deux côtés.
+            assertEquals(4, awaitItem())
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun `the Alerts screen can push its own server count to the badge`() = runTest {
+        localAlerts.value = listOf(alert(1, read = false))
+
+        viewModel.onServerUnreadCount(7)
+
+        viewModel.unreadAlertCount.test {
+            assertEquals(7, awaitItem())
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun `a failing server count refresh keeps the last known value`() = runTest {
+        coEvery { getInboxUnreadCountUseCase() } returns Result.success(3)
+        viewModel.refreshServerUnread()
+        coEvery { getInboxUnreadCountUseCase() } returns Result.failure(java.io.IOException("VPN down"))
+        viewModel.refreshServerUnread()
+
+        viewModel.unreadAlertCount.test {
+            assertEquals(3, awaitItem())
+            cancelAndIgnoreRemainingEvents()
+        }
     }
 }

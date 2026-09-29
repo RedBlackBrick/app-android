@@ -31,6 +31,7 @@ import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -57,17 +58,27 @@ import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 
 /**
- * Ecran de liste des alertes FCM persistées en local (Room).
+ * Écran Alertes : sélecteur à deux segments en tête d'écran.
  *
+ * - « Cet appareil » : alertes FCM persistées en local (Room) — fonctionne hors ligne.
+ * - « Serveur » : boîte de réception du serveur, EN LIGNE UNIQUEMENT (voir [InboxSection]).
+ *
+ * Segment « Cet appareil » :
  * - Skeleton loading, état vide illustré.
  * - Une alerte non lue n'est signalée qu'une fois : par la pastille de sa carte (pas de bandeau
  *   de comptage, pas de liseré ni de surélévation en plus).
- * - « Tout lire » dans la barre du haut, visible seulement s'il y a des non-lues.
  * - Les chips de filtre « techniques » ne sont proposées qu'aux comptes admin.
  * - Haptique sur le swipe « marquer comme lu ».
  *
+ * « Tout lire » (barre du haut) agit sur le segment affiché et n'apparaît que s'il y a des
+ * non-lues dans ce segment.
+ *
  * @param onOpenSettings ouvre l'écran Réglages (icône de la barre du haut) — câblé par la
  *                       navigation.
+ * @param onServerUnreadChange appelé avec le décompte des notifications serveur non lues chaque
+ *                       fois qu'il est (re)lu avec succès ou modifié par une lecture — jamais avec
+ *                       la valeur initiale avant la première lecture. À brancher sur le badge de
+ *                       l'onglet Alertes.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -75,13 +86,35 @@ fun AlertListScreen(
     modifier: Modifier = Modifier,
     viewModel: AlertsViewModel = hiltViewModel(),
     onOpenSettings: () -> Unit = {},
+    onServerUnreadChange: (Int) -> Unit = {},
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val selectedTypes by viewModel.selectedTypes.collectAsStateWithLifecycle()
     val availableTypes by viewModel.availableTypes.collectAsStateWithLifecycle()
+    val segment by viewModel.selectedSegment.collectAsStateWithLifecycle()
+    val inboxState by viewModel.inboxState.collectAsStateWithLifecycle()
+    val isInboxRefreshing by viewModel.isInboxRefreshing.collectAsStateWithLifecycle()
+    val serverUnread by viewModel.serverUnreadCount.collectAsStateWithLifecycle()
+    val serverUnreadKnown by viewModel.isServerUnreadKnown.collectAsStateWithLifecycle()
     val haptic = rememberHapticFeedback()
+    val currentOnServerUnreadChange by rememberUpdatedState(onServerUnreadChange)
 
-    val unreadCount = (uiState as? AlertsUiState.Success)?.unreadCount ?: 0
+    // Ouverture de l'écran : relit le décompte serveur (et recharge la boîte si « Serveur » est affiché).
+    LaunchedEffect(viewModel) { viewModel.onScreenOpened() }
+
+    // Le badge ne reçoit jamais la valeur initiale (0) avant la première lecture réussie.
+    LaunchedEffect(serverUnread, serverUnreadKnown) {
+        if (serverUnreadKnown) currentOnServerUnreadChange(serverUnread)
+    }
+
+    val isServerSegment = segment == AlertsSegment.SERVER
+    // Segment « Serveur » : le décompte serveur peut dépasser les lignes chargées (50 max).
+    val unreadCount = if (isServerSegment) {
+        (inboxState as? InboxUiState.Success)?.let { maxOf(it.unreadCount, serverUnread) } ?: 0
+    } else {
+        (uiState as? AlertsUiState.Success)?.unreadCount ?: 0
+    }
+    val unreadNoun = if (isServerSegment) "notification" else "alerte"
 
     Scaffold(
         topBar = {
@@ -92,11 +125,11 @@ fun AlertListScreen(
                         TextButton(
                             onClick = {
                                 haptic.confirm()
-                                viewModel.markAllAsRead()
+                                if (isServerSegment) viewModel.markAllInboxRead() else viewModel.markAllAsRead()
                             },
                             modifier = Modifier.semantics {
                                 contentDescription = "Tout marquer comme lu, " +
-                                    "$unreadCount alerte${if (unreadCount > 1) "s" else ""} " +
+                                    "$unreadCount $unreadNoun${if (unreadCount > 1) "s" else ""} " +
                                     "non lue${if (unreadCount > 1) "s" else ""}"
                             },
                         ) {
@@ -119,52 +152,91 @@ fun AlertListScreen(
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
-            // Filter bar — always visible between TopAppBar and list content
-            AlertFilterBar(
-                selectedTypes = selectedTypes,
-                onToggleType = { type ->
-                    val current = selectedTypes
-                    val updated = if (type in current) current - type else current + type
-                    viewModel.setTypeFilter(updated)
-                },
-                availableTypes = availableTypes,
+            AlertsSegmentedTabs(
+                selected = segment,
+                onSelect = viewModel::selectSegment,
             )
 
-            // Alerts are sourced exclusively from FCM → Room (no network endpoint).
-            // The Room Flow updates reactively — no pull-to-refresh needed.
-            when (val state = uiState) {
-                is AlertsUiState.Loading -> {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(Spacing.lg),
-                        verticalArrangement = Arrangement.spacedBy(Spacing.sm),
-                    ) {
-                        items(6) {
-                            SkeletonAlertCard()
-                        }
+            when (segment) {
+                AlertsSegment.DEVICE -> DeviceAlertsSection(
+                    uiState = uiState,
+                    selectedTypes = selectedTypes,
+                    availableTypes = availableTypes,
+                    onToggleType = { type ->
+                        val updated = if (type in selectedTypes) selectedTypes - type else selectedTypes + type
+                        viewModel.setTypeFilter(updated)
+                    },
+                    onMarkAsRead = viewModel::markAsRead,
+                )
+
+                AlertsSegment.SERVER -> InboxSection(
+                    state = inboxState,
+                    isRefreshing = isInboxRefreshing,
+                    onRefresh = viewModel::refreshInbox,
+                    onMarkRead = viewModel::markInboxRead,
+                )
+            }
+        }
+    }
+}
+
+// ── Segment « Cet appareil » (alertes FCM locales) ────────────────────────────
+
+/**
+ * Filtres + liste des alertes FCM locales — comportement inchangé par rapport à l'écran
+ * d'origine (le sélecteur de segments s'insère seulement au-dessus).
+ */
+@Composable
+private fun DeviceAlertsSection(
+    uiState: AlertsUiState,
+    selectedTypes: Set<AlertType>,
+    availableTypes: List<AlertType>,
+    onToggleType: (AlertType) -> Unit,
+    onMarkAsRead: (Long) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier.fillMaxSize()) {
+        // Filter bar — always visible between the segment selector and list content
+        AlertFilterBar(
+            selectedTypes = selectedTypes,
+            onToggleType = onToggleType,
+            availableTypes = availableTypes,
+        )
+
+        // Alerts are sourced exclusively from FCM → Room (no network endpoint).
+        // The Room Flow updates reactively — no pull-to-refresh needed.
+        when (uiState) {
+            is AlertsUiState.Loading -> {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(Spacing.lg),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+                ) {
+                    items(6) {
+                        SkeletonAlertCard()
                     }
                 }
+            }
 
-                is AlertsUiState.Success -> {
-                    AlertListContent(
-                        alerts = state.alerts,
-                        onMarkAsRead = viewModel::markAsRead,
+            is AlertsUiState.Success -> {
+                AlertListContent(
+                    alerts = uiState.alerts,
+                    onMarkAsRead = onMarkAsRead,
+                )
+            }
+
+            is AlertsUiState.Error -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(Spacing.lg),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    EmptyState(
+                        illustration = { EmptyAlertsIllustration() },
+                        title = "Erreur de chargement",
+                        message = uiState.message,
                     )
-                }
-
-                is AlertsUiState.Error -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(Spacing.lg),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        EmptyState(
-                            illustration = { EmptyAlertsIllustration() },
-                            title = "Erreur de chargement",
-                            message = state.message,
-                        )
-                    }
                 }
             }
         }

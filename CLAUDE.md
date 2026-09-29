@@ -54,6 +54,8 @@ elles-mêmes et n'en ont pas besoin.
 ```
 com.tradingplatform.app/
 ├── di/                    # Hilt modules (AppModule, NetworkModule, VpnModule, SecurityModule, WebSocketModule, WidgetModule)
+│                          # + modules par fonctionnalité : PortfolioSelectionModule, WriteNetworkModule (@Named("write") : client sans retry pour les écritures),
+│                          # OrdersStrategiesModule, InboxRiskModule
 │                          # DispatcherModule fournit @IoDispatcher — pour un appel OkHttp brut hors Retrofit
 │                          # (ex. MobileProvisioningRepositoryImpl), jamais pour des fonctions suspend Retrofit
 ├── data/
@@ -75,12 +77,19 @@ com.tradingplatform.app/
 │   ├── util/              # RunCatchingCancellable (relance CancellationException), InstantParsing (parseInstantLenient/parseInstantOrNull)
 │   └── usecase/
 │       ├── auth/          # LoginUseCase, LogoutUseCase, GetUserProfileUseCase
-│       ├── portfolio/     # GetPortfolioUseCase, GetPositionsUseCase, GetPositionWsUpdatesUseCase, GetPerformanceUseCase
+│       ├── portfolio/     # GetPortfolioUseCase, GetPositionsUseCase, GetPositionWsUpdatesUseCase, GetPerformanceUseCase,
+│       │                  # Observe/Select/Refresh portefeuille actif (multi-portefeuille), GetPortfoliosOverviewUseCase, GetNavCurveUseCase,
+│       │                  # GetPortfolioBrokerStatusUseCase, GetPortfolioStrategiesUseCase, SetPortfolioStrategyActiveUseCase (écriture)
 │       ├── market/        # GetQuoteUseCase, GetQuoteStreamUseCase, GetAvailableSymbolsUseCase, GetSymbolHistoryUseCase, GetWatchlistUseCase, AddToWatchlistUseCase, RemoveFromWatchlistUseCase, GetPublicWsConnectionStateUseCase
 │       ├── activity/      # GetActivityFeedUseCase
 │       ├── device/        # GetDevicesUseCase, GetDeviceStatusUseCase, GetBrokerConnectionsUseCase (SendDeviceCommandUseCase / UnpairDeviceUseCase : plus appelés par l'UI — gestion des devices = web)
-│       ├── alerts/        # GetAlertsUseCase, GetFilteredAlertsUseCase, MarkAlertReadUseCase, MarkAllAlertsReadUseCase
-│       ├── notification/  # RegisterFcmTokenUseCase
+│       ├── alerts/        # GetAlertsUseCase, GetFilteredAlertsUseCase, MarkAlertReadUseCase, MarkAllAlertsReadUseCase,
+│       │                  # boîte serveur : GetInboxUseCase, GetInboxUnreadCountUseCase, MarkInboxReadUseCase, MarkAllInboxReadUseCase
+│       ├── orders/        # GetActiveOrdersUseCase, GetOrderHistoryUseCase, CancelOrderUseCase (écriture)
+│       ├── risk/          # GetPortfolioCircuitBreakerStatusUseCase, GetRiskStatusUseCase, ActivatePortfolioKillSwitchUseCase (écriture, activation seule)
+│       ├── write/         # EvaluateWriteGateUseCase (VPN + session + donnée fraîche avant toute écriture) — docs/write-actions.md
+│       ├── vpn/           # ObserveVpnStateUseCase, ReconnectVpnUseCase, HasVpnConfigUseCase, GetVpnConsentIntentUseCase, RetryVpnAfterConsentUseCase (écran de connexion)
+│       ├── notification/  # RegisterFcmTokenUseCase, GetNotificationPreferencesUseCase, SetPushCategoryUseCase (écriture, read-modify-write)
 │       ├── setup/         # MarkSetupCompletedUseCase (SetupViewModel ne touche plus le DataStore directement)
 │       └── pairing/       # ParseVpsQrUseCase, ScanDeviceQrUseCase, SendPinToDeviceUseCase, ConfirmPairingUseCase, ParseSetupQrUseCase, ProvisionMobileVpnUseCase
 ├── ui/
@@ -88,19 +97,25 @@ com.tradingplatform.app/
 │   ├── navigation/        # AppNavGraph.kt — navigation globale
 │   ├── common/            # DataState.kt (valeur/isRefreshing/error/syncedAt pour le Dashboard), QuoteFallbackController.kt
 │   │                      # (WS + fallback REST piloté par connectionState — partagé Dashboard/MarketData)
-│   ├── components/        # Composables partagés (LoadingOverlay, ErrorBanner, MetricsComponents, CacheTimestamp, BiometricLockOverlay, etc.)
+│   ├── components/        # Composables partagés (LoadingOverlay, ErrorBanner, MetricsComponents, CacheTimestamp (horloge rafraîchie toutes les 30 s), BiometricLockOverlay, TradingCard,
+│   │                      # PortfolioSwitcher, ConfirmActionSheet + BiometricConfirm (écritures), ConnectionDiagrams (schémas VPN/Radxa animés + décor de connexion), etc.)
 │   └── screens/
 │       ├── auth/          # LoginScreen + LoginViewModel
-│       ├── dashboard/     # DashboardScreen (héros NAV + variation + sparkline, tuiles KPI, tuile risque conditionnelle, flux 3 lignes) + DashboardViewModel + DashboardPresentation (logique pure testée) + components/
+│       ├── dashboard/     # DashboardScreen (héros NAV + P&L de la période Jour/Sem./Mois/Tout + courbe de NAV, KPI (Liquidités, Latent, Win rate/Drawdown via GetPerformanceUseCase), bandeau de risque unique
+│       │                  #   (kill switch / circuit-breaker / violations / perte ≥ 80 %), « Mes portefeuilles » si ≥ 2, pastille broker, entrée Stratégies, flux 3 lignes)
+│       │                  #   + DashboardViewModel (suit le portefeuille actif) + DashboardPresentation (logique pure testée) + components/
 │       ├── market/        # MarketDataScreen + MarketDataViewModel + SymbolPickerSheet
-│       ├── portfolio/     # PositionsScreen, PositionDetailScreen, TransactionHistoryScreen + ViewModels
+│       ├── portfolio/     # PositionsScreen, PositionDetailScreen, TransactionHistoryScreen + ViewModels (sélecteur de portefeuille dans la barre haute)
+│       ├── orders/        # OrdersScreen + OrdersViewModel : ordres actifs (avec « Annuler » : garde d'écriture → confirmation biométrique → « annulation demandée » → relecture) et terminés
+│       ├── strategies/    # StrategiesScreen + StrategiesViewModel : liens portefeuille-stratégie, pause / réactivation (écriture sûre) — écran poussé depuis l'Accueil
+│       ├── risk/          # RiskScreen + RiskViewModel : état du risque + kill switch portefeuille (ACTIVATION seule, motif obligatoire, levée sur le web) — écran poussé depuis l'Accueil
 │       ├── performance/   # PerformanceScreen + PerformanceViewModel
 │       ├── devices/       # DeviceListScreen, EdgeDeviceDashboardScreen (LECTURE SEULE : état, santé, broker gateway, scraping ; firmware/désappairage/reboot → web) + ViewModels
 │       ├── pairing/       # ScanVpsQrScreen, ScanDeviceQrScreen, PairingProgressScreen, PairingDoneScreen + PairingViewModel
-│       ├── alerts/        # AlertListScreen + AlertsViewModel + AlertFilterBar
+│       ├── alerts/        # AlertListScreen + AlertsViewModel + AlertFilterBar ; segments « Cet appareil » (FCM → Room) / « Serveur » (boîte serveur, en ligne uniquement, lecture optimiste)
 │       ├── totp/          # TotpScreen + TotpViewModel (2FA post-login)
 │       ├── setup/         # SetupScreen + SetupViewModel (onboarding QR mobile)
-│       └── settings/      # VpnSettingsScreen, SecuritySettingsScreen, ProfileScreen, MyDevicesScreen + ViewModels
+│       └── settings/      # VpnSettingsScreen, SecuritySettingsScreen, ProfileScreen, MyDevicesScreen, NotificationPrefsScreen (push par catégorie, read-modify-write) + ViewModels
 ├── vpn/
 │   ├── WireGuardVpnService.kt   # Service foreground — notification « VPN connecté » (tunnel tenu par GoBackend$VpnService)
 │   ├── TunnelBackend.kt         # Seam GoBackend (setState/getState) — fake en test JVM
@@ -175,7 +190,8 @@ d'entrée partagent le même graphe de navigation `PairingViewModel`/4 écrans ;
 retour (`pairingReturnRoute`) diffère selon la source.
 
 - La flotte d'appareils (`Screen.Devices`) est une entrée des **Réglages**, affichée **uniquement si `user.is_admin == true`** ; plus d'onglet dédié dans la barre
-- **Navigation (barre du bas à 4 onglets)** : Accueil (Dashboard), Portefeuille (Positions + segments Ordres / Historique via `PortfolioSegmentedTabs`, sélectionné aussi pour `orders`, `transactions`, `position/{id}`), Marchés, Alertes (badge non-lus). Les Réglages s'ouvrent par l'icône de la barre haute des écrans racines ; Performance s'ouvre depuis les tuiles KPI du Dashboard. Helpers : `ui/navigation/TabNavigation.kt`. La barre du bas n'apparaît que sur les 6 routes racines.
+- **Navigation (barre du bas à 4 onglets)** : Accueil (Dashboard), Portefeuille (Positions + segments Ordres / Historique via `PortfolioSegmentedTabs`, sélectionné aussi pour `orders`, `transactions`, `position/{id}`), Marchés, Alertes (badge non-lus). Les Réglages s'ouvrent par l'icône de la barre haute des écrans racines ; Performance s'ouvre depuis les tuiles KPI du Dashboard. Helpers : `ui/navigation/TabNavigation.kt`. La barre du bas n'apparaît que sur les 6 routes racines. Écrans poussés depuis l'Accueil : Performance, Stratégies (`Screen.Strategies`), Risque (`Screen.Risk`) ; depuis les Réglages : Notifications (`Screen.NotificationPrefs`).
+  Badge de l'onglet Alertes = `max(alertes locales non lues, notifications serveur non lues)` (un même événement peut exister des deux côtés : jamais la somme).
 - Les widgets admin (`SystemStatusWidget`) sont **désactivés** dans le launcher si `is_admin == false` — ils n'apparaissent pas dans le picker de widgets
 - Stocker `is_admin` dans `EncryptedDataStore` après login — relire à chaque démarrage
 - Désactiver/activer via `ApplyAdminWidgetVisibilityUseCase` (jamais un appel `PackageManager` direct
@@ -274,7 +290,7 @@ de TTL privée dans un repository, un widget ou un composant UI.
 | Table Room | TTL (fraîcheur) | Utilisée par |
 |------------|-----------------|-------------|
 | `positions` | `CacheTtl.POSITIONS_MS` (5 min) | PositionsWidget, PositionDetail (`getPosition`) |
-| `pnl_snapshots` | `CacheTtl.PNL_MS` (5 min) | PnlWidget — une ligne par période, forme `/pnl` (écrite par `getPnlSummary`) |
+| `pnl_snapshots` | `CacheTtl.PNL_MS` (5 min) | PnlWidget — une ligne par période (écrite par `getPnlSummary`) : DAY/WEEK/MONTH = `batch/pnl` (montant + fraction, autres colonnes à 0) ; YEAR/ALL = `/pnl`. Purgée au changement de portefeuille actif |
 | `alerts` | permanent (`CacheTtl.ALERTS_RETENTION_MS`) | AlertListScreen (filtrable par type), AlertsWidget |
 | `devices` | `CacheTtl.DEVICES_MS` (1 min) | DeviceListScreen offline, détail device (`getDeviceStatus`), SystemStatusWidget |
 | `quotes` | `CacheTtl.QUOTES_MS` (10 min) | QuoteWidget, MarketDataScreen (offline-first cohérent) |
@@ -455,12 +471,13 @@ Le token WS est distinct de l'access token — obtenir via `POST /v1/auth/ws-tok
 
 ### Alertes — source de données (FCM → Room)
 
-Les alertes proviennent exclusivement de notifications FCM persistées localement :
+Le segment « Cet appareil » de l'écran Alertes provient de notifications FCM persistées localement (le segment « Serveur » lit la boîte
+`GET /v1/notifications` en ligne uniquement — pas de cache, « Nécessite le VPN » hors tunnel ; lecture/« tout lire » = POST idempotents sans confirmation biométrique) :
 - À la réception d'un FCM, stocker dans la table Room `alerts`
 - `AlertListScreen` et `AlertsWidget` lisent `alerts` en local (fonctionne offline)
 - `AlertListScreen` supporte le filtrage par type via `AlertFilterBar` (chips Material 3 multi-sélection)
 - Le filtrage est effectué au niveau SQL (query Room `WHERE type IN (...)`) pour la performance
-- Pas d'endpoint VPS de listing — historique local uniquement
+- Historique local uniquement pour ce segment (la boîte serveur est un segment distinct, non persisté)
 
 ```
 domain/usecase/alerts/
@@ -540,6 +557,17 @@ viewModelScope.launch {
 - La méthode `configureFromSetupQr(data: SetupQrData)` permet de configurer et connecter le
   tunnel à partir des données du QR d'onboarding. Elle stocke la clé privée et la config dans
   `EncryptedDataStore` avant de connecter.
+- **VPN système tiers (app WireGuard officielle…)** : `SystemVpnMonitor` (requête `NetworkRequest` filtrée sur `TRANSPORT_VPN` seul,
+  sans capacités par défaut) + `isActiveNow()` (relecture directe d'Android : filet de sécurité pour l'intercepteur, le Worker et
+  `MainActivity.onStart`). Règles d'état dans `vpn/VpnStateRules.kt` (`computeEffectiveVpnState`, `displayedVpnState`) ; la valeur INITIALE des
+  flux d'état doit déjà tenir compte du VPN système (sinon la bannière « VPN déconnecté » clignote au démarrage à froid).
+- **`VpnNotConnectedException` étend `IOException`** (jamais `Exception`) : OkHttp ne livre à `onFailure` que les IOException ; toute autre exception levée
+  par un intercepteur est RELANCÉE sur le thread du dispatcher (crash du process) et arrive à l'appelant enveloppée en « canceled due to … »
+  (les `is VpnNotConnectedException` ne matchaient jamais). Dans un `catch`/`when`, la tester AVANT `IOException`
+  (le Worker s'en sert pour ne pas déclencher de retry WorkManager). Test : `VpnBlockedCallDoesNotCrashTest` (vrai appel Retrofit suspend).
+- **Écran de connexion** : `/auth/login` est un chemin public (`AuthPaths.PUBLIC`) donc NON bloqué par `VpnRequiredInterceptor` : sans tunnel, la requête part
+  vers 10.42.0.1 et finit en délai d'attente. `LoginScreen` affiche donc l'état VPN (bandeau « VPN requis » + « Activer le VPN » / « Ouvrir WireGuard »),
+  le bouton « Se connecter » reste actif (la détection peut se tromper) et l'échec réseau sans tunnel produit un message clair.
 
 ### Chaîne d'intercepteurs OkHttp (ordre obligatoire)
 
@@ -554,6 +582,12 @@ HttpLoggingInterceptor    → debug uniquement (NetworkModule.debugLogger) : Aut
 ```
 
 Le middleware CSRF du VPS **ne fait pas d'exemption** sur les requêtes Bearer — le `CsrfInterceptor` est obligatoire pour tous les `POST/PUT/DELETE/PATCH`.
+
+**Écritures « actions mobiles »** (annuler un ordre, pause/réactivation d'un lien stratégie, kill switch portefeuille — activation seule —, préférence push) :
+Retrofit `@Named("write")` = client principal + `retryOnConnectionFailure(false)` (`di/WriteNetworkModule.kt`), jamais de rejeu ; `EvaluateWriteGateUseCase`
+(VPN + session + donnée fraîche) avant d'ouvrir la confirmation ; `ConfirmActionSheet` (récapitulatif puis **biométrie à chaque action**, fail-closed) ;
+résultat `WriteOutcome` (`CONFIRMED` / `REQUESTED_UNCONFIRMED`) → wording « demandé » puis relecture de l'état serveur. Voir `docs/write-actions.md`.
+Jamais sur mobile : nouvel ordre, clôture de position, dépôt/retrait, rebalance, édition de stratégie, pause au niveau stratégie, kill switch global, DELETE kill switch, admin.
 
 **Source unique des chemins d'auth : `data/api/AuthPaths.kt`** (`PUBLIC` sans Bearer, `CSRF_EXEMPT`,
 `VPN_EXCLUDED`, `COOKIE_SAVE`, `isSensitive()`), miroir de `auth.py PUBLIC_PATHS` / `csrf.py CSRF_EXEMPT_PATHS`
@@ -1408,11 +1442,11 @@ Pas de `delay(5000)` — les threads en attente bloquent sur le `Deferred`, pas 
 Le timeout (8 s) n'annule que l'attente : le refresh finit dans `applicationScope` et alimente
 `TokenHolder`, donc la requête suivante prend le chemin « bearer périmé » sans nouveau refresh.
 
-### Découverte du portfolio_id — flow post-login
+### Portefeuilles — flow post-login et portefeuille actif (multi-portefeuille)
 
 ```
 POST /v1/auth/login
-    ├─ Succès → stocker access_token, user.id, user.is_admin dans EncryptedDataStore
+    ├─ Succès → stocker access_token, user.is_admin dans EncryptedDataStore
     │
     ├─ Si user.totp_enabled == true
     │       → LoginViewModel appelle SessionManager.storePendingTotpToken(session_token)
@@ -1420,15 +1454,22 @@ POST /v1/auth/login
     │       → POST /v1/auth/2fa/verify
     │       └─ Succès → continuer ci-dessous
     │
-    └─ GET /v1/portfolios → stocker portfolios[0].id dans EncryptedDataStore (clé auth_portfolio_id)
+    └─ GET /v1/portfolios → PortfolioSelectionRepository.refresh()
             └─ Naviguer vers Dashboard
 ```
 
-**Invariant :** chaque utilisateur a exactement un portfolio. `portfolios[0]` est toujours correct.
-- `portfolios.isEmpty()` → logout forcé (état incohérent côté serveur)
-- `portfolios.size > 1` → logger `[PORTFOLIO_MULTI] count=N`, prendre `portfolios[0]` sans UI de sélection
-
-Le `portfolioId` est réutilisé pour tous les appels portfolio sans re-fetch.
+**Un compte peut avoir plusieurs portefeuilles.** `PortfolioSelectionRepository` (singleton) tient la liste (`portfolios`) et le
+**portefeuille actif** (`activePortfolioId`, persisté dans la clé `auth_portfolio_id`, relue par les widgets et le Worker) :
+- `refresh()` conserve la sélection persistée si elle existe encore, sinon retombe sur le premier ; liste vide → échec (« No portfolio found »).
+  Il n'écrase plus `portfolios[0]` à chaque login : la sélection survit entre deux sessions du même compte.
+- `select(id)` valide l'id, **purge les caches Room portfolio-scopés** (`positions`, `pnl_snapshots` : le schéma v7 n'a pas de colonne
+  portfolio_id et ne doit pas changer) AVANT de publier le nouvel id ; sélectionner l'id déjà actif est un no-op.
+- Les ViewModels observent `ObserveActivePortfolioUseCase()` (`collectLatest` : annule le chargement en vol, remet l'état à zéro, recharge) ;
+  jamais de lecture unique du portefeuille dans `init`. Les événements WS portant un `portfolio_id` différent de l'actif sont ignorés.
+- UI : `PortfolioSwitcher` (actions des TopAppBar, invisible s'il y a < 2 portefeuilles) ; l'Accueil liste tous les portefeuilles
+  (« Mes portefeuilles » : valeur + P&L de la période, via `POST /v1/portfolios/batch/pnl` ou `GET /v1/dashboard/overview`). Pas de conversion de devise :
+  la ligne « Total » n'existe que si toutes les devises sont identiques.
+- Les widgets et le `WidgetUpdateWorker` suivent le portefeuille actif (`PORTFOLIO_ID`).
 
 ### 2FA — flow TotpScreen
 
@@ -1459,7 +1500,7 @@ Les widgets Glance accèdent aux données via `WidgetUpdateWorker` (WorkManager 
 |-----|---------|
 | `auth_access_token` | JWT access token (Bearer) |
 | `auth_is_admin` | `user.is_admin` (Boolean) |
-| `auth_portfolio_id` | `portfolioId` (Int) |
+| `auth_portfolio_id` | id du **portefeuille actif** (String/UUID) — géré par `PortfolioSelectionRepository` ; relu par les widgets et le Worker |
 | `wg_private_key` | Clé privée WireGuard (base64) |
 | `wg_config` | Config WireGuard complète (JSON) |
 | `wg_endpoint` | Endpoint WireGuard du VPS |

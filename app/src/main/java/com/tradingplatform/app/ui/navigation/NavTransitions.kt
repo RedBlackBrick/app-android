@@ -40,6 +40,11 @@ object NavTransitions {
         Screen.MyDevices.route,
         Screen.SecuritySettings.route,
         Screen.Devices.route,
+        // Écrans poussés depuis l'Accueil / les Réglages.
+        Screen.Performance.route,
+        Screen.Strategies.route,
+        Screen.Risk.route,
+        Screen.NotificationPrefs.route,
     )
 
     // Routes in the pairing sequential flow

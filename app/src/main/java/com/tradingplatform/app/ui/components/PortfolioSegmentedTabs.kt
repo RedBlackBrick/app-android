@@ -1,5 +1,6 @@
 package com.tradingplatform.app.ui.components
 
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -72,6 +73,9 @@ fun PortfolioSegmentedTabs(
                 shape = SegmentedButtonDefaults.itemShape(index = index, count = segments.size),
                 modifier = Modifier.heightIn(min = MinTouchTarget),
                 colors = tradingSegmentedButtonColors(),
+                // Marges réduites : à police 130 % sur 360 dp, « Historique » était tronqué
+                // (« Historiq… ») avec le remplissage horizontal par défaut de 12 dp.
+                contentPadding = PaddingValues(horizontal = Spacing.xs),
                 icon = {},
                 label = {
                     Text(

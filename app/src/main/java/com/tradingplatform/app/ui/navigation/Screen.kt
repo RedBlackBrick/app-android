@@ -70,4 +70,13 @@ sealed class Screen(val route: String) {
     data object MyDevices : Screen("settings/my-devices")
 
     data object SecuritySettings : Screen("settings/security")
+
+    /** Liens portefeuille-stratégie du portefeuille actif (pause / réactivation) — écran poussé depuis l'Accueil. */
+    data object Strategies : Screen("strategies")
+
+    /** État du risque du portefeuille actif + kill switch (activation seule) — écran poussé depuis l'Accueil. */
+    data object Risk : Screen("risk")
+
+    /** Préférences push par catégorie (lecture/écriture de `ui.notifications`) — entrée des Réglages. */
+    data object NotificationPrefs : Screen("settings/notifications")
 }

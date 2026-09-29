@@ -69,6 +69,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * @param destructive bouton final en couleur `error`.
  * @param requireReason étape 1 : champ de motif obligatoire (non vide, non blanc).
  * @param reasonLabel libellé du champ de motif.
+ * @param message texte d'explication affiché sous le titre (étape récapitulatif), en corps de texte.
  */
 data class ConfirmAction(
     val title: String,
@@ -77,6 +78,8 @@ data class ConfirmAction(
     val destructive: Boolean = false,
     val requireReason: Boolean = false,
     val reasonLabel: String = "Motif",
+    /** Explication en texte courant (effets, avertissements) : les phrases longues n'ont rien à faire dans une ligne « libellé → valeur ». */
+    val message: String? = null,
 ) {
     companion object {
         /** Borne du backend pour un motif (kill switch : `reason` de 1 à 500 caractères). */
@@ -283,6 +286,14 @@ internal fun ConfirmActionContent(
             color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.semantics { heading() },
         )
+
+        if (step == ConfirmStep.SUMMARY && !action.message.isNullOrBlank()) {
+            Text(
+                text = action.message,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
 
         ConfirmSummary(lines = displayedSummaryLines(action, step, reason))
 

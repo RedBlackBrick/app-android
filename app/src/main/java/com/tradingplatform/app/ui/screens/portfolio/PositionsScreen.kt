@@ -1,7 +1,8 @@
 package com.tradingplatform.app.ui.screens.portfolio
 
 import com.tradingplatform.app.ui.common.formatFr
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,8 +15,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -43,6 +42,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tradingplatform.app.data.local.db.CacheTtl
 import com.tradingplatform.app.domain.model.Position
 import com.tradingplatform.app.domain.model.PositionStatus
+import com.tradingplatform.app.ui.components.TradingCard
 import com.tradingplatform.app.ui.components.AnimatedPnlText
 import com.tradingplatform.app.ui.components.CacheTimestamp
 import com.tradingplatform.app.ui.components.ClosedPositionBadge
@@ -52,9 +52,9 @@ import com.tradingplatform.app.ui.components.MoneyText
 import com.tradingplatform.app.ui.components.OpenPositionBadge
 import com.tradingplatform.app.ui.components.PortfolioSegment
 import com.tradingplatform.app.ui.components.PortfolioSegmentedTabs
+import com.tradingplatform.app.ui.components.PortfolioSwitcher
 import com.tradingplatform.app.ui.components.SkeletonPositionCard
 import com.tradingplatform.app.ui.components.rememberHapticFeedback
-import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.Spacing
 import com.tradingplatform.app.ui.theme.pnlColor
 import java.math.BigDecimal
@@ -97,6 +97,7 @@ fun PositionsScreen(
             TopAppBar(
                 title = { Text("Portefeuille") },
                 actions = {
+                    PortfolioSwitcher()
                     IconButton(onClick = onOpenSettings) {
                         Icon(
                             imageVector = Icons.Filled.Settings,
@@ -194,6 +195,7 @@ fun PositionsScreen(
 
 // ── Sub-composables ───────────────────────────────────────────────────────────
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PositionsList(
     positions: List<Position>,
@@ -209,7 +211,9 @@ private fun PositionsList(
         contentPadding = PaddingValues(Spacing.lg),
     ) {
         item {
-            Row(
+            // FlowRow : à police 130 % la 3e puce passe à la ligne au lieu de casser son libellé
+            // (« Toute / s »).
+            FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
                 modifier = Modifier.fillMaxWidth(),
             ) {
@@ -217,7 +221,7 @@ private fun PositionsList(
                     FilterChip(
                         selected = filter == selectedFilter,
                         onClick = { onFilterSelect(filter) },
-                        label = { Text(filter.label) },
+                        label = { Text(filter.label, maxLines = 1) },
                     )
                 }
             }
@@ -246,18 +250,15 @@ private fun PositionCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Card(
+    TradingCard(
+        onClick = onClick,
         modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
             .semantics {
                 contentDescription = "Position ${position.symbol}, " +
                     "quantité ${position.quantity}, " +
                     if (position.status == PositionStatus.OPEN) "ouverte" else "fermée"
             },
-        colors = CardDefaults.cardColors(
-            containerColor = LocalExtendedColors.current.cardSurface,
-        ),
     ) {
         Row(
             modifier = Modifier

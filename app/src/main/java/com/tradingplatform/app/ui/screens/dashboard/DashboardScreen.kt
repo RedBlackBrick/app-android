@@ -29,20 +29,31 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tradingplatform.app.domain.model.PnlPeriod
 import com.tradingplatform.app.ui.common.DataState
 import com.tradingplatform.app.ui.components.ConnectionStatusIndicator
+import com.tradingplatform.app.ui.components.PortfolioSwitcher
 import com.tradingplatform.app.ui.components.rememberHapticFeedback
 import com.tradingplatform.app.ui.screens.dashboard.components.DashboardHeroCard
 import com.tradingplatform.app.ui.screens.dashboard.components.DashboardKpiRow
-import com.tradingplatform.app.ui.screens.dashboard.components.DashboardRiskTile
+import com.tradingplatform.app.ui.screens.dashboard.components.DashboardPortfoliosCard
+import com.tradingplatform.app.ui.screens.dashboard.components.DashboardRiskBanner
 import com.tradingplatform.app.ui.screens.dashboard.components.DashboardSkeleton
+import com.tradingplatform.app.ui.screens.dashboard.components.DashboardStrategiesRow
 import com.tradingplatform.app.ui.theme.Spacing
 
+/** Nombre maximal de lignes de squelette de la carte « Mes portefeuilles » pendant son chargement. */
+private const val OVERVIEW_PLACEHOLDER_MAX_ROWS = 3
+
 /**
- * Écran d'accueil concis : héros (NAV + variation + sparkline + période), trois KPI cliquables
- * vers Performance, tuile risque (seulement en cas d'alerte) et les 3 dernières activités.
+ * Écran d'accueil concis, piloté par le portefeuille ACTIF : bandeau de risque (seulement en cas
+ * d'alerte), héros (NAV + variation + courbe de NAV + période + pastille broker), tuiles KPI
+ * cliquables vers Performance, carte « Mes portefeuilles » (seulement si le compte en a ≥ 2),
+ * entrée Stratégies et les 3 dernières activités. Tous les blocs optionnels sont ABSENTS quand leur
+ * donnée l'est.
  *
  * @param onNavigateToPerformance ouvre l'écran Performance (tuiles KPI).
  * @param onNavigateToAlerts ouvre les alertes (lien « Tout voir » du flux d'activité).
  * @param onOpenSettings ouvre les réglages (action de la barre supérieure).
+ * @param onOpenRisk ouvre l'écran Risque (bandeau de risque).
+ * @param onOpenStrategies ouvre l'écran Stratégies (ligne « Stratégies — N actives »).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -50,10 +61,13 @@ fun DashboardScreen(
     onNavigateToPerformance: () -> Unit,
     onNavigateToAlerts: () -> Unit,
     onOpenSettings: () -> Unit = {},
+    onOpenRisk: () -> Unit = {},
+    onOpenStrategies: () -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: DashboardViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val portfolios by viewModel.portfolios.collectAsStateWithLifecycle()
     val wsState by viewModel.wsConnectionState.collectAsStateWithLifecycle()
     val activityItems by viewModel.activityItems.collectAsStateWithLifecycle()
     val isWsLive by viewModel.isWsLive.collectAsStateWithLifecycle()
@@ -61,6 +75,7 @@ fun DashboardScreen(
 
     // Skeletons uniquement au tout premier chargement (ni valeur ni erreur sur NAV et PnL).
     // Un refresh (WS, pull-to-refresh) conserve les valeurs affichées — audit #21.
+    // Un changement de portefeuille actif remet NAV et PnL à zéro → skeleton, jamais l'ancien.
     val isInitialLoading = uiState.navSummary.isInitialLoading &&
         uiState.pnlSummary.isInitialLoading
 
@@ -90,19 +105,41 @@ fun DashboardScreen(
     }
 
     // Dérivations de présentation (fonctions pures — cf. DashboardPresentation.kt).
-    val kpis = remember(uiState.navSummary.value, uiState.pnlSummary.value) {
-        dashboardKpis(uiState.navSummary.value, uiState.pnlSummary.value)
+    val currencySymbol = remember(portfolios, uiState.portfolioId) {
+        activeCurrencySymbol(portfolios, uiState.portfolioId)
     }
-    val riskModel = remember(uiState.circuitBreakerStatus) {
-        riskTileModel(uiState.circuitBreakerStatus)
+    val kpis = remember(uiState.navSummary.value, uiState.performance, currencySymbol) {
+        dashboardKpis(uiState.navSummary.value, uiState.performance, currencySymbol)
     }
+    val riskBanner = remember(uiState.riskStatus, uiState.circuitBreakerStatus) {
+        riskBannerModel(uiState.riskStatus, uiState.circuitBreakerStatus)
+    }
+    val brokerPill = remember(uiState.brokerStatus) { brokerPillModel(uiState.brokerStatus) }
+    val strategiesEntry = remember(uiState.activeStrategyCount) {
+        strategiesEntryModel(uiState.activeStrategyCount)
+    }
+    val overview = uiState.portfolioOverview
+    val overviewModel = remember(overview.value, uiState.portfolioId) {
+        overview.value?.let { portfolioOverviewModel(it, uiState.portfolioId) }
+    }
+    val showOverview = shouldShowPortfolioOverview(
+        portfolioCount = portfolios.size,
+        hasValue = !overview.value.isNullOrEmpty(),
+        isLoading = overview.isInitialLoading,
+    )
 
-    // Callback mémoïsé : haptic et viewModel sont des références stables, donc `remember {}` sans
+    // Callbacks mémoïsés : haptic et viewModel sont des références stables, donc `remember {}` sans
     // clé est sûr et évite de recomposer le sélecteur à chaque mise à jour du flux WS.
     val onPeriodSelect = remember<(PnlPeriod) -> Unit> {
         { period ->
             haptic.click()
             viewModel.selectPeriod(period)
+        }
+    }
+    val onPortfolioSelect = remember<(String) -> Unit> {
+        { portfolioId ->
+            haptic.click()
+            viewModel.selectPortfolio(portfolioId)
         }
     }
 
@@ -111,6 +148,8 @@ fun DashboardScreen(
             TopAppBar(
                 title = { Text("Accueil") },
                 actions = {
+                    // Rend RIEN pour un compte à un seul portefeuille.
+                    PortfolioSwitcher()
                     ConnectionStatusIndicator(
                         state = wsState,
                         modifier = Modifier.padding(end = Spacing.xs),
@@ -144,24 +183,47 @@ fun DashboardScreen(
                 if (isInitialLoading) {
                     DashboardSkeleton()
                 } else {
-                    // ── Héros : NAV, variation de la période, sparkline, sélecteur ──
+                    // ── Risque : l'UNIQUE alerte (la plus grave), absente si rien à signaler ──
+                    if (riskBanner != null) {
+                        DashboardRiskBanner(model = riskBanner, onClick = onOpenRisk)
+                    }
+
+                    // ── Héros : NAV, variation de la période, courbe, sélecteur, broker ──
                     DashboardHeroCard(
                         navState = uiState.navSummary,
                         pnlState = uiState.pnlSummary,
+                        navCurve = uiState.navCurve,
                         selectedPeriod = uiState.selectedPeriod,
                         onSelectPeriod = onPeriodSelect,
                         onRetry = { viewModel.refresh() },
+                        brokerPill = brokerPill,
+                        currencySymbol = currencySymbol,
                     )
 
-                    // ── KPI de la période → écran Performance ──────────────────────
+                    // ── KPI (liquidités, latent, win rate, drawdown) → écran Performance ──
                     DashboardKpiRow(
                         kpis = kpis,
                         onClick = onNavigateToPerformance,
                     )
 
-                    // ── Risque : uniquement circuit ouvert / statut indisponible ──
-                    if (riskModel != null) {
-                        DashboardRiskTile(model = riskModel)
+                    // ── Mes portefeuilles : uniquement pour un compte à ≥ 2 portefeuilles ──
+                    if (showOverview) {
+                        DashboardPortfoliosCard(
+                            model = overviewModel,
+                            caption = dashboardPeriodCaption(uiState.selectedPeriod),
+                            onSelect = onPortfolioSelect,
+                            placeholderRows = minOf(portfolios.size, OVERVIEW_PLACEHOLDER_MAX_ROWS),
+                            staleSyncedAt = if (overview.error != null && overview.value != null) {
+                                overview.syncedAt
+                            } else {
+                                null
+                            },
+                        )
+                    }
+
+                    // ── Stratégies : « N actives » → écran Stratégies ─────────────────
+                    if (strategiesEntry != null) {
+                        DashboardStrategiesRow(model = strategiesEntry, onClick = onOpenStrategies)
                     }
 
                     // ── Activité : 3 derniers événements + « Tout voir » ───────────

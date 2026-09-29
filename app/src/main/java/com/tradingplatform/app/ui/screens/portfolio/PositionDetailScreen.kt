@@ -12,8 +12,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -34,6 +32,7 @@ import com.tradingplatform.app.data.local.db.CacheTtl
 import com.tradingplatform.app.domain.model.Position
 import com.tradingplatform.app.domain.model.PositionStatus
 import com.tradingplatform.app.domain.model.Transaction
+import com.tradingplatform.app.ui.components.TradingCard
 import com.tradingplatform.app.ui.components.CacheTimestamp
 import com.tradingplatform.app.ui.components.ClosedPositionBadge
 import com.tradingplatform.app.ui.components.ErrorBanner
@@ -154,7 +153,7 @@ private fun PositionSummaryCard(
     syncedAt: Long,
     modifier: Modifier = Modifier,
 ) {
-    Card(
+    TradingCard(
         modifier = modifier
             .fillMaxWidth()
             .semantics {
@@ -162,9 +161,6 @@ private fun PositionSummaryCard(
                     "prix moyen ${position.avgPrice} €, " +
                     "prix actuel ${position.currentPrice} €"
             },
-        colors = CardDefaults.cardColors(
-            containerColor = LocalExtendedColors.current.cardSurface,
-        ),
     ) {
         Column(
             modifier = Modifier

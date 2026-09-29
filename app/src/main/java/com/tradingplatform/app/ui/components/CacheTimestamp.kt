@@ -2,6 +2,12 @@ package com.tradingplatform.app.ui.components
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalInspectionMode
+import kotlinx.coroutines.delay
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -71,6 +77,9 @@ fun formatCacheTime(syncedAt: Long, now: Long, zone: ZoneId = ZoneId.systemDefau
  *
  * Style : [MaterialTheme.typography.labelSmall].
  */
+/** Période de rafraîchissement de l'âge affiché (le libellé le plus fin est à la minute). */
+private const val CLOCK_TICK_MS = 30_000L
+
 @Composable
 fun CacheTimestamp(
     syncedAt: Long,
@@ -82,7 +91,17 @@ fun CacheTimestamp(
 
     val extendedColors = LocalExtendedColors.current
     val neutralColor = MaterialTheme.colorScheme.onSurfaceVariant
-    val now = System.currentTimeMillis()
+    // Horloge locale rafraîchie toutes les 30 s : sans elle, `now` était lu une seule fois à la
+    // composition et « À jour » restait affiché (ou l'âge figé) tant que rien ne recomposait l'écran.
+    var now by remember(syncedAt) { mutableLongStateOf(System.currentTimeMillis()) }
+    if (!LocalInspectionMode.current) {
+        LaunchedEffect(syncedAt) {
+            while (true) {
+                delay(CLOCK_TICK_MS)
+                now = System.currentTimeMillis()
+            }
+        }
+    }
     val ageMs = now - syncedAt
 
     val (text, color) = remember(syncedAt, ageMs, ttlMs, warnMs) {

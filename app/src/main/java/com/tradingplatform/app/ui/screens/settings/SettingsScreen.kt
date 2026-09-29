@@ -20,12 +20,11 @@ import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -47,6 +46,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.tradingplatform.app.ui.components.TradingCard
 import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.Spacing
 
@@ -72,6 +72,7 @@ fun SettingsScreen(
     modifier: Modifier = Modifier,
     isAdmin: Boolean = false,
     onNavigateToDevices: () -> Unit = {},
+    onNavigateToNotifications: () -> Unit = {},
     onNavigateBack: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
@@ -133,11 +134,8 @@ fun SettingsScreen(
             verticalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
             val extendedColors = LocalExtendedColors.current
-            Card(
+            TradingCard(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = extendedColors.cardSurface,
-                ),
             ) {
                 Column {
                     SettingsRow(
@@ -178,6 +176,16 @@ fun SettingsScreen(
                             onClick = onNavigateToDevices,
                         )
                     }
+                    HorizontalDivider(
+                        color = extendedColors.divider,
+                        modifier = Modifier.padding(horizontal = Spacing.lg),
+                    )
+                    SettingsRow(
+                        icon = Icons.Default.Notifications,
+                        title = "Notifications",
+                        subtitle = "Notifications push par catégorie",
+                        onClick = onNavigateToNotifications,
+                    )
                     HorizontalDivider(
                         color = extendedColors.divider,
                         modifier = Modifier.padding(horizontal = Spacing.lg),

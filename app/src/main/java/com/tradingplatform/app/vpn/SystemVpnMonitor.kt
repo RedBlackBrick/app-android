@@ -5,6 +5,7 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.os.Build
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -101,8 +102,19 @@ class SystemVpnMonitor @Inject constructor(
                 // capacités — ou qui perd FOREGROUND quand aucune app ne l'utilise — sortait du
                 // filtre : `onLost` → « VPN déconnecté » alors que le tunnel était bien monté.
                 // On efface donc toutes les capacités par défaut et on ne filtre que sur le transport.
-                val request = NetworkRequest.Builder()
-                    .clearCapabilities()
+                val builder = NetworkRequest.Builder()
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    // `clearCapabilities()` n'existe qu'à partir de l'API 30 (minSdk = 28).
+                    builder.clearCapabilities()
+                } else {
+                    // API 28-29 : les capacités par défaut du builder sont NOT_RESTRICTED, TRUSTED et
+                    // NOT_VPN — on les retire une à une.
+                    builder
+                        .removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED)
+                        .removeCapability(NetworkCapabilities.NET_CAPABILITY_TRUSTED)
+                        .removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+                }
+                val request = builder
                     .addTransportType(NetworkCapabilities.TRANSPORT_VPN)
                     .build()
                 cm.registerNetworkCallback(request, callback)

@@ -19,9 +19,13 @@ import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.Spacing
 import com.tradingplatform.app.ui.theme.asNumeric
 
+/** Tuiles par ligne : 2 colonnes (~150 dp) — 3 colonnes tronquaient « +12 345 € » à police 130 %. */
+private const val KPI_COLUMNS = 2
+
 /**
- * Ligne de petites tuiles KPI (Liquidités, Latent, Win rate / Drawdown max), en mono. Chaque tuile est
- * cliquable et mène à l'écran Performance ([onClick]). Rien n'est rendu si [kpis] est vide.
+ * Petites tuiles KPI (Liquidités, Latent, Win rate, Drawdown max), en mono, sur deux colonnes.
+ * Chaque tuile est cliquable et mène à l'écran Performance ([onClick]). Un nombre impair de tuiles
+ * laisse la dernière seule sur sa ligne, pleine largeur. Rien n'est rendu si [kpis] est vide.
  */
 @Composable
 internal fun DashboardKpiRow(
@@ -30,16 +34,23 @@ internal fun DashboardKpiRow(
     modifier: Modifier = Modifier,
 ) {
     if (kpis.isEmpty()) return
-    Row(
+    Column(
         modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+        verticalArrangement = Arrangement.spacedBy(Spacing.sm),
     ) {
-        kpis.forEach { kpi ->
-            KpiTile(
-                kpi = kpi,
-                onClick = onClick,
-                modifier = Modifier.weight(1f),
-            )
+        kpis.chunked(KPI_COLUMNS).forEach { rowKpis ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+            ) {
+                rowKpis.forEach { kpi ->
+                    KpiTile(
+                        kpi = kpi,
+                        onClick = onClick,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
         }
     }
 }
@@ -56,7 +67,8 @@ private fun KpiTile(
     ) {
         Column(
             modifier = Modifier
-                .padding(horizontal = Spacing.sm, vertical = Spacing.md)
+                .fillMaxWidth()
+                .padding(horizontal = Spacing.md, vertical = Spacing.sm)
                 // Une seule phrase TalkBack (« Liquidités : 12 000,00 € ») ; le nœud de la
                 // carte porte déjà le rôle bouton et l'action de clic.
                 .clearAndSetSemantics { contentDescription = kpi.spokenDescription },
@@ -68,11 +80,11 @@ private fun KpiTile(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
             )
-            Text(
+            // FitText : la valeur rétrécit plutôt que d'être tronquée (police 130 %).
+            FitText(
                 text = kpi.value,
                 style = MaterialTheme.typography.titleMedium.asNumeric(),
                 color = pnlToneColor(kpi.tone),
-                maxLines = 1,
             )
         }
     }

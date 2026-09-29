@@ -3,27 +3,36 @@ package com.tradingplatform.app.ui.screens.alerts
 import app.cash.turbine.test
 import com.tradingplatform.app.domain.model.Alert
 import com.tradingplatform.app.domain.model.AlertType
+import com.tradingplatform.app.domain.model.InboxNotification
 import com.tradingplatform.app.domain.usecase.alerts.GetAlertsUseCase
 import com.tradingplatform.app.domain.usecase.alerts.GetFilteredAlertsUseCase
+import com.tradingplatform.app.domain.usecase.alerts.GetInboxUnreadCountUseCase
+import com.tradingplatform.app.domain.usecase.alerts.GetInboxUseCase
 import com.tradingplatform.app.domain.usecase.alerts.MarkAlertReadUseCase
 import com.tradingplatform.app.domain.usecase.alerts.MarkAllAlertsReadUseCase
+import com.tradingplatform.app.domain.usecase.alerts.MarkAllInboxReadUseCase
+import com.tradingplatform.app.domain.usecase.alerts.MarkInboxReadUseCase
 import com.tradingplatform.app.domain.usecase.auth.AuthContext
 import com.tradingplatform.app.domain.usecase.auth.GetAuthContextUseCase
 import com.tradingplatform.app.util.MainDispatcherRule
+import com.tradingplatform.app.vpn.VpnNotConnectedException
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import java.io.IOException
 import java.time.Instant
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -37,6 +46,10 @@ class AlertsViewModelTest {
     private val markAlertReadUseCase = mockk<MarkAlertReadUseCase>()
     private val markAllAlertsReadUseCase = mockk<MarkAllAlertsReadUseCase>()
     private val getAuthContextUseCase = mockk<GetAuthContextUseCase>()
+    private val getInboxUseCase = mockk<GetInboxUseCase>()
+    private val getInboxUnreadCountUseCase = mockk<GetInboxUnreadCountUseCase>()
+    private val markInboxReadUseCase = mockk<MarkInboxReadUseCase>()
+    private val markAllInboxReadUseCase = mockk<MarkAllInboxReadUseCase>()
 
     private lateinit var viewModel: AlertsViewModel
 
@@ -46,6 +59,10 @@ class AlertsViewModelTest {
         markAlertReadUseCase = markAlertReadUseCase,
         markAllAlertsReadUseCase = markAllAlertsReadUseCase,
         getAuthContextUseCase = getAuthContextUseCase,
+        getInboxUseCase = getInboxUseCase,
+        getInboxUnreadCountUseCase = getInboxUnreadCountUseCase,
+        markInboxReadUseCase = markInboxReadUseCase,
+        markAllInboxReadUseCase = markAllInboxReadUseCase,
     )
 
     private fun authContext(isAdmin: Boolean) = AuthContext(
@@ -83,6 +100,18 @@ class AlertsViewModelTest {
         read = false,
     )
 
+    private fun notif(id: String, read: Boolean) = InboxNotification(
+        id = id,
+        type = "risk_alert",
+        title = "Titre $id",
+        body = "Corps $id",
+        read = read,
+        createdAt = Instant.parse("2026-09-29T08:14:03Z"),
+    )
+
+    /** n1 et n3 non lues, n2 lue. */
+    private val inboxItems = listOf(notif("n1", read = false), notif("n2", read = true), notif("n3", read = false))
+
     // ── setUp ──────────────────────────────────────────────────────────────────
 
     @Before
@@ -92,6 +121,11 @@ class AlertsViewModelTest {
         coEvery { markAllAlertsReadUseCase() } returns Result.success(Unit)
         // Default: standard (non-admin) account
         coEvery { getAuthContextUseCase() } returns authContext(isAdmin = false)
+        // Default: server inbox reachable, 2 unread, mark-read calls succeed
+        coEvery { getInboxUseCase() } returns Result.success(inboxItems)
+        coEvery { getInboxUnreadCountUseCase() } returns Result.success(2)
+        coEvery { markInboxReadUseCase(any()) } returns Result.success(Unit)
+        coEvery { markAllInboxReadUseCase() } returns Result.success(Unit)
     }
 
     // ── Loading → Success transition ───────────────────────────────────────────
@@ -409,5 +443,387 @@ class AlertsViewModelTest {
             ),
             hidden,
         )
+    }
+
+    // ── Segment « Serveur » : sélection et chargement ──────────────────────────
+
+    @Test
+    fun `default segment is Cet appareil and the server is not contacted until needed`() = runTest {
+        every { getAlertsUseCase() } returns flowOf(listOf(unreadAlert))
+        viewModel = createViewModel()
+        advanceUntilIdle()
+
+        assertEquals(AlertsSegment.DEVICE, viewModel.selectedSegment.value)
+        assertEquals(InboxUiState.Loading, viewModel.inboxState.value)
+        assertEquals(0, viewModel.serverUnreadCount.value)
+        assertFalse(viewModel.isServerUnreadKnown.value)
+        coVerify(exactly = 0) { getInboxUseCase() }
+        coVerify(exactly = 0) { getInboxUnreadCountUseCase() }
+    }
+
+    @Test
+    fun `segment labels are the two expected French labels`() {
+        assertEquals(listOf("Cet appareil", "Serveur"), AlertsSegment.entries.map { it.label })
+    }
+
+    @Test
+    fun `selecting Serveur loads the inbox and the unread count without touching local alerts`() = runTest {
+        every { getAlertsUseCase() } returns flowOf(listOf(unreadAlert, readAlert))
+        viewModel = createViewModel()
+
+        viewModel.selectSegment(AlertsSegment.SERVER)
+        advanceUntilIdle()
+
+        assertEquals(AlertsSegment.SERVER, viewModel.selectedSegment.value)
+        val inbox = viewModel.inboxState.value as InboxUiState.Success
+        assertEquals(listOf("n1", "n2", "n3"), inbox.items.map { it.id })
+        assertEquals(2, inbox.unreadCount)
+        assertEquals(2, viewModel.serverUnreadCount.value)
+        assertTrue(viewModel.isServerUnreadKnown.value)
+        // Le segment local garde exactement son état
+        val local = viewModel.uiState.value as AlertsUiState.Success
+        assertEquals(listOf(unreadAlert, readAlert), local.alerts)
+        assertEquals(1, local.unreadCount)
+        coVerify(exactly = 1) { getInboxUseCase() }
+    }
+
+    @Test
+    fun `selecting the already selected segment does not reload the inbox`() = runTest {
+        every { getAlertsUseCase() } returns flowOf(emptyList())
+        viewModel = createViewModel()
+
+        viewModel.selectSegment(AlertsSegment.SERVER)
+        viewModel.selectSegment(AlertsSegment.SERVER)
+        advanceUntilIdle()
+        coVerify(exactly = 1) { getInboxUseCase() }
+
+        // Revenir sur « Cet appareil » puis rouvrir « Serveur » recharge (segment en ligne uniquement)
+        viewModel.selectSegment(AlertsSegment.DEVICE)
+        viewModel.selectSegment(AlertsSegment.SERVER)
+        advanceUntilIdle()
+        coVerify(exactly = 2) { getInboxUseCase() }
+    }
+
+    @Test
+    fun `empty server inbox is a Success with no rows`() = runTest {
+        every { getAlertsUseCase() } returns flowOf(emptyList())
+        coEvery { getInboxUseCase() } returns Result.success(emptyList())
+        coEvery { getInboxUnreadCountUseCase() } returns Result.success(0)
+        viewModel = createViewModel()
+
+        viewModel.selectSegment(AlertsSegment.SERVER)
+        advanceUntilIdle()
+
+        assertEquals(InboxUiState.Success(emptyList()), viewModel.inboxState.value)
+        assertEquals(0, viewModel.serverUnreadCount.value)
+    }
+
+    // ── Segment « Serveur » : échecs ───────────────────────────────────────────
+
+    @Test
+    fun `VpnNotConnectedException gives VpnRequired even though it is an IOException`() = runTest {
+        every { getAlertsUseCase() } returns flowOf(listOf(unreadAlert))
+        coEvery { getInboxUseCase() } returns Result.failure(VpnNotConnectedException())
+        coEvery { getInboxUnreadCountUseCase() } returns Result.failure(VpnNotConnectedException())
+        viewModel = createViewModel()
+
+        viewModel.selectSegment(AlertsSegment.SERVER)
+        advanceUntilIdle()
+
+        assertEquals(InboxUiState.VpnRequired, viewModel.inboxState.value)
+        // Pas de décompte lu : valeur initiale conservée, non « connue »
+        assertEquals(0, viewModel.serverUnreadCount.value)
+        assertFalse(viewModel.isServerUnreadKnown.value)
+        // Les alertes locales restent affichées hors VPN
+        val local = viewModel.uiState.value as AlertsUiState.Success
+        assertEquals(listOf(unreadAlert), local.alerts)
+    }
+
+    @Test
+    fun `plain IOException gives the unreachable message`() = runTest {
+        every { getAlertsUseCase() } returns flowOf(emptyList())
+        coEvery { getInboxUseCase() } returns Result.failure(IOException("timeout"))
+        viewModel = createViewModel()
+
+        viewModel.selectSegment(AlertsSegment.SERVER)
+        advanceUntilIdle()
+
+        assertEquals(
+            InboxUiState.Error("Serveur injoignable. Vérifiez la connexion puis réessayez."),
+            viewModel.inboxState.value,
+        )
+    }
+
+    @Test
+    fun `other failure gives the generic error and never leaks the raw message`() = runTest {
+        every { getAlertsUseCase() } returns flowOf(emptyList())
+        coEvery { getInboxUseCase() } returns Result.failure(RuntimeException("HTTP 500 on v1/notifications"))
+        viewModel = createViewModel()
+
+        viewModel.selectSegment(AlertsSegment.SERVER)
+        advanceUntilIdle()
+
+        assertEquals(
+            InboxUiState.Error("Impossible de charger les notifications du serveur."),
+            viewModel.inboxState.value,
+        )
+    }
+
+    @Test
+    fun `failed reload replaces the list instead of showing stale data`() = runTest {
+        every { getAlertsUseCase() } returns flowOf(emptyList())
+        viewModel = createViewModel()
+        viewModel.selectSegment(AlertsSegment.SERVER)
+        advanceUntilIdle()
+        assertTrue(viewModel.inboxState.value is InboxUiState.Success)
+
+        coEvery { getInboxUseCase() } returns Result.failure(VpnNotConnectedException())
+        viewModel.refreshInbox()
+        advanceUntilIdle()
+
+        assertEquals(InboxUiState.VpnRequired, viewModel.inboxState.value)
+        assertFalse(viewModel.isInboxRefreshing.value)
+    }
+
+    @Test
+    fun `retry after a failure loads the list again`() = runTest {
+        every { getAlertsUseCase() } returns flowOf(emptyList())
+        coEvery { getInboxUseCase() } returns Result.failure(VpnNotConnectedException())
+        viewModel = createViewModel()
+        viewModel.selectSegment(AlertsSegment.SERVER)
+        advanceUntilIdle()
+        assertEquals(InboxUiState.VpnRequired, viewModel.inboxState.value)
+
+        coEvery { getInboxUseCase() } returns Result.success(inboxItems)
+        viewModel.refreshInbox()
+        advanceUntilIdle()
+
+        assertEquals(3, (viewModel.inboxState.value as InboxUiState.Success).items.size)
+    }
+
+    @Test
+    fun `refresh keeps the current list visible while reloading`() = runTest {
+        every { getAlertsUseCase() } returns flowOf(emptyList())
+        viewModel = createViewModel()
+        viewModel.selectSegment(AlertsSegment.SERVER)
+        advanceUntilIdle()
+
+        val gate = CompletableDeferred<Result<List<InboxNotification>>>()
+        coEvery { getInboxUseCase() } coAnswers { gate.await() }
+        viewModel.refreshInbox()
+
+        assertTrue(viewModel.isInboxRefreshing.value)
+        assertEquals(listOf("n1", "n2", "n3"), (viewModel.inboxState.value as InboxUiState.Success).items.map { it.id })
+
+        gate.complete(Result.success(listOf(notif("n9", read = false))))
+        advanceUntilIdle()
+
+        assertFalse(viewModel.isInboxRefreshing.value)
+        assertEquals(listOf("n9"), (viewModel.inboxState.value as InboxUiState.Success).items.map { it.id })
+    }
+
+    // ── Segment « Serveur » : lecture d'une notification ───────────────────────
+
+    @Test
+    fun `markInboxRead updates the row and the count immediately then re-reads the count`() = runTest {
+        every { getAlertsUseCase() } returns flowOf(emptyList())
+        viewModel = createViewModel()
+        viewModel.selectSegment(AlertsSegment.SERVER)
+        advanceUntilIdle()
+        assertEquals(2, viewModel.serverUnreadCount.value)
+
+        val gate = CompletableDeferred<Result<Unit>>()
+        coEvery { markInboxReadUseCase("n1") } coAnswers { gate.await() }
+        coEvery { getInboxUnreadCountUseCase() } returns Result.success(1)
+
+        viewModel.markInboxRead("n1")
+
+        // Optimiste : avant la réponse du serveur
+        val optimistic = viewModel.inboxState.value as InboxUiState.Success
+        assertTrue(optimistic.items.first { it.id == "n1" }.read)
+        assertEquals(1, optimistic.unreadCount)
+        assertEquals(1, viewModel.serverUnreadCount.value)
+        coVerify(exactly = 1) { markInboxReadUseCase("n1") }
+        // Le décompte n'a pas encore été relu (1 lecture au chargement de la liste)
+        coVerify(exactly = 1) { getInboxUnreadCountUseCase() }
+
+        gate.complete(Result.success(Unit))
+        advanceUntilIdle()
+
+        // Relecture du compteur après la lecture
+        coVerify(exactly = 2) { getInboxUnreadCountUseCase() }
+        assertEquals(1, viewModel.serverUnreadCount.value)
+        assertTrue((viewModel.inboxState.value as InboxUiState.Success).items.first { it.id == "n1" }.read)
+    }
+
+    @Test
+    fun `markInboxRead ignores an already read row and an unknown id`() = runTest {
+        every { getAlertsUseCase() } returns flowOf(emptyList())
+        viewModel = createViewModel()
+        viewModel.selectSegment(AlertsSegment.SERVER)
+        advanceUntilIdle()
+
+        viewModel.markInboxRead("n2") // déjà lue
+        viewModel.markInboxRead("inconnu")
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { markInboxReadUseCase(any()) }
+        assertEquals(2, viewModel.serverUnreadCount.value)
+    }
+
+    @Test
+    fun `markInboxRead does nothing while the inbox is not displayed`() = runTest {
+        every { getAlertsUseCase() } returns flowOf(emptyList())
+        viewModel = createViewModel()
+
+        viewModel.markInboxRead("n1")
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { markInboxReadUseCase(any()) }
+    }
+
+    @Test
+    fun `markInboxRead failure reverts the row and the count`() = runTest {
+        every { getAlertsUseCase() } returns flowOf(emptyList())
+        viewModel = createViewModel()
+        viewModel.selectSegment(AlertsSegment.SERVER)
+        advanceUntilIdle()
+        // Le décompte ne peut plus être relu : seul le retour arrière compte ici
+        coEvery { getInboxUnreadCountUseCase() } returns Result.failure(VpnNotConnectedException())
+        coEvery { markInboxReadUseCase("n1") } returns Result.failure(VpnNotConnectedException())
+
+        viewModel.markInboxRead("n1")
+        advanceUntilIdle()
+
+        val state = viewModel.inboxState.value as InboxUiState.Success
+        assertFalse(state.items.first { it.id == "n1" }.read)
+        assertEquals(2, state.unreadCount)
+        assertEquals(2, viewModel.serverUnreadCount.value)
+    }
+
+    @Test
+    fun `a reload does not resurrect a row that was just read locally`() = runTest {
+        every { getAlertsUseCase() } returns flowOf(emptyList())
+        viewModel = createViewModel()
+        viewModel.selectSegment(AlertsSegment.SERVER)
+        advanceUntilIdle()
+
+        viewModel.markInboxRead("n1")
+        advanceUntilIdle()
+        // Le serveur renvoie encore n1 non lue (relecture partie avant le traitement du POST)
+        coEvery { getInboxUseCase() } returns Result.success(inboxItems)
+        viewModel.refreshInbox()
+        advanceUntilIdle()
+
+        val state = viewModel.inboxState.value as InboxUiState.Success
+        assertTrue(state.items.first { it.id == "n1" }.read)
+        assertFalse(state.items.first { it.id == "n3" }.read)
+    }
+
+    // ── Segment « Serveur » : tout marquer comme lu ────────────────────────────
+
+    @Test
+    fun `markAllInboxRead marks every row read and zeroes the count`() = runTest {
+        every { getAlertsUseCase() } returns flowOf(emptyList())
+        viewModel = createViewModel()
+        viewModel.selectSegment(AlertsSegment.SERVER)
+        advanceUntilIdle()
+
+        val gate = CompletableDeferred<Result<Unit>>()
+        coEvery { markAllInboxReadUseCase() } coAnswers { gate.await() }
+        coEvery { getInboxUnreadCountUseCase() } returns Result.success(0)
+
+        viewModel.markAllInboxRead()
+
+        // Optimiste
+        val optimistic = viewModel.inboxState.value as InboxUiState.Success
+        assertTrue(optimistic.items.all { it.read })
+        assertEquals(0, viewModel.serverUnreadCount.value)
+
+        gate.complete(Result.success(Unit))
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { markAllInboxReadUseCase() }
+        // Le segment local n'est pas concerné
+        coVerify(exactly = 0) { markAllAlertsReadUseCase() }
+        coVerify(exactly = 2) { getInboxUnreadCountUseCase() }
+        assertEquals(0, viewModel.serverUnreadCount.value)
+    }
+
+    @Test
+    fun `markAllInboxRead failure restores the unread rows and the count`() = runTest {
+        every { getAlertsUseCase() } returns flowOf(emptyList())
+        viewModel = createViewModel()
+        viewModel.selectSegment(AlertsSegment.SERVER)
+        advanceUntilIdle()
+        coEvery { getInboxUnreadCountUseCase() } returns Result.failure(IOException("offline"))
+        coEvery { markAllInboxReadUseCase() } returns Result.failure(IOException("offline"))
+
+        viewModel.markAllInboxRead()
+        advanceUntilIdle()
+
+        val state = viewModel.inboxState.value as InboxUiState.Success
+        assertEquals(listOf("n1", "n3"), state.items.filter { !it.read }.map { it.id })
+        assertEquals(2, viewModel.serverUnreadCount.value)
+    }
+
+    @Test
+    fun `markAllInboxRead does nothing while the inbox needs the VPN`() = runTest {
+        every { getAlertsUseCase() } returns flowOf(emptyList())
+        coEvery { getInboxUseCase() } returns Result.failure(VpnNotConnectedException())
+        viewModel = createViewModel()
+        viewModel.selectSegment(AlertsSegment.SERVER)
+        advanceUntilIdle()
+
+        viewModel.markAllInboxRead()
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { markAllInboxReadUseCase() }
+    }
+
+    // ── Décompte serveur (badge) ───────────────────────────────────────────────
+
+    @Test
+    fun `onScreenOpened reads the unread count without loading the list on Cet appareil`() = runTest {
+        every { getAlertsUseCase() } returns flowOf(emptyList())
+        coEvery { getInboxUnreadCountUseCase() } returns Result.success(4)
+        viewModel = createViewModel()
+
+        viewModel.onScreenOpened()
+        advanceUntilIdle()
+
+        assertEquals(4, viewModel.serverUnreadCount.value)
+        assertTrue(viewModel.isServerUnreadKnown.value)
+        coVerify(exactly = 0) { getInboxUseCase() }
+    }
+
+    @Test
+    fun `onScreenOpened on the Serveur segment reloads the inbox`() = runTest {
+        every { getAlertsUseCase() } returns flowOf(emptyList())
+        viewModel = createViewModel()
+        viewModel.selectSegment(AlertsSegment.SERVER)
+        advanceUntilIdle()
+
+        viewModel.onScreenOpened()
+        advanceUntilIdle()
+
+        coVerify(exactly = 2) { getInboxUseCase() }
+    }
+
+    @Test
+    fun `unread count keeps its last value when the VPN drops`() = runTest {
+        every { getAlertsUseCase() } returns flowOf(emptyList())
+        coEvery { getInboxUnreadCountUseCase() } returns Result.success(4)
+        viewModel = createViewModel()
+        viewModel.onScreenOpened()
+        advanceUntilIdle()
+        assertEquals(4, viewModel.serverUnreadCount.value)
+
+        coEvery { getInboxUnreadCountUseCase() } returns Result.failure(VpnNotConnectedException())
+        viewModel.onScreenOpened()
+        advanceUntilIdle()
+
+        assertEquals(4, viewModel.serverUnreadCount.value)
+        assertTrue(viewModel.isServerUnreadKnown.value)
     }
 }

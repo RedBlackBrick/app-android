@@ -16,8 +16,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -38,9 +36,11 @@ import androidx.compose.ui.semantics.semantics
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tradingplatform.app.domain.model.Transaction
+import com.tradingplatform.app.ui.components.TradingCard
 import com.tradingplatform.app.ui.components.MoneyText
 import com.tradingplatform.app.ui.components.PortfolioSegment
 import com.tradingplatform.app.ui.components.PortfolioSegmentedTabs
+import com.tradingplatform.app.ui.components.PortfolioSwitcher
 import com.tradingplatform.app.ui.theme.IconSize
 import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.Spacing
@@ -62,6 +62,7 @@ fun TransactionHistoryScreen(
             TopAppBar(
                 title = { Text("Portefeuille") },
                 actions = {
+                    PortfolioSwitcher()
                     IconButton(onClick = onOpenSettings) {
                         Icon(
                             imageVector = Icons.Filled.Settings,
@@ -183,16 +184,13 @@ private fun TransactionCard(
             .let { DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm").format(it) }
     }
 
-    Card(
+    TradingCard(
         modifier = modifier
             .fillMaxWidth()
             .semantics {
                 contentDescription = "$actionLabel ${transaction.symbol}, " +
                     "quantité ${transaction.quantity}, prix ${transaction.price}"
             },
-        colors = CardDefaults.cardColors(
-            containerColor = extendedColors.cardSurface,
-        ),
     ) {
         Column(
             modifier = Modifier

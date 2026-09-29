@@ -25,6 +25,7 @@ import androidx.core.net.toUri
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.NavHostController
@@ -37,6 +38,8 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.tradingplatform.app.data.session.SessionManager
 import com.tradingplatform.app.data.session.TokenHolder
+import com.tradingplatform.app.domain.usecase.alerts.GetAlertsUseCase
+import com.tradingplatform.app.domain.usecase.alerts.GetInboxUnreadCountUseCase
 import com.tradingplatform.app.domain.usecase.auth.GetAuthContextUseCase
 import com.tradingplatform.app.domain.usecase.auth.LogoutUseCase
 import com.tradingplatform.app.domain.usecase.auth.RecoverFromKeystoreCorruptionUseCase
@@ -48,6 +51,9 @@ import com.tradingplatform.app.vpn.SystemVpnMonitor
 import com.tradingplatform.app.vpn.VpnState
 import com.tradingplatform.app.vpn.computeEffectiveVpnState
 import com.tradingplatform.app.vpn.WireGuardManager
+import com.tradingplatform.app.ui.screens.strategies.StrategiesScreen
+import com.tradingplatform.app.ui.screens.settings.NotificationPrefsScreen
+import com.tradingplatform.app.ui.screens.risk.RiskScreen
 import com.tradingplatform.app.ui.screens.alerts.AlertListScreen
 import com.tradingplatform.app.ui.screens.auth.LoginScreen
 import com.tradingplatform.app.ui.screens.dashboard.DashboardScreen
@@ -221,6 +227,8 @@ class AppNavViewModel @Inject constructor(
     private val recoverFromKeystoreCorruptionUseCase: RecoverFromKeystoreCorruptionUseCase,
     private val logoutUseCase: LogoutUseCase,
     private val tokenHolder: TokenHolder,
+    private val getAlertsUseCase: GetAlertsUseCase,
+    private val getInboxUnreadCountUseCase: GetInboxUnreadCountUseCase,
 ) : ViewModel() {
 
     companion object {
@@ -260,6 +268,36 @@ class AppNavViewModel @Inject constructor(
 
     /** Reconnects the VPN tunnel manually. */
     fun reconnectVpn() = wireGuardManager.reconnect()
+
+    private val serverUnreadCount = MutableStateFlow(0)
+
+    /**
+     * Badge de l'onglet Alertes : le plus grand de (alertes locales non lues — Room, temps réel) et
+     * (notifications serveur non lues — dernier décompte connu, rafraîchi par [refreshServerUnread]
+     * ou par l'écran Alertes). Le décompte serveur n'a pas de cache : hors VPN il garde sa dernière valeur.
+     */
+    val unreadAlertCount: StateFlow<Int> =
+        combine(
+            getAlertsUseCase().map { alerts -> alerts.count { !it.read } },
+            serverUnreadCount,
+        ) { local, server ->
+            // Un même événement peut exister en push local (FCM → Room) ET dans la boîte serveur,
+            // avec deux états « lu » indépendants : additionner le compterait deux fois.
+            maxOf(local, server)
+        }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
+    /** Décompte serveur remonté par l'écran Alertes (segment « Serveur ») après lecture/rafraîchissement. */
+    fun onServerUnreadCount(count: Int) {
+        serverUnreadCount.value = count
+    }
+
+    /** Relit le nombre de notifications serveur non lues ; un échec (VPN absent…) garde l'ancienne valeur. */
+    fun refreshServerUnread() {
+        viewModelScope.launch {
+            getInboxUnreadCountUseCase().onSuccess { count -> serverUnreadCount.value = count }
+        }
+    }
 
     private val _isLoggedIn = MutableStateFlow<Boolean?>(null)
 
@@ -611,6 +649,7 @@ fun AppNavGraph(
     appNavViewModel: AppNavViewModel = hiltViewModel(),
 ) {
     val isLoggedIn by appNavViewModel.isLoggedIn.collectAsStateWithLifecycle()
+    val unreadAlertCount by appNavViewModel.unreadAlertCount.collectAsStateWithLifecycle()
     val isAdmin by appNavViewModel.isAdmin.collectAsStateWithLifecycle()
     val isSetupCompleted by appNavViewModel.isSetupCompleted.collectAsStateWithLifecycle()
     // Banner must reflect the "any VPN active" view (in-app OR system-level).
@@ -633,6 +672,11 @@ fun AppNavGraph(
     // shows it without a fade-in on its first composition → no authenticated frame is exposed.
     val loggedIn = isLoggedIn ?: return
     if (isSetupCompleted == null) return
+
+    // Badge de l'onglet Alertes : décompte serveur relu à l'ouverture de session et à chaque retour
+    // au premier plan (le décompte local vient de Room, en temps réel).
+    LaunchedEffect(loggedIn) { if (loggedIn) appNavViewModel.refreshServerUnread() }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { if (loggedIn) appNavViewModel.refreshServerUnread() }
     // Figé au démarrage (AppNavViewModel.startDestination) : un startDestination qui suivrait
     // isLoggedIn / isSetupCompleted remplacerait le graphe du NavHost et viderait la back stack
     // à chaque login / logout. Les transitions de session sont des navigations explicites :
@@ -759,6 +803,7 @@ fun AppNavGraph(
             if (showBottomBar) {
                 BottomNavBar(
                     navController = navController,
+                    unreadAlertCount = unreadAlertCount,
                 )
             }
         },
@@ -872,6 +917,8 @@ fun AppNavGraph(
                     onNavigateToPerformance = {
                         navController.navigate(Screen.Performance.route)
                     },
+                    onOpenRisk = { navController.navigate(Screen.Risk.route) },
+                    onOpenStrategies = { navController.navigate(Screen.Strategies.route) },
                     // Même navigation que l'onglet Alertes de la barre (popUpTo Accueil,
                     // saveState/restoreState, launchSingleTop).
                     onNavigateToAlerts = {
@@ -938,6 +985,7 @@ fun AppNavGraph(
             composable(Screen.Alerts.route) {
                 AlertListScreen(
                     onOpenSettings = openSettings,
+                    onServerUnreadChange = appNavViewModel::onServerUnreadCount,
                 )
             }
 
@@ -1101,6 +1149,9 @@ fun AppNavGraph(
                     onNavigateToSecurity = {
                         navController.navigate(Screen.SecuritySettings.route)
                     },
+                    onNavigateToNotifications = {
+                        navController.navigate(Screen.NotificationPrefs.route)
+                    },
                     onNavigateToProfile = {
                         navController.navigate(Screen.Profile.route)
                     },
@@ -1130,6 +1181,24 @@ fun AppNavGraph(
 
             composable(Screen.SecuritySettings.route) {
                 SecuritySettingsScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                )
+            }
+
+            composable(Screen.NotificationPrefs.route) {
+                NotificationPrefsScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                )
+            }
+
+            composable(Screen.Strategies.route) {
+                StrategiesScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                )
+            }
+
+            composable(Screen.Risk.route) {
+                RiskScreen(
                     onNavigateBack = { navController.popBackStack() },
                 )
             }
