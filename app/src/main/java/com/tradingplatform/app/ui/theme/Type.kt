@@ -194,3 +194,10 @@ object TradingNumbers {
  */
 fun TextStyle.asNumeric(): TextStyle =
     copy(fontFamily = jetBrainsMonoFamily, fontFeatureSettings = "tnum")
+
+/**
+ * [asNumeric] seulement si [text] contient un chiffre : un libellé (« Désactivées », « Earnings Drift »)
+ * affiché en JetBrains Mono paraît incongru à côté de vrais montants.
+ */
+fun TextStyle.asNumericIfNumber(text: String): TextStyle =
+    if (text.any { it.isDigit() }) asNumeric() else this

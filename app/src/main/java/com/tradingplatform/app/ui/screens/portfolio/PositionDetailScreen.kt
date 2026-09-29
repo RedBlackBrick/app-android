@@ -32,6 +32,7 @@ import com.tradingplatform.app.data.local.db.CacheTtl
 import com.tradingplatform.app.domain.model.Position
 import com.tradingplatform.app.domain.model.PositionStatus
 import com.tradingplatform.app.domain.model.Transaction
+import com.tradingplatform.app.ui.common.LocalCurrencySymbol
 import com.tradingplatform.app.ui.components.TradingCard
 import com.tradingplatform.app.ui.components.CacheTimestamp
 import com.tradingplatform.app.ui.components.ClosedPositionBadge
@@ -153,13 +154,14 @@ private fun PositionSummaryCard(
     syncedAt: Long,
     modifier: Modifier = Modifier,
 ) {
+    val currencySymbol = LocalCurrencySymbol.current
     TradingCard(
         modifier = modifier
             .fillMaxWidth()
             .semantics {
                 contentDescription = "Position ${position.symbol} — " +
-                    "prix moyen ${position.avgPrice} €, " +
-                    "prix actuel ${position.currentPrice} €"
+                    "prix moyen ${position.avgPrice} $currencySymbol, " +
+                    "prix actuel ${position.currentPrice} $currencySymbol"
             },
     ) {
         Column(

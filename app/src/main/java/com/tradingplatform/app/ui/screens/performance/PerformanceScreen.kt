@@ -1,5 +1,6 @@
 package com.tradingplatform.app.ui.screens.performance
 
+import com.tradingplatform.app.ui.common.LocalCurrencySymbol
 import com.tradingplatform.app.ui.common.formatFr
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -158,7 +159,7 @@ private fun PerformanceContent(
             second = {
                 MetricCard(
                     label = "Gain moyen / trade",
-                    value = metrics.avgTradeReturn?.let { formatPnlAmount(it, "€") },
+                    value = metrics.avgTradeReturn?.let { formatPnlAmount(it, LocalCurrencySymbol.current) },
                     accessibilityLabel = "Gain moyen par trade",
                     valueColor = metrics.avgTradeReturn?.let { pnlColor(it) },
                     modifier = it,
@@ -305,9 +306,10 @@ private fun ReturnCard(
     totalReturnPct: Double?,
     modifier: Modifier = Modifier,
 ) {
+    val currencySymbol = LocalCurrencySymbol.current
     val spoken = buildList {
         if (totalReturnPct != null) add(spokenPercent(totalReturnPct, signed = true))
-        if (totalReturn != null) add(buildPnlDescription(totalReturn, "€"))
+        if (totalReturn != null) add(buildPnlDescription(totalReturn, currencySymbol))
     }.joinToString(", ").ifEmpty { "non disponible" }
 
     TradingCard(

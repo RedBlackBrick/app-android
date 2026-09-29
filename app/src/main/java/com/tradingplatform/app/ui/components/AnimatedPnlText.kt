@@ -19,6 +19,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
+import com.tradingplatform.app.ui.common.LocalCurrencySymbol
 import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.Motion
 import com.tradingplatform.app.ui.theme.asNumeric
@@ -51,7 +52,7 @@ private fun BigDecimal.isDisplayable(): Boolean =
 fun AnimatedPnlText(
     value: BigDecimal,
     modifier: Modifier = Modifier,
-    currencySymbol: String = "€",
+    currencySymbol: String = LocalCurrencySymbol.current,
     style: TextStyle = MaterialTheme.typography.bodyLarge,
 ) {
     if (!value.isDisplayable()) {

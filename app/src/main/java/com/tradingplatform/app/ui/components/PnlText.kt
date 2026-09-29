@@ -8,6 +8,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
+import com.tradingplatform.app.ui.common.LocalCurrencySymbol
 import com.tradingplatform.app.ui.theme.asNumeric
 import com.tradingplatform.app.ui.theme.pnlColor
 import java.math.BigDecimal
@@ -35,7 +36,7 @@ import java.util.Locale
 fun PnlText(
     value: BigDecimal,
     modifier: Modifier = Modifier,
-    currencySymbol: String = "€",
+    currencySymbol: String = LocalCurrencySymbol.current,
     style: TextStyle = MaterialTheme.typography.bodyLarge,
 ) {
     val color = pnlColor(value)

@@ -57,6 +57,7 @@ import com.tradingplatform.app.security.BiometricManager
 import com.tradingplatform.app.ui.theme.IconSize
 import com.tradingplatform.app.ui.theme.Spacing
 import com.tradingplatform.app.ui.theme.asNumeric
+import com.tradingplatform.app.ui.theme.asNumericIfNumber
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -470,7 +471,7 @@ private fun ConfirmSummary(
                     )
                     Text(
                         text = value,
-                        style = MaterialTheme.typography.bodyMedium.asNumeric()
+                        style = MaterialTheme.typography.bodyMedium.asNumericIfNumber(value)
                             .copy(fontWeight = FontWeight.SemiBold),
                         color = MaterialTheme.colorScheme.onSurface,
                         textAlign = TextAlign.End,

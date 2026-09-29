@@ -13,6 +13,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.TopAppBarDefaults
+import com.tradingplatform.app.domain.usecase.portfolio.ObserveActivePortfolioUseCase
+import com.tradingplatform.app.domain.usecase.portfolio.ObservePortfoliosUseCase
+import com.tradingplatform.app.ui.common.LocalCurrencySymbol
+import com.tradingplatform.app.ui.screens.dashboard.activeCurrencySymbol
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -229,6 +234,8 @@ class AppNavViewModel @Inject constructor(
     private val tokenHolder: TokenHolder,
     private val getAlertsUseCase: GetAlertsUseCase,
     private val getInboxUnreadCountUseCase: GetInboxUnreadCountUseCase,
+    observePortfoliosUseCase: ObservePortfoliosUseCase,
+    observeActivePortfolioUseCase: ObserveActivePortfolioUseCase,
 ) : ViewModel() {
 
     companion object {
@@ -268,6 +275,15 @@ class AppNavViewModel @Inject constructor(
 
     /** Reconnects the VPN tunnel manually. */
     fun reconnectVpn() = wireGuardManager.reconnect()
+
+    /**
+     * Symbole monétaire du portefeuille actif (« € » tant que la liste ou la sélection est inconnue) :
+     * fourni à toute l'UI par [LocalCurrencySymbol] (un compte peut mêler EUR et USD).
+     */
+    val currencySymbol: StateFlow<String> =
+        combine(observePortfoliosUseCase(), observeActivePortfolioUseCase()) { portfolios, activeId ->
+            activeCurrencySymbol(portfolios, activeId)
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "€")
 
     private val serverUnreadCount = MutableStateFlow(0)
 
@@ -650,6 +666,7 @@ fun AppNavGraph(
 ) {
     val isLoggedIn by appNavViewModel.isLoggedIn.collectAsStateWithLifecycle()
     val unreadAlertCount by appNavViewModel.unreadAlertCount.collectAsStateWithLifecycle()
+    val currencySymbol by appNavViewModel.currencySymbol.collectAsStateWithLifecycle()
     val isAdmin by appNavViewModel.isAdmin.collectAsStateWithLifecycle()
     val isSetupCompleted by appNavViewModel.isSetupCompleted.collectAsStateWithLifecycle()
     // Banner must reflect the "any VPN active" view (in-app OR system-level).
@@ -786,6 +803,7 @@ fun AppNavGraph(
         }
     }
 
+    CompositionLocalProvider(LocalCurrencySymbol provides currencySymbol) {
     Box(modifier = modifier.fillMaxSize()) {
     Scaffold(
         // While locked, hide the content under the overlay from accessibility services
@@ -1226,4 +1244,5 @@ fun AppNavGraph(
         authEnabled = !showKeystoreCorruption,
     )
     } // Box
+    } // CompositionLocalProvider
 }

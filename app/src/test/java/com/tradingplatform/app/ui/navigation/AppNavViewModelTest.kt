@@ -1,5 +1,8 @@
 package com.tradingplatform.app.ui.navigation
 
+import com.tradingplatform.app.domain.usecase.portfolio.ObservePortfoliosUseCase
+import com.tradingplatform.app.domain.usecase.portfolio.ObserveActivePortfolioUseCase
+import com.tradingplatform.app.domain.model.Portfolio
 import app.cash.turbine.test
 import com.tradingplatform.app.domain.usecase.alerts.GetInboxUnreadCountUseCase
 import com.tradingplatform.app.domain.usecase.alerts.GetAlertsUseCase
@@ -78,6 +81,14 @@ class AppNavViewModelTest {
         every { this@mockk.invoke() } returns localAlerts
     }
     private val getInboxUnreadCountUseCase = mockk<GetInboxUnreadCountUseCase>()
+    private val portfolios = MutableStateFlow<List<Portfolio>>(emptyList())
+    private val activePortfolio = MutableStateFlow("p1")
+    private val observePortfoliosUseCase = mockk<ObservePortfoliosUseCase> {
+        every { this@mockk.invoke() } returns portfolios
+    }
+    private val observeActivePortfolioUseCase = mockk<ObserveActivePortfolioUseCase> {
+        every { this@mockk.invoke() } returns activePortfolio
+    }
     private val biometricManager = mockk<BiometricManager>(relaxed = true)
     private val recoverUseCase = mockk<RecoverFromKeystoreCorruptionUseCase>()
     private val logoutUseCase = mockk<LogoutUseCase>()
@@ -108,6 +119,8 @@ class AppNavViewModelTest {
             tokenHolder = tokenHolder,
             getAlertsUseCase = getAlertsUseCase,
             getInboxUnreadCountUseCase = getInboxUnreadCountUseCase,
+            observePortfoliosUseCase = observePortfoliosUseCase,
+            observeActivePortfolioUseCase = observeActivePortfolioUseCase,
         )
     }
 
@@ -519,6 +532,23 @@ class AppNavViewModelTest {
 
         viewModel.unreadAlertCount.test {
             assertEquals(3, awaitItem())
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    // ── Symbole monétaire du portefeuille actif ────────────────────────────────
+
+    @Test
+    fun `currency symbol follows the active portfolio`() = runTest {
+        portfolios.value = listOf(
+            Portfolio(id = "p1", name = "Growth EUR", currency = "EUR"),
+            Portfolio(id = "p2", name = "Trading USD", currency = "USD"),
+        )
+
+        viewModel.currencySymbol.test {
+            assertEquals("€", awaitItem())
+            activePortfolio.value = "p2"
+            assertEquals("$", awaitItem())
             cancelAndIgnoreRemainingEvents()
         }
     }

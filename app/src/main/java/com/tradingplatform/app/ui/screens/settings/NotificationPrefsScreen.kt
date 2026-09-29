@@ -62,7 +62,7 @@ import com.tradingplatform.app.ui.theme.IconSize
 import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.Spacing
 import com.tradingplatform.app.ui.theme.TradingPlatformTheme
-import com.tradingplatform.app.ui.theme.asNumeric
+import com.tradingplatform.app.ui.theme.asNumericIfNumber
 
 /** Cible tactile minimale (Material : 48 dp). */
 private val MinTouchTarget = 48.dp
@@ -215,7 +215,7 @@ private fun PrefsContent(
         ReadOnlyCard(title = "Heures calmes") {
             Text(
                 text = quietHoursSummary(prefs.quietHours),
-                style = MaterialTheme.typography.bodyMedium.asNumeric(),
+                style = MaterialTheme.typography.bodyMedium.asNumericIfNumber(quietHoursSummary(prefs.quietHours)),
                 color = MaterialTheme.colorScheme.onSurface,
             )
         }
@@ -361,7 +361,7 @@ private fun ValueRow(
         )
         Text(
             text = value,
-            style = MaterialTheme.typography.bodyMedium.asNumeric().copy(fontWeight = FontWeight.SemiBold),
+            style = MaterialTheme.typography.bodyMedium.asNumericIfNumber(value).copy(fontWeight = FontWeight.SemiBold),
             color = MaterialTheme.colorScheme.onSurface,
             textAlign = TextAlign.End,
         )

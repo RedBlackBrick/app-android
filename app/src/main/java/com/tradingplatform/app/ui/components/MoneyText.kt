@@ -8,6 +8,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
+import com.tradingplatform.app.ui.common.LocalCurrencySymbol
 import com.tradingplatform.app.ui.theme.TradingNumbers
 import com.tradingplatform.app.ui.theme.asNumeric
 import java.math.BigDecimal
@@ -38,7 +39,7 @@ import java.util.Locale
 fun MoneyText(
     amount: BigDecimal,
     modifier: Modifier = Modifier,
-    currencySymbol: String = "€",
+    currencySymbol: String = LocalCurrencySymbol.current,
     decimals: Int = 2,
     style: TextStyle = TradingNumbers.bodyLarge,
 ) {
