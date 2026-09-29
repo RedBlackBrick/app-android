@@ -3,43 +3,35 @@ package com.tradingplatform.app.ui.screens.devices
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tradingplatform.app.data.local.db.CacheTtl
@@ -47,32 +39,33 @@ import com.tradingplatform.app.domain.model.BrokerConnection
 import com.tradingplatform.app.domain.model.BrokerGatewayStatus
 import com.tradingplatform.app.domain.model.Device
 import com.tradingplatform.app.domain.model.DeviceStatus
-import com.tradingplatform.app.ui.components.CacheTimestamp
 import com.tradingplatform.app.ui.components.CPU_THRESHOLDS
+import com.tradingplatform.app.ui.components.CacheTimestamp
 import com.tradingplatform.app.ui.components.DISK_THRESHOLDS
-import com.tradingplatform.app.ui.components.ErrorBanner
+import com.tradingplatform.app.ui.components.EmptyDevicesIllustration
+import com.tradingplatform.app.ui.components.EmptyState
 import com.tradingplatform.app.ui.components.LoadingOverlay
 import com.tradingplatform.app.ui.components.MEMORY_THRESHOLDS
 import com.tradingplatform.app.ui.components.MetricRow
 import com.tradingplatform.app.ui.components.OfflineBadge
 import com.tradingplatform.app.ui.components.OnlineBadge
+import com.tradingplatform.app.ui.components.StatusBadge
 import com.tradingplatform.app.ui.components.TEMPERATURE_THRESHOLDS
-import com.tradingplatform.app.ui.components.rememberHapticFeedback
+import com.tradingplatform.app.ui.components.TradingCard
 import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.Spacing
+import com.tradingplatform.app.ui.theme.asNumeric
 
 /**
- * Ecran dashboard riche pour un device Radxa (admin uniquement).
+ * Écran d'état d'un device Radxa (admin uniquement) — LECTURE SEULE.
  *
- * Écran de la route `device/{deviceId}` (l'ancien `DeviceDetailScreen` a été supprimé).
- *
- * Affiche :
- * - Header avec LED pulsante + nom + badge online/offline
- * - Card "Connexion" : hostname, IP WireGuard, firmware, uptime
- * - Card "Ressources" : CPU, mémoire, température, disque avec barres de progression colorées
- * - Card "Actions" : Reboot, Health Check, Update Firmware (avec confirmations)
- * - Bouton "Dépannage local" si OFFLINE
- * - Bouton "Désappairer" avec confirmation BottomSheet
+ * Route `device/{deviceId}`. Toute la gestion (firmware, désappairage, redémarrage…) se fait
+ * sur la plateforme web ; l'app ne montre que l'état :
+ * - résumé : nom, statut en ligne / hors ligne, dernière vue, IP WireGuard, firmware, uptime ;
+ * - ressources : CPU, mémoire, température, disque (seuils de `MetricsComponents`) ;
+ * - scraping (si le device remonte des métriques) ;
+ * - broker gateway + connexions broker ;
+ * - horodatage du cache.
  *
  * @param deviceId identifiant du device (navigation args)
  * @param onNavigateBack retour à la liste
@@ -86,221 +79,22 @@ fun EdgeDeviceDashboardScreen(
     viewModel: DeviceDetailViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val unpairState by viewModel.unpairState.collectAsStateWithLifecycle()
-    val commandState by viewModel.commandState.collectAsStateWithLifecycle()
+    val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     val brokerState by viewModel.brokerState.collectAsStateWithLifecycle()
-    val haptic = rememberHapticFeedback()
 
-    val deviceName = (uiState as? DeviceDetailUiState.Success)?.device?.name ?: "ce device"
-
-    // Charger le device et les connexions broker dès l'affichage (ou si deviceId change)
+    // Charger le device et ses connexions broker dès l'affichage (ou si deviceId change)
     LaunchedEffect(deviceId) {
         viewModel.loadDevice(deviceId)
         viewModel.loadBrokerConnections(deviceId)
     }
 
-    // Navigation back après unpair réussi
-    LaunchedEffect(unpairState) {
-        if (unpairState is UnpairState.Success) {
-            viewModel.resetUnpairState()
-            onNavigateBack()
-        }
+    val reload: () -> Unit = {
+        viewModel.refresh(deviceId)
+        viewModel.loadBrokerConnections(deviceId)
     }
 
-    // Reset commandState Success après affichage (évite le re-trigger sur recomposition)
-    LaunchedEffect(commandState) {
-        if (commandState is CommandState.Success) {
-            kotlinx.coroutines.delay(2_000)
-            viewModel.resetCommandState()
-        }
-    }
-
-    // ── BottomSheet confirmation désappairage ─────────────────────────────────
-
-    if (unpairState is UnpairState.Confirming) {
-        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ModalBottomSheet(
-            onDismissRequest = { viewModel.cancelUnpair() },
-            sheetState = sheetState,
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = Spacing.lg)
-                    .padding(bottom = Spacing.xxl),
-            ) {
-                Text(
-                    text = "Désappairer le device ?",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Spacer(modifier = Modifier.height(Spacing.md))
-                Text(
-                    text = "Cette action va révoquer l'accès VPN de « $deviceName », " +
-                        "arrêter les services et supprimer la configuration. " +
-                        "Cette action est irréversible.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(modifier = Modifier.height(Spacing.xl))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(Spacing.md),
-                ) {
-                    OutlinedButton(
-                        onClick = { viewModel.cancelUnpair() },
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Text("Annuler")
-                    }
-                    Button(
-                        onClick = {
-                            haptic.reject()
-                            viewModel.confirmUnpair(deviceId)
-                        },
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.error,
-                        ),
-                    ) {
-                        Text("Désappairer")
-                    }
-                }
-            }
-        }
-    }
-
-    // ── Dialog confirmation commandes destructives ────────────────────────────
-
-    val confirmingCommand = (commandState as? CommandState.Confirming)?.commandType
-    if (confirmingCommand != null && confirmingCommand != CommandType.HEALTH_CHECK) {
-        val (title, body) = when (confirmingCommand) {
-            CommandType.REBOOT ->
-                "Redémarrer le device ?" to
-                    "Le device « $deviceName » sera redémarré. Il sera temporairement hors ligne."
-            CommandType.UPDATE_FIRMWARE ->
-                "Mettre à jour le firmware ?" to
-                    "La mise à jour du firmware de « $deviceName » sera lancée. " +
-                    "Le device redémarrera automatiquement à la fin."
-            else -> "" to ""
-        }
-        AlertDialog(
-            onDismissRequest = { viewModel.cancelCommand() },
-            title = { Text(title) },
-            text = { Text(body, style = MaterialTheme.typography.bodyMedium) },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        haptic.reject()
-                        viewModel.sendCommand(deviceId, confirmingCommand)
-                    },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error,
-                    ),
-                ) {
-                    Text("Confirmer")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { viewModel.cancelCommand() }) {
-                    Text("Annuler")
-                }
-            },
-        )
-    }
-
-    // Health Check → envoi direct sans dialog
-    LaunchedEffect(commandState) {
-        val confirming = commandState as? CommandState.Confirming ?: return@LaunchedEffect
-        if (confirming.commandType == CommandType.HEALTH_CHECK) {
-            viewModel.sendCommand(deviceId, CommandType.HEALTH_CHECK)
-        }
-    }
-
-    // ── Dialog in progress / erreur commande ─────────────────────────────────
-
-    if (commandState is CommandState.InProgress) {
-        AlertDialog(
-            onDismissRequest = {},
-            title = { Text("Commande en cours...") },
-            text = {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator()
-                }
-            },
-            confirmButton = {},
-        )
-    }
-
-    if (commandState is CommandState.Error) {
-        AlertDialog(
-            onDismissRequest = { viewModel.resetCommandState() },
-            title = { Text("Erreur commande") },
-            text = { Text((commandState as CommandState.Error).message) },
-            confirmButton = {
-                TextButton(onClick = { viewModel.resetCommandState() }) {
-                    Text("OK")
-                }
-            },
-        )
-    }
-
-    if (commandState is CommandState.Success) {
-        val label = when ((commandState as CommandState.Success).commandType) {
-            CommandType.REBOOT -> "Redémarrage lancé"
-            CommandType.HEALTH_CHECK -> "Health check envoyé"
-            CommandType.UPDATE_FIRMWARE -> "Mise à jour lancée"
-        }
-        AlertDialog(
-            onDismissRequest = { viewModel.resetCommandState() },
-            title = { Text(label) },
-            text = {
-                Text(
-                    "La commande a été transmise avec succès au device.",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = { viewModel.resetCommandState() }) {
-                    Text("OK")
-                }
-            },
-        )
-    }
-
-    // ── Dialog in progress unpair ─────────────────────────────────────────────
-
-    if (unpairState is UnpairState.InProgress) {
-        AlertDialog(
-            onDismissRequest = {},
-            title = { Text("Désappairage en cours...") },
-            text = {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator()
-                }
-            },
-            confirmButton = {},
-        )
-    }
-
-    if (unpairState is UnpairState.Error) {
-        AlertDialog(
-            onDismissRequest = { viewModel.resetUnpairState() },
-            title = { Text("Erreur") },
-            text = { Text((unpairState as UnpairState.Error).message) },
-            confirmButton = {
-                TextButton(onClick = { viewModel.resetUnpairState() }) {
-                    Text("OK")
-                }
-            },
-        )
-    }
-
-    // ── Scaffold principal ────────────────────────────────────────────────────
-
-    val screenTitle = (uiState as? DeviceDetailUiState.Success)?.device?.name ?: "Dashboard"
-    val isRefreshing = uiState is DeviceDetailUiState.Loading
-    val pullRefreshState = rememberPullToRefreshState()
+    val screenTitle = (uiState as? DeviceDetailUiState.Success)?.device?.let { it.name ?: it.id }
+        ?: "Device"
 
     Scaffold(
         topBar = {
@@ -319,59 +113,32 @@ fun EdgeDeviceDashboardScreen(
     ) { innerPadding ->
         PullToRefreshBox(
             isRefreshing = isRefreshing,
-            onRefresh = {
-                viewModel.refresh(deviceId)
-                viewModel.loadBrokerConnections(deviceId)
-            },
-            state = pullRefreshState,
+            onRefresh = reload,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
-            Box(modifier = Modifier.fillMaxSize()) {
-                when (val state = uiState) {
-                    is DeviceDetailUiState.Loading -> {
-                        // LoadingOverlay géré ci-dessous
-                    }
+            when (val state = uiState) {
+                is DeviceDetailUiState.Loading -> LoadingOverlay()
 
-                    is DeviceDetailUiState.Success -> {
-                        DashboardContent(
-                            device = state.device,
-                            syncedAt = state.syncedAt,
-                            brokerState = brokerState,
-                            onUnpair = { viewModel.requestUnpair() },
-                            onSendCommand = { commandType ->
-                                viewModel.requestCommand(commandType)
-                            },
-                        )
-                    }
+                is DeviceDetailUiState.Success -> DashboardContent(
+                    device = state.device,
+                    syncedAt = state.syncedAt,
+                    brokerState = brokerState,
+                )
 
-                    is DeviceDetailUiState.Error -> {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(Spacing.lg),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center,
-                        ) {
-                            Text(
-                                text = "Impossible de charger les informations du device",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                }
-
-                if (uiState is DeviceDetailUiState.Loading) {
-                    LoadingOverlay()
-                }
-
-                if (uiState is DeviceDetailUiState.Error) {
-                    ErrorBanner(
-                        message = (uiState as DeviceDetailUiState.Error).message,
-                        onRetry = { viewModel.refresh(deviceId) },
-                        modifier = Modifier.align(Alignment.BottomCenter),
+                is DeviceDetailUiState.Error -> Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(Spacing.lg),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    EmptyState(
+                        illustration = { EmptyDevicesIllustration() },
+                        title = "Impossible de charger",
+                        message = state.message,
+                        actionLabel = "Réessayer",
+                        onAction = reload,
                     )
                 }
             }
@@ -379,558 +146,334 @@ fun EdgeDeviceDashboardScreen(
     }
 }
 
-// ── Contenu principal du dashboard ────────────────────────────────────────────
+// ── Contenu principal ─────────────────────────────────────────────────────────
 
 @Composable
 private fun DashboardContent(
     device: Device,
     syncedAt: Long,
     brokerState: BrokerUiState,
-    onUnpair: () -> Unit,
-    onSendCommand: (CommandType) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val extendedColors = LocalExtendedColors.current
-
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(Spacing.lg),
         verticalArrangement = Arrangement.spacedBy(Spacing.lg),
     ) {
-        // ── Header : LED + nom + badge statut ─────────────────────────────────
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = extendedColors.cardSurface),
-                elevation = CardDefaults.cardElevation(defaultElevation = Spacing.xs),
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(Spacing.lg),
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-                    ) {
-                        StatusLed(isOnline = device.status == DeviceStatus.ONLINE)
-                        Text(
-                            text = device.name ?: device.id,
-                            style = MaterialTheme.typography.headlineSmall,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier
-                                .weight(1f)
-                                .semantics {
-                                    contentDescription = "Nom du device : ${device.name ?: device.id}"
-                                },
-                        )
-                        when (device.status) {
-                            DeviceStatus.ONLINE -> OnlineBadge()
-                            DeviceStatus.OFFLINE -> OfflineBadge()
-                        }
-                    }
-                }
-            }
+        item { DeviceSummaryCard(device = device) }
+        item { ResourcesCard(device = device) }
+        if (device.lastTicksSent != null || device.lastScraperErrors != null) {
+            item { ScrapingCard(device = device) }
         }
-
-        // ── Card "Connexion" ──────────────────────────────────────────────────
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = extendedColors.cardSurface),
-                elevation = CardDefaults.cardElevation(defaultElevation = Spacing.xs),
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(Spacing.lg),
-                ) {
-                    Text(
-                        text = "Connexion",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(modifier = Modifier.height(Spacing.md))
-                    HorizontalDivider(color = extendedColors.divider)
-                    Spacer(modifier = Modifier.height(Spacing.md))
-
-                    DashboardInfoRow(
-                        label = "Hostname",
-                        value = device.hostname ?: "—",
-                        contentDescriptionText = "Hostname : ${device.hostname ?: "inconnu"}",
-                    )
-                    Spacer(modifier = Modifier.height(Spacing.md))
-                    DashboardInfoRow(
-                        label = "IP WireGuard",
-                        value = device.wgIp ?: "—",
-                        contentDescriptionText = "Adresse IP WireGuard : ${device.wgIp ?: "—"}",
-                    )
-                    Spacer(modifier = Modifier.height(Spacing.md))
-                    DashboardInfoRow(
-                        label = "Firmware",
-                        value = device.firmwareVersion ?: "—",
-                        contentDescriptionText = "Version firmware : ${device.firmwareVersion ?: "inconnue"}",
-                    )
-                    Spacer(modifier = Modifier.height(Spacing.md))
-                    DashboardInfoRow(
-                        label = "Uptime",
-                        value = device.uptimeSeconds?.let { formatUptime(it) } ?: "—",
-                        contentDescriptionText = "Uptime : ${device.uptimeSeconds?.let { formatUptime(it) } ?: "inconnu"}",
-                    )
-                    Spacer(modifier = Modifier.height(Spacing.md))
-                    DashboardInfoRow(
-                        label = "Dernier heartbeat",
-                        value = formatHeartbeat(device.lastHeartbeat),
-                        contentDescriptionText = "Dernier heartbeat : ${formatHeartbeat(device.lastHeartbeat)}",
-                    )
-                }
-            }
-        }
-
-        // ── Card "Ressources" ─────────────────────────────────────────────────
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = extendedColors.cardSurface),
-                elevation = CardDefaults.cardElevation(defaultElevation = Spacing.xs),
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(Spacing.lg),
-                ) {
-                    Text(
-                        text = "Ressources",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(modifier = Modifier.height(Spacing.md))
-                    HorizontalDivider(color = extendedColors.divider)
-                    Spacer(modifier = Modifier.height(Spacing.md))
-
-                    MetricRow(
-                        label = "CPU",
-                        value = device.cpuPct,
-                        unit = "%",
-                        thresholds = CPU_THRESHOLDS,
-                        progressMax = 100f,
-                    )
-                    Spacer(modifier = Modifier.height(Spacing.md))
-                    MetricRow(
-                        label = "Mémoire",
-                        value = device.memoryPct,
-                        unit = "%",
-                        thresholds = MEMORY_THRESHOLDS,
-                        progressMax = 100f,
-                    )
-                    if (device.availableMemoryMb != null) {
-                        Text(
-                            text = "RAM libre : ${device.availableMemoryMb} MB",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier
-                                .padding(start = Spacing.xs)
-                                .semantics {
-                                    contentDescription = "RAM libre : ${device.availableMemoryMb} mégaoctets"
-                                },
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(Spacing.md))
-                    MetricRow(
-                        label = "Température",
-                        value = device.temperature,
-                        unit = "°C",
-                        thresholds = TEMPERATURE_THRESHOLDS,
-                        progressMax = 100f,
-                    )
-                    Spacer(modifier = Modifier.height(Spacing.md))
-                    MetricRow(
-                        label = "Disque",
-                        value = device.diskPct,
-                        unit = "%",
-                        thresholds = DISK_THRESHOLDS,
-                        progressMax = 100f,
-                    )
-                }
-            }
-        }
-
-        // ── Card "Scraping" (if scraping metrics available) ───────────────────
-        if (device.lastTicksSent != null || device.scrapersCircuit != null) {
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = extendedColors.cardSurface),
-                    elevation = CardDefaults.cardElevation(defaultElevation = Spacing.xs),
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(Spacing.lg),
-                    ) {
-                        Text(
-                            text = "Scraping",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Spacer(modifier = Modifier.height(Spacing.md))
-                        HorizontalDivider(color = extendedColors.divider)
-                        Spacer(modifier = Modifier.height(Spacing.md))
-
-                        // Ticks sent + errors
-                        if (device.lastTicksSent != null) {
-                            DashboardInfoRow(
-                                label = "Ticks envoy\u00e9s",
-                                value = "%,d".format(device.lastTicksSent),
-                                contentDescriptionText = "Ticks envoy\u00e9s : ${device.lastTicksSent}",
-                            )
-                            Spacer(modifier = Modifier.height(Spacing.md))
-                        }
-                        if (device.lastScraperErrors != null) {
-                            DashboardInfoRow(
-                                label = "Erreurs scraping",
-                                value = "${device.lastScraperErrors}",
-                                contentDescriptionText = "Erreurs scraping : ${device.lastScraperErrors}",
-                            )
-                            Spacer(modifier = Modifier.height(Spacing.md))
-                        }
-
-                        // Circuit breaker states per scraper
-                        device.scrapersCircuit?.forEach { (scraperName, circuit) ->
-                            val stateColor = when (circuit.state.lowercase()) {
-                                "closed" -> LocalExtendedColors.current.pnlPositive
-                                "half_open" -> LocalExtendedColors.current.warning
-                                else -> MaterialTheme.colorScheme.error
-                            }
-                            val stateLabel = when (circuit.state.lowercase()) {
-                                "closed" -> "OK"
-                                "half_open" -> "Test"
-                                "open" -> "Arr\u00eat\u00e9"
-                                else -> circuit.state
-                            }
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(
-                                    text = scraperName.replaceFirstChar { it.uppercase() },
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                )
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    if (circuit.consecutiveFailures > 0) {
-                                        Text(
-                                            text = "${circuit.consecutiveFailures} err",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.error,
-                                        )
-                                    }
-                                    Text(
-                                        text = stateLabel,
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = stateColor,
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(Spacing.sm))
-                        }
-                    }
-                }
-            }
-        }
-
-        // ── Card "Broker Gateway" (consultation seule) ───────────────────────
-        item {
-            BrokerGatewayCard(
-                brokerGateway = device.brokerGateway,
-                brokerState = brokerState,
-            )
-        }
-
-        // ── Card "Actions" ────────────────────────────────────────────────────
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = extendedColors.cardSurface),
-                elevation = CardDefaults.cardElevation(defaultElevation = Spacing.xs),
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(Spacing.lg),
-                ) {
-                    Text(
-                        text = "Actions",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(modifier = Modifier.height(Spacing.md))
-                    HorizontalDivider(color = extendedColors.divider)
-                    Spacer(modifier = Modifier.height(Spacing.md))
-
-                    OutlinedButton(
-                        onClick = { onSendCommand(CommandType.HEALTH_CHECK) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .semantics {
-                                contentDescription = "Lancer un health check sur ${device.name}"
-                            },
-                    ) {
-                        Text("Health Check")
-                    }
-                    Spacer(modifier = Modifier.height(Spacing.sm))
-                    OutlinedButton(
-                        onClick = { onSendCommand(CommandType.REBOOT) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .semantics {
-                                contentDescription = "Redémarrer ${device.name}"
-                            },
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = MaterialTheme.colorScheme.error,
-                        ),
-                    ) {
-                        Text("Redémarrer")
-                    }
-                    Spacer(modifier = Modifier.height(Spacing.sm))
-                    OutlinedButton(
-                        onClick = { onSendCommand(CommandType.UPDATE_FIRMWARE) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .semantics {
-                                contentDescription = "Mettre à jour le firmware de ${device.name}"
-                            },
-                    ) {
-                        Text("Mettre à jour le firmware")
-                    }
-                }
-            }
-        }
-
-        // ── Timestamp cache ───────────────────────────────────────────────────
-        item {
-            CacheTimestamp(
-                syncedAt = syncedAt,
-                modifier = Modifier.fillMaxWidth(),
-                ttlMs = CacheTtl.DEVICES_MS,
-            )
-        }
-
-
-        // ── Bouton "Désappairer" ──────────────────────────────────────────────
-        item {
-            OutlinedButton(
-                onClick = onUnpair,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .semantics {
-                        contentDescription = "Désappairer ${device.name}"
-                    },
-                colors = ButtonDefaults.outlinedButtonColors(
-                    contentColor = MaterialTheme.colorScheme.error,
-                ),
-            ) {
-                Text("Désappairer le device")
-            }
-        }
-
-        // espace final pour ne pas coller au bord
-        item { Spacer(modifier = Modifier.height(Spacing.lg)) }
+        item { BrokerGatewayCard(brokerGateway = device.brokerGateway, brokerState = brokerState) }
+        item { DashboardFooter(syncedAt = syncedAt) }
     }
 }
 
-// ── Card "Broker Gateway" ─────────────────────────────────────────────────────
+// ── Cartes ────────────────────────────────────────────────────────────────────
 
+/** Nom + statut en ligne / hors ligne, puis dernière vue, IP WireGuard, firmware, uptime. */
+@Composable
+private fun DeviceSummaryCard(
+    device: Device,
+    modifier: Modifier = Modifier,
+) {
+    val displayName = device.name ?: device.id
+
+    TradingCard(modifier = modifier) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(Spacing.lg),
+            verticalArrangement = Arrangement.spacedBy(Spacing.md),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+            ) {
+                StatusLed(isOnline = device.status == DeviceStatus.ONLINE)
+                Text(
+                    text = displayName,
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier
+                        .weight(1f)
+                        .semantics { contentDescription = "Nom du device : $displayName" },
+                )
+                when (device.status) {
+                    DeviceStatus.ONLINE -> OnlineBadge()
+                    DeviceStatus.OFFLINE -> OfflineBadge()
+                }
+            }
+
+            HorizontalDivider(color = LocalExtendedColors.current.divider)
+
+            InfoRow(
+                label = "Dernière vue",
+                value = device.lastHeartbeat?.let { formatHeartbeat(it) },
+            )
+            InfoRow(label = "IP WireGuard", value = device.wgIp)
+            InfoRow(label = "Firmware", value = device.firmwareVersion)
+            InfoRow(
+                label = "Uptime",
+                value = device.uptimeSeconds?.let { formatUptime(it) },
+            )
+        }
+    }
+}
+
+/** CPU, mémoire, température, disque — barres colorées selon les seuils de `MetricsComponents`. */
+@Composable
+private fun ResourcesCard(
+    device: Device,
+    modifier: Modifier = Modifier,
+) {
+    SectionCard(title = "Ressources", modifier = modifier) {
+        MetricRow(
+            label = "CPU",
+            value = device.cpuPct,
+            unit = "%",
+            thresholds = CPU_THRESHOLDS,
+            progressMax = 100f,
+        )
+        MetricRow(
+            label = "Mémoire",
+            value = device.memoryPct,
+            unit = "%",
+            thresholds = MEMORY_THRESHOLDS,
+            progressMax = 100f,
+        )
+        MetricRow(
+            label = "Température",
+            value = device.temperature,
+            unit = "°C",
+            thresholds = TEMPERATURE_THRESHOLDS,
+            progressMax = 100f,
+        )
+        MetricRow(
+            label = "Disque",
+            value = device.diskPct,
+            unit = "%",
+            thresholds = DISK_THRESHOLDS,
+            progressMax = 100f,
+        )
+    }
+}
+
+/** Métriques de scraping remontées par le device (affichée seulement si elles existent). */
+@Composable
+private fun ScrapingCard(
+    device: Device,
+    modifier: Modifier = Modifier,
+) {
+    SectionCard(title = "Scraping", modifier = modifier) {
+        device.lastTicksSent?.let { ticks ->
+            InfoRow(label = "Ticks envoyés", value = "%,d".format(ticks))
+        }
+        device.lastScraperErrors?.let { errors ->
+            InfoRow(
+                label = "Erreurs scraping",
+                value = errors.toString(),
+                valueColor = if (errors > 0) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                },
+            )
+        }
+    }
+}
+
+/** Statut de la broker gateway (vocabulaire backend) + connexions broker du device. */
 @Composable
 private fun BrokerGatewayCard(
     brokerGateway: BrokerGatewayStatus?,
     brokerState: BrokerUiState,
     modifier: Modifier = Modifier,
 ) {
-    val extendedColors = LocalExtendedColors.current
+    SectionCard(title = "Broker Gateway", modifier = modifier) {
+        StatusRow(
+            label = "Statut",
+            spokenLabel = "Statut de la broker gateway",
+            display = brokerGatewayDisplay(brokerGateway),
+        )
+        BrokerConnectionsSection(brokerState = brokerState)
+    }
+}
 
-    Card(
+@Composable
+private fun BrokerConnectionsSection(
+    brokerState: BrokerUiState,
+    modifier: Modifier = Modifier,
+) {
+    Column(
         modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = extendedColors.cardSurface),
-        elevation = CardDefaults.cardElevation(defaultElevation = Spacing.xs),
+        verticalArrangement = Arrangement.spacedBy(Spacing.sm),
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(Spacing.lg),
-        ) {
-            Text(
-                text = "Broker Gateway",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(modifier = Modifier.height(Spacing.md))
-            HorizontalDivider(color = extendedColors.divider)
-            Spacer(modifier = Modifier.height(Spacing.md))
+        when (brokerState) {
+            is BrokerUiState.Idle -> Unit
 
-            // Gateway status summary
-            if (brokerGateway == null || !brokerGateway.enabled) {
-                Text(
-                    text = "Non configur\u00e9",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+            is BrokerUiState.Loading -> Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+            ) {
+                CircularProgressIndicator(
                     modifier = Modifier.semantics {
-                        contentDescription = "Broker gateway : non configur\u00e9"
+                        contentDescription = "Chargement des connexions broker"
                     },
                 )
-            } else {
-                val statusColor = when (brokerGateway.status.lowercase()) {
-                    "connected", "active" -> extendedColors.pnlPositive
-                    "disconnected", "inactive" -> MaterialTheme.colorScheme.error
-                    else -> MaterialTheme.colorScheme.onSurfaceVariant
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = "Statut",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    Text(
-                        text = brokerGateway.status.replaceFirstChar { it.uppercase() },
-                        style = MaterialTheme.typography.labelMedium,
-                        color = statusColor,
-                        modifier = Modifier.semantics {
-                            contentDescription = "Statut broker gateway : ${brokerGateway.status}"
-                        },
-                    )
-                }
             }
 
-            Spacer(modifier = Modifier.height(Spacing.md))
+            is BrokerUiState.Error -> Text(
+                text = brokerState.message,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
 
-            // Broker connections list
-            when (brokerState) {
-                is BrokerUiState.Idle -> {
-                    // Nothing to display yet
-                }
-
-                is BrokerUiState.Loading -> {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center,
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.semantics {
-                                contentDescription = "Chargement des connexions broker"
-                            },
-                        )
-                    }
-                }
-
-                is BrokerUiState.Error -> {
+            is BrokerUiState.Success -> {
+                if (brokerState.connections.isEmpty()) {
                     Text(
-                        text = brokerState.message,
+                        text = "Aucune connexion broker",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                }
-
-                is BrokerUiState.Success -> {
-                    if (brokerState.connections.isEmpty()) {
-                        Text(
-                            text = "Aucune connexion broker",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    } else {
-                        brokerState.connections.forEach { connection ->
-                            BrokerConnectionRow(connection = connection)
-                            Spacer(modifier = Modifier.height(Spacing.sm))
-                        }
+                } else {
+                    brokerState.connections.forEach { connection ->
+                        BrokerConnectionRow(connection = connection)
                     }
                 }
             }
         }
     }
 }
-
-
-// ── Ligne connexion broker ────────────────────────────────────────────────────
 
 @Composable
 private fun BrokerConnectionRow(
     connection: BrokerConnection,
     modifier: Modifier = Modifier,
 ) {
-    val extendedColors = LocalExtendedColors.current
-    val statusColor = when (connection.connectionStatus?.lowercase()) {
-        "connected", "active" -> extendedColors.pnlPositive
-        "disconnected", "inactive", "error" -> MaterialTheme.colorScheme.error
-        "deploying", "pending" -> extendedColors.warning
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
-    }
+    val brokerName = brokerDisplayName(connection.brokerCode)
+    StatusRow(
+        label = brokerName,
+        spokenLabel = "Broker $brokerName, statut",
+        display = brokerConnectionDisplay(connection.connectionStatus),
+        modifier = modifier,
+    )
+}
 
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .semantics {
-                contentDescription = "Broker ${connection.brokerCode}, " +
-                    "statut : ${connection.connectionStatus ?: "inconnu"}"
-            },
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
+/** Horodatage du cache + rappel discret : la gestion complète est sur la plateforme web. */
+@Composable
+private fun DashboardFooter(
+    syncedAt: Long,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(Spacing.sm),
     ) {
-        Column(modifier = Modifier.weight(1f)) {
+        CacheTimestamp(
+            syncedAt = syncedAt,
+            ttlMs = CacheTtl.DEVICES_MS,
+        )
+        Text(
+            text = "Gestion complète (firmware, désappairage…) sur la plateforme web",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
+    }
+}
+
+// ── Briques communes ──────────────────────────────────────────────────────────
+
+/** Carte avec titre de section, séparateur et contenu espacé uniformément. */
+@Composable
+private fun SectionCard(
+    title: String,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    TradingCard(modifier = modifier) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(Spacing.lg),
+            verticalArrangement = Arrangement.spacedBy(Spacing.md),
+        ) {
             Text(
-                text = connection.brokerCode.replaceFirstChar { it.uppercase() },
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = connection.connectionStatus?.replaceFirstChar { it.uppercase() } ?: "—",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = statusColor,
-                )
-                // PR-5c FINDING / PR-2.5 fix: execution_mode was never a field of
-                // DeviceBrokerConnectionResponse (backend never sends it here) — removed
-                // from BrokerConnectionDto/BrokerConnection; this badge is dropped with it.
-            }
+            HorizontalDivider(color = LocalExtendedColors.current.divider)
+            content()
         }
     }
 }
 
-// ── Ligne info texte ───────────────────────────────────────────────────────────
-
+/** Ligne « libellé … valeur » ; valeur en mono (chiffres tabulaires), « — » si [value] est nul. */
 @Composable
-private fun DashboardInfoRow(
+private fun InfoRow(
     label: String,
-    value: String,
-    contentDescriptionText: String,
+    value: String?,
     modifier: Modifier = Modifier,
+    valueColor: Color = MaterialTheme.colorScheme.onSurface,
 ) {
-    Column(
+    Row(
         modifier = modifier
             .fillMaxWidth()
-            .semantics { contentDescription = contentDescriptionText },
+            .clearAndSetSemantics { contentDescription = "$label : ${value ?: "inconnu"}" },
+        horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             text = label,
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Spacer(modifier = Modifier.height(Spacing.xs))
         Text(
-            text = value,
-            style = MaterialTheme.typography.bodyLarge,
+            text = value ?: "—",
+            style = MaterialTheme.typography.bodyMedium.asNumeric(),
+            color = valueColor,
+            textAlign = TextAlign.End,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+/** Ligne « libellé … [badge de statut] » ; lue par TalkBack comme « spokenLabel : statut ». */
+@Composable
+private fun StatusRow(
+    label: String,
+    spokenLabel: String,
+    display: StatusDisplay,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clearAndSetSemantics { contentDescription = "$spokenLabel : ${display.label}" },
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface,
         )
+        StatusBadge(text = display.label, color = display.tone.color())
+    }
+}
+
+@Composable
+private fun StatusTone.color(): Color {
+    val extended = LocalExtendedColors.current
+    return when (this) {
+        StatusTone.SUCCESS -> extended.statusOnline
+        StatusTone.WARNING -> extended.statusWarning
+        StatusTone.ERROR -> extended.statusOffline
+        StatusTone.NEUTRAL -> MaterialTheme.colorScheme.onSurfaceVariant
     }
 }
 

@@ -1,23 +1,25 @@
 package com.tradingplatform.app.ui.screens.devices
 
 import app.cash.turbine.test
+import com.tradingplatform.app.domain.model.BrokerConnection
 import com.tradingplatform.app.domain.model.Cached
 import com.tradingplatform.app.domain.model.Device
 import com.tradingplatform.app.domain.model.DeviceStatus
 import com.tradingplatform.app.domain.usecase.device.GetBrokerConnectionsUseCase
 import com.tradingplatform.app.domain.usecase.device.GetDevicesUseCase
 import com.tradingplatform.app.domain.usecase.device.GetDeviceStatusUseCase
-import com.tradingplatform.app.domain.usecase.device.SendDeviceCommandUseCase
-import com.tradingplatform.app.domain.usecase.device.UnpairDeviceUseCase
 import com.tradingplatform.app.util.MainDispatcherRule
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
-import kotlin.test.assertIs
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import kotlin.test.assertIs
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -180,6 +182,48 @@ class DevicesViewModelTest {
             cancelAndIgnoreRemainingEvents()
         }
     }
+
+    @Test
+    fun `refresh keeps the displayed list on screen while reloading`() = runTest {
+        coEvery { getDevicesUseCase() } returns Result.success(listOf(fakeDevice))
+        viewModel = DevicesViewModel(getDevicesUseCase)
+        assertFalse(viewModel.isRefreshing.value)
+
+        val gate = CompletableDeferred<Result<List<Device>>>()
+        coEvery { getDevicesUseCase() } coAnswers { gate.await() }
+
+        viewModel.refresh()
+
+        // Pas de retour au squelette : la liste précédente reste affichée, le spinner s'allume.
+        assertTrue(viewModel.isRefreshing.value)
+        val during = viewModel.uiState.value
+        assertIs<DevicesUiState.Success>(during)
+        assertEquals(1, during.devices.size)
+
+        gate.complete(Result.success(listOf(fakeDevice, fakeDeviceOffline)))
+        advanceUntilIdle()
+
+        assertFalse(viewModel.isRefreshing.value)
+        val after = viewModel.uiState.value
+        assertIs<DevicesUiState.Success>(after)
+        assertEquals(2, after.devices.size)
+    }
+
+    @Test
+    fun `initial load shows Loading and does not flag isRefreshing`() = runTest {
+        val gate = CompletableDeferred<Result<List<Device>>>()
+        coEvery { getDevicesUseCase() } coAnswers { gate.await() }
+
+        viewModel = DevicesViewModel(getDevicesUseCase)
+
+        assertIs<DevicesUiState.Loading>(viewModel.uiState.value)
+        assertFalse(viewModel.isRefreshing.value)
+
+        gate.complete(Result.success(emptyList()))
+        advanceUntilIdle()
+
+        assertIs<DevicesUiState.Success>(viewModel.uiState.value)
+    }
 }
 
 // ── DeviceDetailViewModelTest ─────────────────────────────────────────────────
@@ -191,9 +235,7 @@ class DeviceDetailViewModelTest {
     val mainDispatcherRule = MainDispatcherRule()
 
     private val getDeviceStatusUseCase = mockk<GetDeviceStatusUseCase>()
-    private val unpairDeviceUseCase = mockk<UnpairDeviceUseCase>(relaxed = true)
-    private val sendDeviceCommandUseCase = mockk<SendDeviceCommandUseCase>(relaxed = true)
-    private val getBrokerConnectionsUseCase = mockk<GetBrokerConnectionsUseCase>(relaxed = true)
+    private val getBrokerConnectionsUseCase = mockk<GetBrokerConnectionsUseCase>()
     private lateinit var viewModel: DeviceDetailViewModel
 
     private val fakeDevice = Device(
@@ -211,8 +253,6 @@ class DeviceDetailViewModelTest {
     fun setUp() {
         viewModel = DeviceDetailViewModel(
             getDeviceStatusUseCase = getDeviceStatusUseCase,
-            unpairDeviceUseCase = unpairDeviceUseCase,
-            sendDeviceCommandUseCase = sendDeviceCommandUseCase,
             getBrokerConnectionsUseCase = getBrokerConnectionsUseCase,
         )
     }
@@ -305,5 +345,117 @@ class DeviceDetailViewModelTest {
             assertEquals("device-2", (state as DeviceDetailUiState.Success).device.id)
             cancelAndIgnoreRemainingEvents()
         }
+    }
+
+    @Test
+    fun `refresh keeps the displayed device on screen while reloading`() = runTest {
+        coEvery { getDeviceStatusUseCase("device-1", false) } returns Result.success(Cached(fakeDevice, fakeSyncedAt))
+        viewModel.loadDevice("device-1")
+        assertFalse(viewModel.isRefreshing.value)
+
+        val gate = CompletableDeferred<Result<Cached<Device>>>()
+        coEvery { getDeviceStatusUseCase("device-1", true) } coAnswers { gate.await() }
+
+        viewModel.refresh("device-1")
+
+        // Pas d'écran de chargement : le device reste affiché, seul le spinner de refresh s'allume.
+        assertTrue(viewModel.isRefreshing.value)
+        val during = viewModel.uiState.value
+        assertIs<DeviceDetailUiState.Success>(during)
+        assertEquals("Radxa Edge V1", during.device.name)
+
+        gate.complete(Result.success(Cached(fakeDevice.copy(name = "Radxa Renamed"), fakeSyncedAt + 1)))
+        advanceUntilIdle()
+
+        assertFalse(viewModel.isRefreshing.value)
+        val after = viewModel.uiState.value
+        assertIs<DeviceDetailUiState.Success>(after)
+        assertEquals("Radxa Renamed", after.device.name)
+        assertEquals(fakeSyncedAt + 1, after.syncedAt)
+    }
+
+    @Test
+    fun `loading another device does not keep the previous one on screen`() = runTest {
+        coEvery { getDeviceStatusUseCase("device-1", any()) } returns Result.success(Cached(fakeDevice, fakeSyncedAt))
+        viewModel.loadDevice("device-1")
+
+        val gate = CompletableDeferred<Result<Cached<Device>>>()
+        coEvery { getDeviceStatusUseCase("device-2", any()) } coAnswers { gate.await() }
+
+        viewModel.loadDevice("device-2")
+
+        assertIs<DeviceDetailUiState.Loading>(viewModel.uiState.value)
+        assertFalse(viewModel.isRefreshing.value)
+
+        gate.complete(Result.success(Cached(fakeDevice.copy(id = "device-2"), fakeSyncedAt)))
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertIs<DeviceDetailUiState.Success>(state)
+        assertEquals("device-2", state.device.id)
+    }
+
+    @Test
+    fun `initial broker state is Idle`() = runTest {
+        assertIs<BrokerUiState.Idle>(viewModel.brokerState.value)
+    }
+
+    @Test
+    fun `loadBrokerConnections emits Success with the connections`() = runTest {
+        val connections = listOf(
+            BrokerConnection(
+                deviceId = "device-1",
+                portfolioId = "portfolio-1",
+                brokerCode = "interactive_brokers",
+                connectionStatus = "connected",
+            ),
+        )
+        coEvery { getBrokerConnectionsUseCase("device-1") } returns Result.success(connections)
+
+        viewModel.loadBrokerConnections("device-1")
+
+        val state = viewModel.brokerState.value
+        assertIs<BrokerUiState.Success>(state)
+        assertEquals(1, state.connections.size)
+        assertEquals("interactive_brokers", state.connections[0].brokerCode)
+        assertEquals("connected", state.connections[0].connectionStatus)
+    }
+
+    @Test
+    fun `loadBrokerConnections emits Error on failure`() = runTest {
+        coEvery { getBrokerConnectionsUseCase("device-1") } returns
+            Result.failure(RuntimeException("Broker service down"))
+
+        viewModel.loadBrokerConnections("device-1")
+
+        val state = viewModel.brokerState.value
+        assertIs<BrokerUiState.Error>(state)
+        assertEquals("Broker service down", state.message)
+    }
+
+    @Test
+    fun `loadBrokerConnections keeps the connections on screen while reloading`() = runTest {
+        val connection = BrokerConnection(
+            deviceId = "device-1",
+            portfolioId = null,
+            brokerCode = "ibkr",
+            connectionStatus = "pending",
+        )
+        coEvery { getBrokerConnectionsUseCase("device-1") } returns Result.success(listOf(connection))
+        viewModel.loadBrokerConnections("device-1")
+
+        val gate = CompletableDeferred<Result<List<BrokerConnection>>>()
+        coEvery { getBrokerConnectionsUseCase("device-1") } coAnswers { gate.await() }
+
+        viewModel.loadBrokerConnections("device-1")
+
+        assertIs<BrokerUiState.Success>(viewModel.brokerState.value)
+
+        gate.complete(Result.success(emptyList()))
+        advanceUntilIdle()
+
+        val state = viewModel.brokerState.value
+        assertIs<BrokerUiState.Success>(state)
+        assertTrue(state.connections.isEmpty())
     }
 }

@@ -14,7 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -39,6 +39,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tradingplatform.app.domain.model.Transaction
 import com.tradingplatform.app.ui.components.MoneyText
+import com.tradingplatform.app.ui.components.PortfolioSegment
+import com.tradingplatform.app.ui.components.PortfolioSegmentedTabs
 import com.tradingplatform.app.ui.theme.IconSize
 import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.Spacing
@@ -48,7 +50,8 @@ import java.time.format.DateTimeFormatter
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TransactionHistoryScreen(
-    onNavigateBack: () -> Unit,
+    onSelectSegment: (PortfolioSegment) -> Unit = {},
+    onOpenSettings: () -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: TransactionHistoryViewModel = hiltViewModel(),
 ) {
@@ -57,12 +60,12 @@ fun TransactionHistoryScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Historique") },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
+                title = { Text("Portefeuille") },
+                actions = {
+                    IconButton(onClick = onOpenSettings) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Retour",
+                            imageVector = Icons.Filled.Settings,
+                            contentDescription = "Réglages",
                         )
                     }
                 },
@@ -70,78 +73,88 @@ fun TransactionHistoryScreen(
         },
         modifier = modifier,
     ) { innerPadding ->
-        PullToRefreshBox(
-            isRefreshing = uiState is TransactionHistoryUiState.Loading,
-            onRefresh = { viewModel.refresh() },
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
-            when (val state = uiState) {
-                is TransactionHistoryUiState.Loading -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        CircularProgressIndicator()
-                    }
-                }
-                is TransactionHistoryUiState.Error -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(Spacing.lg),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                text = state.message,
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.error,
-                            )
-                            Spacer(modifier = Modifier.height(Spacing.md))
-                            Button(onClick = { viewModel.refresh() }) {
-                                Text("Réessayer")
-                            }
+            PortfolioSegmentedTabs(
+                selected = PortfolioSegment.History,
+                onSelect = onSelectSegment,
+            )
+            PullToRefreshBox(
+                isRefreshing = uiState is TransactionHistoryUiState.Loading,
+                onRefresh = { viewModel.refresh() },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+            ) {
+                when (val state = uiState) {
+                    is TransactionHistoryUiState.Loading -> {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator()
                         }
                     }
-                }
-                is TransactionHistoryUiState.Success -> {
-                    if (state.transactions.isEmpty()) {
+                    is TransactionHistoryUiState.Error -> {
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .padding(Spacing.lg),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Text(
-                                text = "Aucune transaction",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(Spacing.lg),
-                            verticalArrangement = Arrangement.spacedBy(Spacing.sm),
-                        ) {
-                            items(state.transactions, key = { it.id }) { tx ->
-                                TransactionCard(transaction = tx)
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = state.message,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                                Spacer(modifier = Modifier.height(Spacing.md))
+                                Button(onClick = { viewModel.refresh() }) {
+                                    Text("Réessayer")
+                                }
                             }
-                            if (state.hasMore) {
-                                item {
-                                    OutlinedButton(
-                                        onClick = { viewModel.loadMore() },
-                                        enabled = !state.isLoadingMore,
-                                        modifier = Modifier.fillMaxWidth(),
-                                    ) {
-                                        if (state.isLoadingMore) {
-                                            CircularProgressIndicator(
-                                                modifier = Modifier.size(IconSize.sm),
-                                            )
-                                        } else {
-                                            Text("Charger plus")
+                        }
+                    }
+                    is TransactionHistoryUiState.Success -> {
+                        if (state.transactions.isEmpty()) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(Spacing.lg),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    text = "Aucune transaction",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                contentPadding = PaddingValues(Spacing.lg),
+                                verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+                            ) {
+                                items(state.transactions, key = { it.id }) { tx ->
+                                    TransactionCard(transaction = tx)
+                                }
+                                if (state.hasMore) {
+                                    item {
+                                        OutlinedButton(
+                                            onClick = { viewModel.loadMore() },
+                                            enabled = !state.isLoadingMore,
+                                            modifier = Modifier.fillMaxWidth(),
+                                        ) {
+                                            if (state.isLoadingMore) {
+                                                CircularProgressIndicator(
+                                                    modifier = Modifier.size(IconSize.sm),
+                                                )
+                                            } else {
+                                                Text("Charger plus")
+                                            }
                                         }
                                     }
                                 }

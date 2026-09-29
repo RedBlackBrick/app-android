@@ -6,16 +6,13 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -23,29 +20,23 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarDuration
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -61,44 +52,41 @@ import com.tradingplatform.app.ui.components.HealthStatusBadge
 import com.tradingplatform.app.ui.components.OfflineBadge
 import com.tradingplatform.app.ui.components.OnlineBadge
 import com.tradingplatform.app.ui.components.SkeletonDeviceCard
+import com.tradingplatform.app.ui.components.TradingCard
 import com.tradingplatform.app.ui.theme.IconSize
 import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.Spacing
+import com.tradingplatform.app.ui.theme.asNumeric
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
+/**
+ * Liste des devices (flotte admin) — état uniquement ; la gestion se fait sur la plateforme web.
+ * Le bouton « + » lance le flux de pairing.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DeviceListScreen(
     onNavigateToDetail: (deviceId: String) -> Unit,
     onNavigateToPairing: () -> Unit,
+    onNavigateBack: () -> Unit = {},
     viewModel: DevicesViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-
-    val isRefreshing = uiState is DevicesUiState.Loading
-    val pullRefreshState = rememberPullToRefreshState()
-
-    val snackbarHostState = remember { SnackbarHostState() }
-    val errorMessage = (uiState as? DevicesUiState.Error)?.message
-
-    LaunchedEffect(errorMessage) {
-        if (errorMessage != null) {
-            val result = snackbarHostState.showSnackbar(
-                message = errorMessage,
-                actionLabel = "Réessayer",
-                duration = SnackbarDuration.Short,
-            )
-            if (result == SnackbarResult.ActionPerformed) {
-                viewModel.refresh()
-            }
-        }
-    }
+    val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text(text = "Devices") },
+                navigationIcon = {
+                    IconButton(onClick = onNavigateBack) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Retour",
+                        )
+                    }
+                },
             )
         },
         floatingActionButton = {
@@ -116,12 +104,10 @@ fun DeviceListScreen(
                 )
             }
         },
-        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
     ) { innerPadding ->
         PullToRefreshBox(
-            isRefreshing = isRefreshing && uiState !is DevicesUiState.Loading,
+            isRefreshing = isRefreshing,
             onRefresh = { viewModel.refresh() },
-            state = pullRefreshState,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding),
@@ -221,33 +207,24 @@ private fun DeviceListContent(
     }
 }
 
+/**
+ * Carte d'un device : nom, statut, santé, IP WireGuard, dernière vue. Lue par TalkBack comme un
+ * seul élément cliquable (les badges portent leur propre « Statut : … »).
+ */
 @Composable
 private fun DeviceCard(
     device: Device,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val extendedColors = LocalExtendedColors.current
-    val cardBackground = extendedColors.cardSurface
+    val isOnline = device.status == DeviceStatus.ONLINE
 
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .semantics {
-                contentDescription = "Device ${device.name}, statut ${
-                    if (device.status == DeviceStatus.ONLINE) "en ligne" else "hors ligne"
-                }"
-            },
-        colors = CardDefaults.cardColors(
-            containerColor = cardBackground,
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = Spacing.xs),
-    ) {
+    TradingCard(modifier = modifier, onClick = onClick) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(Spacing.lg),
+            verticalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -259,7 +236,7 @@ private fun DeviceCard(
                     horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
                     modifier = Modifier.weight(1f),
                 ) {
-                    StatusLed(isOnline = device.status == DeviceStatus.ONLINE)
+                    StatusLed(isOnline = isOnline)
                     Text(
                         text = device.name ?: device.id,
                         style = MaterialTheme.typography.titleMedium,
@@ -271,7 +248,7 @@ private fun DeviceCard(
                     horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    if (device.status == DeviceStatus.ONLINE) {
+                    if (isOnline) {
                         HealthStatusBadge(
                             cpuPct = device.cpuPct,
                             memoryPct = device.memoryPct,
@@ -286,32 +263,11 @@ private fun DeviceCard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(Spacing.sm))
+            LabeledValue(label = "IP WireGuard", value = device.wgIp)
+            LabeledValue(label = "Dernière vue", value = device.lastHeartbeat?.let { formatHeartbeat(it) })
 
-            Text(
-                text = "IP WireGuard : ${device.wgIp}",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.semantics {
-                    contentDescription = "Adresse WireGuard : ${device.wgIp}"
-                },
-            )
-
-            Spacer(modifier = Modifier.height(Spacing.xs))
-
-            val heartbeatFormatted = formatHeartbeat(device.lastHeartbeat)
-            Text(
-                text = "Dernier heartbeat : $heartbeatFormatted",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.semantics {
-                    contentDescription = "Dernier heartbeat : $heartbeatFormatted"
-                },
-            )
-
-            // Health metrics bars — only for ONLINE devices with available metrics
-            if (device.status == DeviceStatus.ONLINE) {
-                Spacer(modifier = Modifier.height(Spacing.sm))
+            // Barres de santé — seulement pour un device en ligne avec des métriques
+            if (isOnline) {
                 CompactHealthBar(
                     cpuPct = device.cpuPct,
                     memoryPct = device.memoryPct,
@@ -319,6 +275,33 @@ private fun DeviceCard(
                 )
             }
         }
+    }
+}
+
+/** « libellé  valeur » : valeur en mono (chiffres tabulaires), « — » si [value] est nul. */
+@Composable
+private fun LabeledValue(
+    label: String,
+    value: String?,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier.clearAndSetSemantics {
+            contentDescription = "$label : ${value ?: "inconnue"}"
+        },
+        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = value ?: "—",
+            style = MaterialTheme.typography.bodySmall.asNumeric(),
+            color = MaterialTheme.colorScheme.onSurface,
+        )
     }
 }
 

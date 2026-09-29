@@ -200,7 +200,8 @@ private fun KeystoreCorruptionDialog(
  *   - `true`  — session active (token at startup, or [SessionManager.sessionStartedEvents])
  *   - `false` — no session (no token at startup, [SessionManager.forcedLogoutEvents],
  *     Keystore corruption)
- * - [isAdmin] drives the [BottomNavBar] admin tab and the Devices guard (see [refreshIsAdmin]).
+ * - [isAdmin] drives the « Flotte d'appareils (admin) » entry of the Settings hub and the Devices
+ *   route guard (see [refreshIsAdmin]).
  */
 @HiltViewModel
 class AppNavViewModel @Inject constructor(
@@ -399,14 +400,14 @@ class AppNavViewModel @Inject constructor(
      * Re-reads [isAdmin] from [EncryptedDataStore] via [GetAuthContextUseCase].
      *
      * Must be called after a successful login (direct or via 2FA) — i.e. once the login use
-     * case has returned — so that the [BottomNavBar] Devices tab and the admin guard in the
-     * NavHost reflect the newly persisted flag without requiring an app restart.
+     * case has returned — so that the Settings admin entry (Devices fleet) and the admin guard
+     * in the NavHost reflect the newly persisted flag without requiring an app restart.
      *
      * Deliberately NOT done on [SessionManager.sessionStartedEvents]: [AuthRepositoryImpl]
      * emits that event right after populating [TokenHolder] and BEFORE writing `IS_ADMIN` to
      * the DataStore, so a read triggered by the event would return the previous (cleared) value.
      *
-     * [isAdmin] is deliberately not reset on logout either: the admin tab / Devices routes are
+     * [isAdmin] is deliberately not reset on logout either: the admin entry / Devices routes are
      * not reachable from the logged-out screens, and flipping it while the Devices screen is
      * still composed would race the Devices guard navigation (→ Dashboard) with the forced
      * logout navigation (→ Login). The next login overwrites it through this method.
@@ -634,19 +635,17 @@ fun AppNavGraph(
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
-    // Routes where the BottomNavBar is shown
-    val bottomBarRoutes = setOf(
-        Screen.Dashboard.route,
-        Screen.MarketData.route,
-        Screen.Positions.route,
-        Screen.Alerts.route,
-        Screen.Devices.route,
-        Screen.Settings.route,
-        Screen.VpnSettings.route,
-        Screen.MyDevices.route,
-        Screen.SecuritySettings.route,
-    )
-    val showBottomBar = currentRoute in bottomBarRoutes
+    // BottomNavBar : uniquement sur les routes racines des 4 onglets (Accueil, Portefeuille —
+    // Positions / Ordres / Historique —, Marchés, Alertes). Réglages (+ sous-écrans), flotte
+    // Devices, détail de position, Performance, pairing… sont des écrans poussés sans barre.
+    val showBottomBar = showsBottomBar(currentRoute)
+
+    // Icône Réglages des TopAppBar racines. launchSingleTop : un double tap n'empile pas deux fois.
+    val openSettings: () -> Unit = {
+        navController.navigate(Screen.Settings.route) {
+            launchSingleTop = true
+        }
+    }
 
     // Forced logout — triggered by SessionManager when TokenAuthenticator invalidates the session.
     // When isLoggedIn transitions to false after being true (expired token, forced logout),
@@ -746,7 +745,6 @@ fun AppNavGraph(
             if (showBottomBar) {
                 BottomNavBar(
                     navController = navController,
-                    isAdmin = isAdmin,
                 )
             }
         },
@@ -813,8 +811,8 @@ fun AppNavGraph(
                         // Refresh isAdmin before navigating — LoginUseCase has just written the
                         // real value to EncryptedDataStore (after the sessionStarted event);
                         // the startup read in init{} returned false (no token yet). Without this
-                        // refresh the Devices tab stays hidden for admins who log in during
-                        // this app session.
+                        // refresh the Settings « Flotte d'appareils » entry stays hidden for
+                        // admins who log in during this app session.
                         appNavViewModel.refreshIsAdmin()
                         navController.navigate(Screen.Dashboard.route) {
                             popUpTo(Screen.Login.route) { inclusive = true }
@@ -846,18 +844,15 @@ fun AppNavGraph(
 
             composable(Screen.Dashboard.route) {
                 DashboardScreen(
-                    onNavigateToPositions = {
-                        navController.navigate(Screen.Positions.route)
-                    },
                     onNavigateToPerformance = {
                         navController.navigate(Screen.Performance.route)
                     },
-                    onNavigateToTransactions = {
-                        navController.navigate(Screen.TransactionHistory.route)
+                    // Même navigation que l'onglet Alertes de la barre (popUpTo Accueil,
+                    // saveState/restoreState, launchSingleTop).
+                    onNavigateToAlerts = {
+                        navController.navigateToTab(Screen.Alerts.route)
                     },
-                    onNavigateToOrders = {
-                        navController.navigate(Screen.Orders.route)
-                    },
+                    onOpenSettings = openSettings,
                 )
             }
 
@@ -867,20 +862,29 @@ fun AppNavGraph(
                 )
             }
 
+            // ── Onglet Portefeuille : Positions (racine) / Ordres / Historique ──
+            // Les trois écrans partagent la rangée de segments ; choisir un segment remplace la
+            // section courante sans empiler la back stack (navigateToPortfolioSegment). Retour
+            // depuis Ordres / Historique → Positions, puis Positions → Accueil.
+
             composable(Screen.TransactionHistory.route) {
                 TransactionHistoryScreen(
-                    onNavigateBack = { navController.popBackStack() },
+                    onSelectSegment = { segment -> navController.navigateToPortfolioSegment(segment) },
+                    onOpenSettings = openSettings,
                 )
             }
 
             composable(Screen.Orders.route) {
                 OrdersScreen(
-                    onNavigateBack = { navController.popBackStack() },
+                    onSelectSegment = { segment -> navController.navigateToPortfolioSegment(segment) },
+                    onOpenSettings = openSettings,
                 )
             }
 
             composable(Screen.MarketData.route) {
-                MarketDataScreen()
+                MarketDataScreen(
+                    onOpenSettings = openSettings,
+                )
             }
 
             composable(Screen.Positions.route) {
@@ -888,6 +892,8 @@ fun AppNavGraph(
                     onNavigateToDetail = { positionId ->
                         navController.navigate(Screen.PositionDetail.createRoute(positionId))
                     },
+                    onSelectSegment = { segment -> navController.navigateToPortfolioSegment(segment) },
+                    onOpenSettings = openSettings,
                 )
             }
 
@@ -905,10 +911,13 @@ fun AppNavGraph(
             }
 
             composable(Screen.Alerts.route) {
-                AlertListScreen()
+                AlertListScreen(
+                    onOpenSettings = openSettings,
+                )
             }
 
-            // ── Devices (admin only) ──────────────────────────────────────────
+            // ── Devices — flotte (admin only) ─────────────────────────────────
+            // Plus d'onglet : atteinte depuis Réglages → « Flotte d'appareils (admin) ».
 
             composable(Screen.Devices.route) {
                 // Admin guard — redirect to Dashboard if not admin
@@ -929,6 +938,7 @@ fun AppNavGraph(
                             launchSingleTop = true
                         }
                     },
+                    onNavigateBack = { navController.popBackStack() },
                 )
             }
 
@@ -1050,6 +1060,13 @@ fun AppNavGraph(
 
             composable(Screen.Settings.route) {
                 SettingsScreen(
+                    isAdmin = isAdmin,
+                    onNavigateToDevices = {
+                        navController.navigate(Screen.Devices.route) {
+                            launchSingleTop = true
+                        }
+                    },
+                    onNavigateBack = { navController.popBackStack() },
                     onNavigateToVpn = {
                         navController.navigate(Screen.VpnSettings.route)
                     },

@@ -11,103 +11,107 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import com.tradingplatform.app.domain.model.ActivityItem
+import com.tradingplatform.app.ui.components.TradingCard
 import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.Spacing
-import java.time.Duration
-import java.time.Instant
 
 /**
- * Card displaying the real-time activity feed on the Dashboard.
+ * Carte « Activité » du Dashboard : les [DASHBOARD_ACTIVITY_LIMIT] événements les plus récents
+ * du flux temps réel, avec un lien « Tout voir » ([onSeeAll]) vers l'écran des alertes.
  *
- * Shows a live badge when the WebSocket is connected and a list of the most
- * recent activity items (max 12). Uses [LocalExtendedColors] for dot colors
- * and [Spacing] tokens for all dimensions.
- *
- * Each row is accessible via TalkBack with a descriptive [contentDescription].
+ * Le ViewModel conserve jusqu'à 12 éléments ; c'est ici (via [recentActivity]) que la liste est
+ * réduite pour l'affichage. Chaque ligne est un seul nœud TalkBack (description + heure).
  */
 @Composable
 fun ActivityFeedCard(
     items: List<ActivityItem>,
     isLive: Boolean,
     modifier: Modifier = Modifier,
+    onSeeAll: (() -> Unit)? = null,
 ) {
     val extendedColors = LocalExtendedColors.current
+    val visibleItems = remember(items) { recentActivity(items) }
 
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = extendedColors.cardSurface,
-        ),
-    ) {
+    TradingCard(modifier = modifier) {
         Column(
-            modifier = Modifier.padding(Spacing.lg),
-            verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+            modifier = Modifier.padding(
+                start = Spacing.lg,
+                top = Spacing.sm,
+                end = Spacing.sm,
+                bottom = Spacing.md,
+            ),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xs),
         ) {
-            // ── Header: title + live badge ──────────────────────────────────
+            // ── En-tête : titre (+ badge direct) et lien « Tout voir » ──────────
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    text = "Activit\u00e9 en temps r\u00e9el",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                if (isLive) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.semantics {
-                            contentDescription = "Flux en direct actif"
-                        },
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(Spacing.sm)
-                                .clip(CircleShape)
-                                .background(extendedColors.statusOnline),
-                        )
-                        Spacer(modifier = Modifier.width(Spacing.xs))
-                        Text(
-                            text = "En direct",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = extendedColors.statusOnline,
-                        )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "Activité",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    if (isLive) {
+                        Spacer(modifier = Modifier.width(Spacing.sm))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.clearAndSetSemantics {
+                                contentDescription = "Flux en direct actif"
+                            },
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(Spacing.sm)
+                                    .clip(CircleShape)
+                                    .background(extendedColors.statusOnline),
+                            )
+                            Spacer(modifier = Modifier.width(Spacing.xs))
+                            Text(
+                                text = "En direct",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+                if (onSeeAll != null) {
+                    TextButton(onClick = onSeeAll) {
+                        Text(text = "Tout voir")
                     }
                 }
             }
 
-            // ── Items or empty state ────────────────────────────────────────
-            if (items.isEmpty()) {
-                Text(
-                    text = "Aucune activit\u00e9 r\u00e9cente",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .padding(vertical = Spacing.md)
-                        .semantics {
-                            contentDescription = "Aucune activit\u00e9 r\u00e9cente dans le flux"
-                        },
-                )
-            } else {
-                items.forEachIndexed { index, item ->
-                    ActivityItemRow(item = item)
-                    if (index < items.lastIndex) {
-                        HorizontalDivider(color = extendedColors.divider)
+            // ── Éléments ou état vide ───────────────────────────────────────────
+            Column(modifier = Modifier.padding(end = Spacing.sm)) {
+                if (visibleItems.isEmpty()) {
+                    Text(
+                        text = "Aucune activité récente",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = Spacing.sm),
+                    )
+                } else {
+                    visibleItems.forEachIndexed { index, item ->
+                        ActivityItemRow(item = item)
+                        if (index < visibleItems.lastIndex) {
+                            HorizontalDivider(color = extendedColors.divider)
+                        }
                     }
                 }
             }
@@ -115,7 +119,7 @@ fun ActivityFeedCard(
     }
 }
 
-// ── Individual row ──────────────────────────────────────────────────────────
+// ── Ligne individuelle ──────────────────────────────────────────────────────
 
 @Composable
 private fun ActivityItemRow(
@@ -123,78 +127,26 @@ private fun ActivityItemRow(
     modifier: Modifier = Modifier,
 ) {
     val extendedColors = LocalExtendedColors.current
-
-    val dotColor: Color
-    val label: String
-    val subtext: String
-    val description: String
-
-    when (item) {
-        is ActivityItem.OrderFilled -> {
-            dotColor = extendedColors.success
-            val sideLabel = when (item.side.lowercase()) {
-                "buy" -> "Achat"
-                "sell" -> "Vente"
-                else -> item.side
-            }
-            val qtyText = item.quantity?.toString() ?: "?"
-            label = "$sideLabel $qtyText \u00d7 ${item.symbol}"
-            subtext = item.status
-            description = "Ordre : $sideLabel de $qtyText ${item.symbol}, statut ${item.status}"
-        }
-        is ActivityItem.Signal -> {
-            dotColor = MaterialTheme.colorScheme.primary // Indigo
-            val pct = "%.0f".format(item.confidence * 100)
-            label = "Signal : ${item.symbol} (${item.action.uppercase()} $pct%)"
-            subtext = item.strategyType
-            description = "Signal de strat\u00e9gie : ${item.action} ${item.symbol} avec confiance $pct pourcent"
-        }
-        is ActivityItem.RiskAlert -> {
-            dotColor = when (item.severity.lowercase()) {
-                "warning" -> extendedColors.warning
-                "error", "critical" -> extendedColors.statusOffline
-                else -> extendedColors.warning
-            }
-            label = "Alerte : ${item.title}"
-            subtext = item.body
-            description = "Alerte ${item.severity} : ${item.title}. ${item.body}"
-        }
-        is ActivityItem.PortfolioChange -> {
-            dotColor = extendedColors.info
-            val sideLabel = when (item.side?.lowercase()) {
-                "buy", "long" -> "Achat"
-                "sell", "short" -> "Vente"
-                else -> item.side
-            }
-            val parts = mutableListOf<String>()
-            if (item.symbol != null && sideLabel != null) {
-                val qtyText = item.quantity?.let { "%.2f".format(it) } ?: "?"
-                parts.add("$sideLabel $qtyText \u00d7 ${item.symbol}")
-            }
-            if (item.totalValue != null) parts.add("Valeur totale %.2f".format(item.totalValue))
-            if (item.dailyPnl != null) parts.add("P&L jour %+.2f".format(item.dailyPnl))
-            label = if (parts.isNotEmpty()) "Portfolio : ${parts.joinToString(" | ")}" else "Portfolio mis \u00e0 jour"
-            subtext = "Mise \u00e0 jour portfolio"
-            description = "Mise \u00e0 jour portfolio : ${parts.joinToString(", ").ifEmpty { "valeurs mises \u00e0 jour" }}"
-        }
-        is ActivityItem.CatalystEvent -> {
-            dotColor = MaterialTheme.colorScheme.tertiary
-            label = "Catalyst : ${item.symbol} \u2014 ${item.title}"
-            subtext = item.eventType.replaceFirstChar { it.uppercase() }
-            description = "\u00c9v\u00e9nement catalyseur : ${item.title} pour ${item.symbol}, type ${item.eventType}"
-        }
+    val model = remember(item) { activityRowModel(item) }
+    val dotColor: Color = when (model.dot) {
+        ActivityDot.SUCCESS -> extendedColors.success
+        ActivityDot.PRIMARY -> MaterialTheme.colorScheme.primary
+        ActivityDot.WARNING -> extendedColors.warning
+        ActivityDot.OFFLINE -> extendedColors.statusOffline
+        ActivityDot.INFO -> extendedColors.info
+        ActivityDot.TERTIARY -> MaterialTheme.colorScheme.tertiary
     }
-
     val relativeTime = remember(item.timestamp) { formatRelativeTime(item.timestamp) }
 
     Row(
         modifier = modifier
             .fillMaxWidth()
             .padding(vertical = Spacing.xs)
-            .semantics { contentDescription = "$description, $relativeTime" },
+            // Un seul nœud TalkBack par ligne (sinon description + textes lus deux fois).
+            .clearAndSetSemantics { contentDescription = "${model.description}, $relativeTime" },
         verticalAlignment = Alignment.Top,
     ) {
-        // Colored dot
+        // Point coloré
         Box(
             modifier = Modifier
                 .padding(top = Spacing.xs)
@@ -204,19 +156,19 @@ private fun ActivityItemRow(
         )
         Spacer(modifier = Modifier.width(Spacing.md))
 
-        // Text content
+        // Texte
         Column(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(Spacing.xs),
         ) {
             Text(
-                text = label,
+                text = model.label,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
             )
             Text(
-                text = subtext,
+                text = model.subtext,
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -225,29 +177,12 @@ private fun ActivityItemRow(
 
         Spacer(modifier = Modifier.width(Spacing.sm))
 
-        // Relative time
+        // Temps relatif
         Text(
             text = relativeTime,
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = Spacing.xs),
         )
-    }
-}
-
-// ── Time formatting ─────────────────────────────────────────────────────────
-
-/**
- * Formats an [Instant] as a French-locale relative time string.
- * Examples: "maintenant", "il y a 2m", "il y a 1h".
- */
-private fun formatRelativeTime(timestamp: Instant): String {
-    val seconds = Duration.between(timestamp, Instant.now()).seconds
-    return when {
-        seconds < 10 -> "maintenant"
-        seconds < 60 -> "il y a ${seconds}s"
-        seconds < 3600 -> "il y a ${seconds / 60}m"
-        seconds < 86400 -> "il y a ${seconds / 3600}h"
-        else -> "il y a ${seconds / 86400}j"
     }
 }

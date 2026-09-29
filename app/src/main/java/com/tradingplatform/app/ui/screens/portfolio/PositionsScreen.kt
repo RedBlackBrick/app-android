@@ -11,10 +11,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
@@ -45,6 +49,8 @@ import com.tradingplatform.app.ui.components.EmptyPositionsIllustration
 import com.tradingplatform.app.ui.components.EmptyState
 import com.tradingplatform.app.ui.components.MoneyText
 import com.tradingplatform.app.ui.components.OpenPositionBadge
+import com.tradingplatform.app.ui.components.PortfolioSegment
+import com.tradingplatform.app.ui.components.PortfolioSegmentedTabs
 import com.tradingplatform.app.ui.components.SkeletonPositionCard
 import com.tradingplatform.app.ui.components.rememberHapticFeedback
 import com.tradingplatform.app.ui.theme.LocalExtendedColors
@@ -56,6 +62,8 @@ import java.math.BigDecimal
 @Composable
 fun PositionsScreen(
     onNavigateToDetail: (positionId: Int) -> Unit,
+    onSelectSegment: (PortfolioSegment) -> Unit = {},
+    onOpenSettings: () -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: PositionsViewModel = hiltViewModel(),
 ) {
@@ -85,38 +93,83 @@ fun PositionsScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("Positions") })
+            TopAppBar(
+                title = { Text("Portefeuille") },
+                actions = {
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(
+                            imageVector = Icons.Filled.Settings,
+                            contentDescription = "Réglages",
+                        )
+                    }
+                },
+            )
         },
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         modifier = modifier,
     ) { innerPadding ->
-        PullToRefreshBox(
-            isRefreshing = isRefreshing,
-            onRefresh = { viewModel.refresh() },
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
-            when (val state = uiState) {
-                is PositionsUiState.Loading -> {
-                    // Skeleton loading
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(Spacing.sm),
-                        contentPadding = PaddingValues(Spacing.lg),
-                    ) {
-                        items(5) {
-                            SkeletonPositionCard()
+            PortfolioSegmentedTabs(
+                selected = PortfolioSegment.Positions,
+                onSelect = onSelectSegment,
+            )
+            PullToRefreshBox(
+                isRefreshing = isRefreshing,
+                onRefresh = { viewModel.refresh() },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+            ) {
+                when (val state = uiState) {
+                    is PositionsUiState.Loading -> {
+                        // Skeleton loading
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+                            contentPadding = PaddingValues(Spacing.lg),
+                        ) {
+                            items(5) {
+                                SkeletonPositionCard()
+                            }
                         }
                     }
-                }
-                is PositionsUiState.Success -> {
-                    if (state.positions.isEmpty()) {
-                        val emptyTitle = when (selectedFilter) {
-                            StatusFilter.OPEN -> "Aucune position ouverte"
-                            StatusFilter.CLOSED -> "Aucune position fermée"
-                            StatusFilter.ALL -> "Aucune position"
+                    is PositionsUiState.Success -> {
+                        if (state.positions.isEmpty()) {
+                            val emptyTitle = when (selectedFilter) {
+                                StatusFilter.OPEN -> "Aucune position ouverte"
+                                StatusFilter.CLOSED -> "Aucune position fermée"
+                                StatusFilter.ALL -> "Aucune position"
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(Spacing.lg),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                EmptyState(
+                                    illustration = { EmptyPositionsIllustration() },
+                                    title = emptyTitle,
+                                    message = "Vos positions apparaîtront ici lorsque des trades seront exécutés.",
+                                )
+                            }
+                        } else {
+                            PositionsList(
+                                positions = state.positions,
+                                syncedAt = state.syncedAt,
+                                selectedFilter = selectedFilter,
+                                onFilterSelect = { viewModel.selectFilter(it) },
+                                onNavigateToDetail = { id ->
+                                    haptic.click()
+                                    onNavigateToDetail(id)
+                                },
+                            )
                         }
+                    }
+                    is PositionsUiState.Error -> {
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -125,37 +178,12 @@ fun PositionsScreen(
                         ) {
                             EmptyState(
                                 illustration = { EmptyPositionsIllustration() },
-                                title = emptyTitle,
-                                message = "Vos positions apparaîtront ici lorsque des trades seront exécutés.",
+                                title = "Impossible de charger",
+                                message = state.message,
+                                actionLabel = "Réessayer",
+                                onAction = { viewModel.refresh() },
                             )
                         }
-                    } else {
-                        PositionsList(
-                            positions = state.positions,
-                            syncedAt = state.syncedAt,
-                            selectedFilter = selectedFilter,
-                            onFilterSelect = { viewModel.selectFilter(it) },
-                            onNavigateToDetail = { id ->
-                                haptic.click()
-                                onNavigateToDetail(id)
-                            },
-                        )
-                    }
-                }
-                is PositionsUiState.Error -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(Spacing.lg),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        EmptyState(
-                            illustration = { EmptyPositionsIllustration() },
-                            title = "Impossible de charger",
-                            message = state.message,
-                            actionLabel = "Réessayer",
-                            onAction = { viewModel.refresh() },
-                        )
                     }
                 }
             }

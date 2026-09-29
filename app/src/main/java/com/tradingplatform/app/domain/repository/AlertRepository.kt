@@ -8,5 +8,6 @@ interface AlertRepository {
     fun getAlerts(): Flow<List<Alert>>
     fun getAlertsByTypes(types: Set<AlertType>): Flow<List<Alert>>
     suspend fun markRead(alertId: Long): Result<Unit>
+    suspend fun markAllRead(): Result<Unit>
     suspend fun purgeExpired(): Result<Unit>
 }

@@ -35,6 +35,10 @@ class AlertRepositoryImpl @Inject constructor(
         alertDao.markRead(alertId)
     }
 
+    override suspend fun markAllRead(): Result<Unit> = runCatchingCancellable {
+        alertDao.markAllRead()
+    }
+
     /**
      * Purge les alertes expirées — appelé par WidgetUpdateWorker APRÈS une sync réussie.
      * Applique les deux règles : 30 jours max ET 500 entrées max.

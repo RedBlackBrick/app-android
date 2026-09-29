@@ -2,20 +2,15 @@ package com.tradingplatform.app.ui.screens.dashboard
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
@@ -28,37 +23,33 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.tradingplatform.app.data.local.db.CacheTtl
-import com.tradingplatform.app.domain.model.CircuitBreakerState
-import com.tradingplatform.app.domain.model.NavSummary
 import com.tradingplatform.app.domain.model.PnlPeriod
-import com.tradingplatform.app.domain.model.PnlSummary
-import com.tradingplatform.app.domain.model.PortfolioCircuitBreakerStatus
 import com.tradingplatform.app.ui.common.DataState
-import com.tradingplatform.app.ui.components.AnimatedPnlText
-import com.tradingplatform.app.ui.components.CacheTimestamp
 import com.tradingplatform.app.ui.components.ConnectionStatusIndicator
-import com.tradingplatform.app.ui.components.ErrorBanner
-import com.tradingplatform.app.ui.components.MoneyText
-import com.tradingplatform.app.ui.components.SkeletonDashboardCard
-import com.tradingplatform.app.ui.components.SparklineChart
 import com.tradingplatform.app.ui.components.rememberHapticFeedback
-import com.tradingplatform.app.ui.theme.LocalExtendedColors
+import com.tradingplatform.app.ui.screens.dashboard.components.DashboardHeroCard
+import com.tradingplatform.app.ui.screens.dashboard.components.DashboardKpiRow
+import com.tradingplatform.app.ui.screens.dashboard.components.DashboardRiskTile
+import com.tradingplatform.app.ui.screens.dashboard.components.DashboardSkeleton
 import com.tradingplatform.app.ui.theme.Spacing
 
+/**
+ * Écran d'accueil concis : héros (NAV + variation + sparkline + période), trois KPI cliquables
+ * vers Performance, tuile risque (seulement en cas d'alerte) et les 3 dernières activités.
+ *
+ * @param onNavigateToPerformance ouvre l'écran Performance (tuiles KPI).
+ * @param onNavigateToAlerts ouvre les alertes (lien « Tout voir » du flux d'activité).
+ * @param onOpenSettings ouvre les réglages (action de la barre supérieure).
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(
-    onNavigateToPositions: () -> Unit,
     onNavigateToPerformance: () -> Unit,
-    onNavigateToTransactions: () -> Unit,
-    onNavigateToOrders: () -> Unit,
+    onNavigateToAlerts: () -> Unit,
+    onOpenSettings: () -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: DashboardViewModel = hiltViewModel(),
 ) {
@@ -79,7 +70,7 @@ fun DashboardScreen(
     )
 
     // Snackbar : échec d'un refresh alors qu'une valeur (périmée) reste affichée.
-    // Sans valeur, l'erreur est rendue inline dans la carte de la section (pas de snackbar).
+    // Sans valeur, l'erreur est rendue inline dans la carte héros (pas de snackbar).
     val snackbarHostState = remember { SnackbarHostState() }
     val navError = uiState.navSummary.staleError()
     val pnlError = uiState.pnlSummary.staleError()
@@ -98,15 +89,36 @@ fun DashboardScreen(
         }
     }
 
+    // Dérivations de présentation (fonctions pures — cf. DashboardPresentation.kt).
+    val kpis = remember(uiState.pnlSummary.value) { dashboardKpis(uiState.pnlSummary.value) }
+    val riskModel = remember(uiState.circuitBreakerStatus) {
+        riskTileModel(uiState.circuitBreakerStatus)
+    }
+
+    // Callback mémoïsé : haptic et viewModel sont des références stables, donc `remember {}` sans
+    // clé est sûr et évite de recomposer le sélecteur à chaque mise à jour du flux WS.
+    val onPeriodSelect = remember<(PnlPeriod) -> Unit> {
+        { period ->
+            haptic.click()
+            viewModel.selectPeriod(period)
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Dashboard") },
+                title = { Text("Accueil") },
                 actions = {
                     ConnectionStatusIndicator(
                         state = wsState,
-                        modifier = Modifier.padding(end = Spacing.md),
+                        modifier = Modifier.padding(end = Spacing.xs),
                     )
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(
+                            imageVector = Icons.Filled.Settings,
+                            contentDescription = "Réglages",
+                        )
+                    }
                 },
             )
         },
@@ -128,488 +140,39 @@ fun DashboardScreen(
                 verticalArrangement = Arrangement.spacedBy(Spacing.lg),
             ) {
                 if (isInitialLoading) {
-                    // ── Skeleton loading ────────────────────────────────────────
-                    SkeletonDashboardCard()
-                    SkeletonDashboardCard()
-                    SkeletonDashboardCard()
+                    DashboardSkeleton()
                 } else {
-                    // ── NAV (Net Asset Value) ───────────────────────────────────
-                    NavSection(
+                    // ── Héros : NAV, variation de la période, sparkline, sélecteur ──
+                    DashboardHeroCard(
                         navState = uiState.navSummary,
-                        onRetry = { viewModel.refresh() },
-                    )
-
-                    // ── Stratégies actives + Circuit-breaker (lecture seule) ───
-                    StrategyAndRiskStatusRow(
-                        activeStrategyCount = uiState.activeStrategyCount,
-                        circuitBreakerStatus = uiState.circuitBreakerStatus,
-                    )
-
-                    // ── Sparkline chart ─────────────────────────────────────────
-                    val pnlData = uiState.pnlSummary.value
-                    if (pnlData != null && pnlData.sparklinePoints.isNotEmpty()) {
-                        SparklineChart(
-                            dataPoints = pnlData.sparklinePoints,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-
-                    // ── P&L period chips ────────────────────────────────────────
-                    // Memoised callback — haptic and viewModel are stable refs that
-                    // never change across recompositions, so remember {} without keys
-                    // is safe and avoids recomposing PnlPeriodChips on every quote tick.
-                    val onPeriodSelect = remember<(PnlPeriod) -> Unit> {
-                        { period ->
-                            haptic.click()
-                            viewModel.selectPeriod(period)
-                        }
-                    }
-                    PnlPeriodChips(
-                        selected = uiState.selectedPeriod,
-                        onSelect = onPeriodSelect,
-                    )
-
-                    // ── P&L summary ─────────────────────────────────────────────
-                    PnlSection(
                         pnlState = uiState.pnlSummary,
+                        selectedPeriod = uiState.selectedPeriod,
+                        onSelectPeriod = onPeriodSelect,
                         onRetry = { viewModel.refresh() },
                     )
 
-                    // ── Activity feed ─────────────────────────────────────────
+                    // ── KPI de la période → écran Performance ──────────────────────
+                    DashboardKpiRow(
+                        kpis = kpis,
+                        onClick = onNavigateToPerformance,
+                    )
+
+                    // ── Risque : uniquement circuit ouvert / statut indisponible ──
+                    if (riskModel != null) {
+                        DashboardRiskTile(model = riskModel)
+                    }
+
+                    // ── Activité : 3 derniers événements + « Tout voir » ───────────
                     ActivityFeedCard(
                         items = activityItems,
                         isLive = isWsLive,
+                        onSeeAll = onNavigateToAlerts,
                     )
-
-                    // ── Navigation ──────────────────────────────────────────────
-                    Spacer(modifier = Modifier.height(Spacing.sm))
-                    Button(
-                        onClick = onNavigateToPositions,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text("Voir positions")
-                    }
-                    Button(
-                        onClick = onNavigateToPerformance,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text("Voir performance")
-                    }
-                    Button(
-                        onClick = onNavigateToTransactions,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text("Voir historique")
-                    }
-                    Button(
-                        onClick = onNavigateToOrders,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text("Voir ordres")
-                    }
                 }
             }
         }
     }
 }
-
-// ── Section composables ───────────────────────────────────────────────────────
 
 /** Erreur du dernier refresh quand une valeur (désormais périmée) reste affichée. */
 private fun DataState<*>.staleError(): String? = if (value != null) error else null
-
-/**
- * Pied de section commun à NAV/PnL :
- * - valeur + erreur → horodatage de la dernière sync ([CacheTimestamp], TTL [CacheTtl.PNL_MS]) ;
- * - pas de valeur + erreur → carte d'erreur inline avec « Réessayer ».
- */
-@Composable
-private fun DataStateFooter(
-    state: DataState<*>,
-    onRetry: () -> Unit,
-) {
-    val error = state.error ?: return
-    if (state.value != null) {
-        CacheTimestamp(syncedAt = state.syncedAt, ttlMs = CacheTtl.PNL_MS)
-    } else {
-        ErrorBanner(message = error, onRetry = onRetry)
-    }
-}
-
-@Composable
-private fun NavSection(
-    navState: DataState<NavSummary>,
-    onRetry: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val extendedColors = LocalExtendedColors.current
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = extendedColors.cardSurface,
-        ),
-    ) {
-        Column(
-            modifier = Modifier.padding(Spacing.lg),
-            verticalArrangement = Arrangement.spacedBy(Spacing.xs),
-        ) {
-            Text(
-                text = "Valeur liquidative",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            val nav = navState.value
-            when {
-                nav != null -> {
-                    MoneyText(
-                        amount = nav.currentValue,
-                        style = MaterialTheme.typography.headlineMedium,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .semantics {
-                                contentDescription = "Valeur liquidative totale : ${nav.currentValue} €"
-                            },
-                    )
-                    val positionsValue = nav.currentValue - nav.cashBalance
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Column(
-                            modifier = Modifier.semantics {
-                                contentDescription = "Cash : ${nav.cashBalance} euros"
-                            },
-                        ) {
-                            Text(
-                                text = "Cash",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            MoneyText(
-                                amount = nav.cashBalance,
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
-                        }
-                        Column(
-                            horizontalAlignment = Alignment.End,
-                            modifier = Modifier.semantics {
-                                contentDescription = "Positions : $positionsValue euros"
-                            },
-                        ) {
-                            Text(
-                                text = "Positions",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            MoneyText(
-                                amount = positionsValue,
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
-                        }
-                    }
-                }
-                navState.error != null -> {
-                    Text(
-                        text = "Indisponible",
-                        style = MaterialTheme.typography.headlineMedium,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-                else -> {
-                    Text(
-                        text = "—",
-                        style = MaterialTheme.typography.headlineMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                }
-            }
-            DataStateFooter(state = navState, onRetry = onRetry)
-        }
-    }
-}
-
-/**
- * Row showing the active strategy count + circuit-breaker badge. Each tile
- * is hidden when its data is null (failed fetch or "no rule active"); if both
- * are hidden the entire row is collapsed to keep the Dashboard tight.
- */
-@Composable
-private fun StrategyAndRiskStatusRow(
-    activeStrategyCount: Int?,
-    circuitBreakerStatus: PortfolioCircuitBreakerStatus?,
-    modifier: Modifier = Modifier,
-) {
-    val showStrategies = activeStrategyCount != null
-    val showBreaker = circuitBreakerStatus != null && circuitBreakerStatus.enabled
-    if (!showStrategies && !showBreaker) return
-
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-    ) {
-        if (showStrategies) {
-            StrategyCountTile(
-                count = activeStrategyCount,
-                modifier = Modifier.weight(1f),
-            )
-        }
-        if (showBreaker) {
-            CircuitBreakerTile(
-                status = circuitBreakerStatus,
-                modifier = Modifier.weight(1f),
-            )
-        }
-    }
-}
-
-@Composable
-private fun StrategyCountTile(
-    count: Int,
-    modifier: Modifier = Modifier,
-) {
-    val extendedColors = LocalExtendedColors.current
-    Card(
-        modifier = modifier
-            .semantics {
-                contentDescription = "$count stratégie${if (count > 1) "s" else ""} active${if (count > 1) "s" else ""}"
-            },
-        colors = CardDefaults.cardColors(
-            containerColor = extendedColors.cardSurface,
-        ),
-    ) {
-        Column(
-            modifier = Modifier.padding(Spacing.md),
-            verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
-        ) {
-            Text(
-                text = "Stratégies actives",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                text = count.toString(),
-                style = MaterialTheme.typography.headlineSmall,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-        }
-    }
-}
-
-@Composable
-private fun CircuitBreakerTile(
-    status: PortfolioCircuitBreakerStatus,
-    modifier: Modifier = Modifier,
-) {
-    val extendedColors = LocalExtendedColors.current
-
-    val (label, valueText, valueColor) = when {
-        status.redisUnavailable ->
-            Triple("Risque", "Indisponible", extendedColors.warning)
-        status.state == CircuitBreakerState.OPEN ->
-            Triple("Risque", "Trading suspendu", extendedColors.pnlNegative)
-        else ->
-            Triple("Risque", "Trading actif", extendedColors.pnlPositive)
-    }
-
-    val a11y = when {
-        status.redisUnavailable -> "Statut risque indisponible — fail-closed côté serveur"
-        status.state == CircuitBreakerState.OPEN ->
-            "Trading suspendu — circuit-breaker ouvert (${status.count} sur ${status.threshold} violations)"
-        else -> "Trading actif — circuit-breaker fermé (${status.count} sur ${status.threshold} violations)"
-    }
-
-    Card(
-        modifier = modifier.semantics { contentDescription = a11y },
-        colors = CardDefaults.cardColors(
-            containerColor = extendedColors.cardSurface,
-        ),
-    ) {
-        Column(
-            modifier = Modifier.padding(Spacing.md),
-            verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
-        ) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                text = valueText,
-                style = MaterialTheme.typography.titleMedium,
-                color = valueColor,
-            )
-        }
-    }
-}
-
-@Composable
-private fun PnlPeriodChips(
-    selected: PnlPeriod,
-    onSelect: (PnlPeriod) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val periods = listOf(PnlPeriod.DAY, PnlPeriod.WEEK, PnlPeriod.MONTH, PnlPeriod.YEAR)
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-    ) {
-        periods.forEach { period ->
-            FilterChip(
-                selected = period == selected,
-                onClick = { onSelect(period) },
-                label = {
-                    Text(
-                        text = when (period) {
-                            PnlPeriod.DAY -> "Jour"
-                            PnlPeriod.WEEK -> "Semaine"
-                            PnlPeriod.MONTH -> "Mois"
-                            PnlPeriod.YEAR -> "Année"
-                            PnlPeriod.ALL -> "Tout"
-                        },
-                        style = MaterialTheme.typography.labelMedium,
-                    )
-                },
-            )
-        }
-    }
-}
-
-@Composable
-private fun PnlSection(
-    pnlState: DataState<PnlSummary>,
-    onRetry: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val extendedColors = LocalExtendedColors.current
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = extendedColors.cardSurface,
-        ),
-    ) {
-        Column(
-            modifier = Modifier.padding(Spacing.lg),
-            verticalArrangement = Arrangement.spacedBy(Spacing.sm),
-        ) {
-            Text(
-                text = "P&L",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            val pnl = pnlState.value
-            when {
-                pnl != null -> {
-                    // Total return prominently displayed with animation
-                    if (pnl.totalReturn != null) {
-                        AnimatedPnlText(
-                            value = pnl.totalReturn,
-                            style = MaterialTheme.typography.titleLarge,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                    // Metrics row
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Column {
-                            Text(
-                                text = "Rendement",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Text(
-                                text = pnl.totalReturnPct
-                                    ?.let { "%.2f%%".format(it * 100) }
-                                    ?: "—",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                        }
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(
-                                text = "Win rate",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Text(
-                                text = pnl.winRate
-                                    ?.let { "%.0f%%".format(it * 100) }
-                                    ?: "—",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                        }
-                    }
-                    // Sharpe ratio
-                    if (pnl.sharpeRatio != null) {
-                        Text(
-                            text = "Sharpe : %.2f".format(pnl.sharpeRatio),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    // Trades count W/L
-                    if (pnl.tradesCount != null && pnl.tradesCount > 0) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                        ) {
-                            Column {
-                                Text(
-                                    text = "Trades",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                                Text(
-                                    text = "${pnl.tradesCount}",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                )
-                            }
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text(
-                                    text = "Gagnants",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                                Text(
-                                    text = "${pnl.winningTrades ?: 0}",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = extendedColors.pnlPositive,
-                                )
-                            }
-                            Column(horizontalAlignment = Alignment.End) {
-                                Text(
-                                    text = "Perdants",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                                Text(
-                                    text = "${pnl.losingTrades ?: 0}",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = extendedColors.pnlNegative,
-                                )
-                            }
-                        }
-                    }
-                }
-                pnlState.error != null -> {
-                    Text(
-                        text = "Indisponible",
-                        style = MaterialTheme.typography.titleLarge,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-                else -> {
-                    Text(
-                        text = "—",
-                        style = MaterialTheme.typography.titleLarge,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                }
-            }
-            DataStateFooter(state = pnlState, onRetry = onRetry)
-        }
-    }
-}

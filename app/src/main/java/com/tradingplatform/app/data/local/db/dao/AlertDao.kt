@@ -25,6 +25,10 @@ interface AlertDao {
     @Query("UPDATE alerts SET read = 1 WHERE id = :alertId")
     suspend fun markRead(alertId: Long)
 
+    /** Marque toutes les alertes non lues comme lues (bouton « Tout lire »). */
+    @Query("UPDATE alerts SET read = 1 WHERE read = 0")
+    suspend fun markAllRead()
+
     /** Purge alertes > 30 jours */
     @Query("DELETE FROM alerts WHERE received_at < :cutoffMillis")
     suspend fun deleteOlderThan(cutoffMillis: Long)

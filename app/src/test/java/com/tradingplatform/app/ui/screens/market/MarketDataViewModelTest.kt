@@ -16,6 +16,7 @@ import com.tradingplatform.app.domain.usecase.market.RemoveFromWatchlistUseCase
 import com.tradingplatform.app.util.MainDispatcherRule
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.coVerifyOrder
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.CompletableDeferred
@@ -344,6 +345,55 @@ class MarketDataViewModelTest {
         gate.complete(Unit)
 
         coVerify(exactly = 1) { getQuoteUseCase("AAPL") }
+        viewModel.viewModelScope.cancel()
+    }
+
+    // ── Swipe-to-remove + « Annuler » ───────────────────────────────────────────
+
+    @Test
+    fun `undoing a swipe removal restores the symbol in the watchlist`() = runTest {
+        val watchlist = MutableStateFlow(listOf("AAPL", "MSFT"))
+        every { getWatchlistUseCase() } returns watchlist
+        coEvery { removeFromWatchlistUseCase("AAPL") } coAnswers {
+            watchlist.value = watchlist.value - "AAPL"
+            Result.success(Unit)
+        }
+        coEvery { addToWatchlistUseCase("AAPL") } coAnswers {
+            watchlist.value = watchlist.value + "AAPL"
+            Result.success(Unit)
+        }
+        createViewModel()
+
+        // Swipe : le symbole disparaît de la watchlist affichée
+        viewModel.removeSymbol("AAPL")
+        val afterSwipe = viewModel.uiState.value as MarketDataUiState.Success
+        assertEquals(listOf("MSFT"), afterSwipe.watchlistSymbols)
+
+        // « Annuler » de la snackbar : l'écran rappelle addSymbol(symbol)
+        viewModel.addSymbol("AAPL")
+        val afterUndo = viewModel.uiState.value as MarketDataUiState.Success
+        assertEquals(setOf("AAPL", "MSFT"), afterUndo.watchlistSymbols.toSet())
+        assertEquals(2, afterUndo.watchlistSymbols.size)
+
+        coVerifyOrder {
+            removeFromWatchlistUseCase("AAPL")
+            addToWatchlistUseCase("AAPL")
+        }
+        viewModel.viewModelScope.cancel()
+    }
+
+    @Test
+    fun `a failed undo does not crash and leaves the watchlist unchanged`() = runTest {
+        val watchlist = MutableStateFlow(listOf("MSFT"))
+        every { getWatchlistUseCase() } returns watchlist
+        coEvery { addToWatchlistUseCase("AAPL") } returns Result.failure(IOException("db locked"))
+        createViewModel()
+
+        viewModel.addSymbol("AAPL")
+
+        val state = viewModel.uiState.value as MarketDataUiState.Success
+        assertEquals(listOf("MSFT"), state.watchlistSymbols)
+        coVerify(exactly = 1) { addToWatchlistUseCase("AAPL") }
         viewModel.viewModelScope.cancel()
     }
 }

@@ -14,29 +14,32 @@ import com.tradingplatform.app.ui.theme.Motion
 /**
  * Transitions contextuelles pour la navigation.
  *
- * - **Tabs** (Dashboard, Positions, Alerts, Devices, Settings) : crossfade rapide
- * - **Hiérarchie** (List → Detail) : slide horizontal in/out
+ * - **Onglets racines** (Accueil, Portefeuille = Positions/Ordres/Historique, Marchés, Alertes) :
+ *   crossfade rapide — la bascule entre segments du portefeuille en fait partie
+ * - **Hiérarchie** (List → Detail, tab → Réglages → sous-écran, Réglages → flotte Devices) :
+ *   slide horizontal in/out
  * - **Flux séquentiel** (pairing) : slide horizontal forward/backward
  * - **Auth** (Login, Totp) : fade
  */
 object NavTransitions {
 
-    // Routes considered as top-level tabs (crossfade only)
-    private val TAB_ROUTES = setOf(
-        Screen.Dashboard.route,
-        Screen.MarketData.route,
-        Screen.Positions.route,
-        Screen.Alerts.route,
-        Screen.Devices.route,
-        Screen.VpnSettings.route,
-        Screen.SecuritySettings.route,
-        Screen.Settings.route,
-    )
+    // Routes considered as top-level tabs (crossfade only). Les transitions ne dépendent ni de
+    // l'ordre ni de l'index des onglets : seulement de l'appartenance à cet ensemble
+    // (= BOTTOM_BAR_ROUTES, TabNavigation.kt).
+    private val TAB_ROUTES = BOTTOM_BAR_ROUTES
 
-    // Routes that are part of a hierarchical drill-down (slide)
+    // Routes that are part of a hierarchical drill-down (slide). Réglages n'est plus un onglet :
+    // c'est un écran poussé depuis l'icône de la TopAppBar, comme ses sous-écrans et la flotte
+    // Devices (admin) qui s'ouvre depuis les Réglages.
     private val DETAIL_ROUTES = setOf(
         Screen.PositionDetail.route,
         Screen.DeviceDetail.route,
+        Screen.Settings.route,
+        Screen.Profile.route,
+        Screen.VpnSettings.route,
+        Screen.MyDevices.route,
+        Screen.SecuritySettings.route,
+        Screen.Devices.route,
     )
 
     // Routes in the pairing sequential flow

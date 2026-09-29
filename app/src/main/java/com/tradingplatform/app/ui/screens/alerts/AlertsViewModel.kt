@@ -7,6 +7,9 @@ import com.tradingplatform.app.domain.model.AlertType
 import com.tradingplatform.app.domain.usecase.alerts.GetAlertsUseCase
 import com.tradingplatform.app.domain.usecase.alerts.GetFilteredAlertsUseCase
 import com.tradingplatform.app.domain.usecase.alerts.MarkAlertReadUseCase
+import com.tradingplatform.app.domain.usecase.alerts.MarkAllAlertsReadUseCase
+import com.tradingplatform.app.domain.usecase.auth.GetAuthContextUseCase
+import com.tradingplatform.app.domain.util.runCatchingCancellable
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -37,6 +40,31 @@ sealed interface AlertsUiState {
     data class Error(val message: String) : AlertsUiState
 }
 
+// ── Types de filtre ───────────────────────────────────────────────────────────
+
+/**
+ * Types « techniques » (supervision de la flotte / du backend) : leurs chips de filtre ne sont
+ * proposées qu'aux comptes admin. Les alertes de ces types restent listées (filtre vide) ; seul
+ * le filtre dédié est masqué pour alléger l'écran d'un compte standard.
+ * `DEVICE_UNPAIRED` reste visible : c'est un événement de sécurité concernant les appareils de
+ * l'utilisateur (« Mes appareils » est ouvert à tout compte authentifié).
+ */
+internal val ADMIN_ONLY_ALERT_TYPES: Set<AlertType> = setOf(
+    AlertType.DEVICE_OFFLINE,
+    AlertType.DEVICE_ONLINE,
+    AlertType.SCRAPING_ERROR,
+    AlertType.OTA_COMPLETE,
+    AlertType.SYSTEM_ERROR,
+)
+
+/** Types dont la chip de filtre est affichée, dans l'ordre de l'enum. */
+internal fun filterableAlertTypes(isAdmin: Boolean): List<AlertType> =
+    if (isAdmin) {
+        AlertType.entries.toList()
+    } else {
+        AlertType.entries.filter { it !in ADMIN_ONLY_ALERT_TYPES }
+    }
+
 // ── ViewModel ─────────────────────────────────────────────────────────────────
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -45,6 +73,8 @@ class AlertsViewModel @Inject constructor(
     private val getAlertsUseCase: GetAlertsUseCase,
     private val getFilteredAlertsUseCase: GetFilteredAlertsUseCase,
     private val markAlertReadUseCase: MarkAlertReadUseCase,
+    private val markAllAlertsReadUseCase: MarkAllAlertsReadUseCase,
+    private val getAuthContextUseCase: GetAuthContextUseCase,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<AlertsUiState>(AlertsUiState.Loading)
@@ -53,7 +83,19 @@ class AlertsViewModel @Inject constructor(
     private val _selectedTypes = MutableStateFlow<Set<AlertType>>(emptySet())
     val selectedTypes: StateFlow<Set<AlertType>> = _selectedTypes.asStateFlow()
 
+    /**
+     * Types proposés par la barre de filtres. Non-admin tant que le contexte d'auth n'est pas
+     * lu (ou s'il est illisible) : on n'affiche jamais les chips techniques par défaut.
+     */
+    private val _availableTypes = MutableStateFlow(filterableAlertTypes(isAdmin = false))
+    val availableTypes: StateFlow<List<AlertType>> = _availableTypes.asStateFlow()
+
     init {
+        viewModelScope.launch {
+            runCatchingCancellable { getAuthContextUseCase().isAdmin }
+                .onSuccess { isAdmin -> _availableTypes.value = filterableAlertTypes(isAdmin) }
+                .onFailure { e -> Timber.w(e, "Auth context unreadable — technical alert filters hidden") }
+        }
         viewModelScope.launch {
             // Error handling lives INSIDE the flatMapLatest lambda: a terminal `.catch` on the
             // outer chain would complete the whole pipeline on the first Room error, and later
@@ -112,6 +154,19 @@ class AlertsViewModel @Inject constructor(
             markAlertReadUseCase(alertId)
                 .onFailure { e ->
                     Timber.e(e, "markAsRead failed for alertId=$alertId")
+                }
+        }
+    }
+
+    /**
+     * Marks every unread alert as read (« Tout lire »). Errors are logged only — same
+     * non-critical policy as [markAsRead]; the Room flow re-emits the new read state.
+     */
+    fun markAllAsRead() {
+        viewModelScope.launch {
+            markAllAlertsReadUseCase()
+                .onFailure { e ->
+                    Timber.e(e, "markAllAsRead failed")
                 }
         }
     }

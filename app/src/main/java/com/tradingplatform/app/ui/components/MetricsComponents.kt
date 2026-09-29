@@ -18,6 +18,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.Spacing
+import com.tradingplatform.app.ui.theme.asNumeric
 import kotlin.math.roundToInt
 
 // ── Thresholds ──────────────────────────────────────────────────────────────────
@@ -113,7 +114,7 @@ fun MetricRow(
             )
             Text(
                 text = valueText,
-                style = MaterialTheme.typography.labelMedium,
+                style = MaterialTheme.typography.labelMedium.asNumeric(),
                 color = if (value != null) color else MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }

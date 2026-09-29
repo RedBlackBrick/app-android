@@ -4,30 +4,28 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
@@ -37,10 +35,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tradingplatform.app.domain.model.Alert
@@ -49,6 +47,7 @@ import com.tradingplatform.app.ui.components.EmptyAlertsIllustration
 import com.tradingplatform.app.ui.components.EmptyState
 import com.tradingplatform.app.ui.components.SkeletonAlertCard
 import com.tradingplatform.app.ui.components.StatusBadge
+import com.tradingplatform.app.ui.components.TradingCard
 import com.tradingplatform.app.ui.components.rememberHapticFeedback
 import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.Spacing
@@ -60,25 +59,57 @@ import java.time.temporal.ChronoUnit
 /**
  * Ecran de liste des alertes FCM persistées en local (Room).
  *
- * Improvements:
- * - Skeleton loading instead of opaque LoadingOverlay
- * - Illustrated empty state
- * - Colored left border on unread alerts by type
- * - Haptic feedback on swipe-to-mark-read
+ * - Skeleton loading, état vide illustré.
+ * - Une alerte non lue n'est signalée qu'une fois : par la pastille de sa carte (pas de bandeau
+ *   de comptage, pas de liseré ni de surélévation en plus).
+ * - « Tout lire » dans la barre du haut, visible seulement s'il y a des non-lues.
+ * - Les chips de filtre « techniques » ne sont proposées qu'aux comptes admin.
+ * - Haptique sur le swipe « marquer comme lu ».
+ *
+ * @param onOpenSettings ouvre l'écran Réglages (icône de la barre du haut) — câblé par la
+ *                       navigation.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AlertListScreen(
     modifier: Modifier = Modifier,
     viewModel: AlertsViewModel = hiltViewModel(),
+    onOpenSettings: () -> Unit = {},
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val selectedTypes by viewModel.selectedTypes.collectAsStateWithLifecycle()
+    val availableTypes by viewModel.availableTypes.collectAsStateWithLifecycle()
+    val haptic = rememberHapticFeedback()
+
+    val unreadCount = (uiState as? AlertsUiState.Success)?.unreadCount ?: 0
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text(text = "Alertes") },
+                actions = {
+                    if (unreadCount > 0) {
+                        TextButton(
+                            onClick = {
+                                haptic.confirm()
+                                viewModel.markAllAsRead()
+                            },
+                            modifier = Modifier.semantics {
+                                contentDescription = "Tout marquer comme lu, " +
+                                    "$unreadCount alerte${if (unreadCount > 1) "s" else ""} " +
+                                    "non lue${if (unreadCount > 1) "s" else ""}"
+                            },
+                        ) {
+                            Text(text = "Tout lire")
+                        }
+                    }
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(
+                            imageVector = Icons.Filled.Settings,
+                            contentDescription = "Réglages",
+                        )
+                    }
+                },
             )
         },
         modifier = modifier,
@@ -96,6 +127,7 @@ fun AlertListScreen(
                     val updated = if (type in current) current - type else current + type
                     viewModel.setTypeFilter(updated)
                 },
+                availableTypes = availableTypes,
             )
 
             // Alerts are sourced exclusively from FCM → Room (no network endpoint).
@@ -116,7 +148,6 @@ fun AlertListScreen(
                 is AlertsUiState.Success -> {
                     AlertListContent(
                         alerts = state.alerts,
-                        unreadCount = state.unreadCount,
                         onMarkAsRead = viewModel::markAsRead,
                     )
                 }
@@ -145,7 +176,6 @@ fun AlertListScreen(
 @Composable
 private fun AlertListContent(
     alerts: List<Alert>,
-    unreadCount: Int,
     onMarkAsRead: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -154,15 +184,6 @@ private fun AlertListContent(
         contentPadding = PaddingValues(Spacing.lg),
         verticalArrangement = Arrangement.spacedBy(Spacing.sm),
     ) {
-        if (unreadCount > 0) {
-            item {
-                UnreadCountBanner(
-                    unreadCount = unreadCount,
-                    modifier = Modifier.padding(bottom = Spacing.xs),
-                )
-            }
-        }
-
         if (alerts.isEmpty()) {
             item {
                 Box(
@@ -189,32 +210,6 @@ private fun AlertListContent(
                 )
             }
         }
-    }
-}
-
-// ── Unread count banner ────────────────────────────────────────────────────────
-
-@Composable
-private fun UnreadCountBanner(
-    unreadCount: Int,
-    modifier: Modifier = Modifier,
-) {
-    val extendedColors = LocalExtendedColors.current
-    Surface(
-        modifier = modifier
-            .fillMaxWidth()
-            .semantics {
-                contentDescription = "$unreadCount alerte${if (unreadCount > 1) "s" else ""} non lue${if (unreadCount > 1) "s" else ""}"
-            },
-        color = extendedColors.infoContainer,
-        shape = MaterialTheme.shapes.small,
-    ) {
-        Text(
-            text = "$unreadCount non lue${if (unreadCount > 1) "s" else ""}",
-            style = MaterialTheme.typography.labelMedium,
-            color = extendedColors.onInfoContainer,
-            modifier = Modifier.padding(horizontal = Spacing.lg, vertical = Spacing.sm),
-        )
     }
 }
 
@@ -280,17 +275,9 @@ private fun AlertCard(
     onTap: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val extendedColors = LocalExtendedColors.current
-
-    val cardColor = if (!alert.read) {
-        extendedColors.cardSurfaceElevated
-    } else {
-        extendedColors.cardSurface
-    }
-
     val accentColor = alertTypeColor(alert.type)
 
-    val unreadA11yDescription = buildString {
+    val a11yDescription = buildString {
         append("Alerte ")
         if (!alert.read) append("non lue, ")
         append(alert.title)
@@ -300,95 +287,67 @@ private fun AlertCard(
         append(formatTimestampVerbose(alert.receivedAt))
     }
 
-    Card(
+    TradingCard(
         onClick = onTap,
-        modifier = modifier
-            .fillMaxWidth()
-            .semantics { contentDescription = unreadA11yDescription },
-        colors = CardDefaults.cardColors(containerColor = cardColor),
-        elevation = CardDefaults.cardElevation(
-            defaultElevation = if (!alert.read) Spacing.xs else 0.dp,
-        ),
-        shape = MaterialTheme.shapes.medium,
+        modifier = modifier.semantics { contentDescription = a11yDescription },
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(IntrinsicSize.Min),
+                .padding(Spacing.lg),
+            verticalAlignment = Alignment.Top,
         ) {
-            // Colored left accent border for unread alerts
+            // Unique signal « non lue » : la pastille. Le libellé TalkBack est porté par la carte
+            // (a11yDescription) — la pastille est donc masquée aux services d'accessibilité.
             if (!alert.read) {
                 Box(
                     modifier = Modifier
-                        .width(Spacing.xs)
-                        .fillMaxHeight()
-                        .background(
-                            color = accentColor,
-                            shape = RoundedCornerShape(topStart = Spacing.md, bottomStart = Spacing.md),
-                        ),
+                        .padding(top = Spacing.xs)
+                        .size(Spacing.sm)
+                        .clip(CircleShape)
+                        .background(accentColor)
+                        .clearAndSetSemantics { },
                 )
+                Spacer(modifier = Modifier.width(Spacing.sm))
+            } else {
+                // Réserve la même largeur pour aligner les titres lus / non lus.
+                Spacer(modifier = Modifier.width(Spacing.sm + Spacing.sm))
             }
 
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(Spacing.lg),
-                verticalAlignment = Alignment.Top,
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(Spacing.xs),
             ) {
-                if (!alert.read) {
-                    Box(
-                        modifier = Modifier
-                            .padding(top = Spacing.xs)
-                            .size(Spacing.sm)
-                            .clip(CircleShape)
-                            .background(accentColor)
-                            .semantics {
-                                contentDescription = "Alerte non lue"
-                            },
-                    )
-                    Spacer(modifier = Modifier.width(Spacing.sm))
-                } else {
-                    Spacer(modifier = Modifier.width(Spacing.lg))
-                }
-
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = alert.title,
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.weight(1f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Spacer(modifier = Modifier.width(Spacing.sm))
-                        AlertTypeBadge(type = alert.type)
-                    }
-
                     Text(
-                        text = alert.body,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
+                        text = alert.title,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-
-                    Text(
-                        text = formatTimestamp(alert.receivedAt),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.semantics {
-                            contentDescription = "Reçue ${formatTimestampVerbose(alert.receivedAt)}"
-                        },
-                    )
+                    Spacer(modifier = Modifier.width(Spacing.sm))
+                    AlertTypeBadge(type = alert.type)
                 }
+
+                Text(
+                    text = alert.body,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+
+                Text(
+                    text = formatTimestamp(alert.receivedAt),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }

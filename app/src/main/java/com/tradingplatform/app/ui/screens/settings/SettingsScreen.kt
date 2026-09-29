@@ -13,8 +13,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
@@ -27,6 +29,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -51,7 +54,13 @@ import com.tradingplatform.app.ui.theme.Spacing
  * Centralized settings hub screen.
  *
  * Displays a list of settings categories, each navigating to its dedicated screen.
- * Extensible — new categories can be added without modifying the bottom nav.
+ * N'est plus un onglet : écran poussé depuis l'icône Réglages de la TopAppBar des écrans
+ * racines (bouton retour dans la barre). Les sous-écrans (Profil, VPN, Mes appareils, Sécurité)
+ * restent atteignables d'ici.
+ *
+ * @param isAdmin true pour un compte admin : affiche l'entrée « Flotte d'appareils (admin) »
+ *   ([onNavigateToDevices]). Le garde de la route Devices (AppNavGraph) reste la source de
+ *   vérité — cette entrée n'est qu'un point d'accès.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -61,6 +70,9 @@ fun SettingsScreen(
     onNavigateToSecurity: () -> Unit,
     onNavigateToProfile: () -> Unit,
     modifier: Modifier = Modifier,
+    isAdmin: Boolean = false,
+    onNavigateToDevices: () -> Unit = {},
+    onNavigateBack: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     var showLogoutDialog by remember { mutableStateOf(false) }
@@ -98,7 +110,17 @@ fun SettingsScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("Paramètres") })
+            TopAppBar(
+                title = { Text("Paramètres") },
+                navigationIcon = {
+                    IconButton(onClick = onNavigateBack) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Retour",
+                        )
+                    }
+                },
+            )
         },
         modifier = modifier,
     ) { innerPadding ->
@@ -144,6 +166,18 @@ fun SettingsScreen(
                         subtitle = "Gérer les appareils connectés",
                         onClick = onNavigateToMyDevices,
                     )
+                    if (isAdmin) {
+                        HorizontalDivider(
+                            color = extendedColors.divider,
+                            modifier = Modifier.padding(horizontal = Spacing.lg),
+                        )
+                        SettingsRow(
+                            icon = Icons.Default.AdminPanelSettings,
+                            title = "Flotte d'appareils (admin)",
+                            subtitle = "Tous les appareils de la plateforme",
+                            onClick = onNavigateToDevices,
+                        )
+                    }
                     HorizontalDivider(
                         color = extendedColors.divider,
                         modifier = Modifier.padding(horizontal = Spacing.lg),

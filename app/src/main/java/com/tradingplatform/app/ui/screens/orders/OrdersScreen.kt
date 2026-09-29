@@ -13,7 +13,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -41,6 +41,8 @@ import com.tradingplatform.app.domain.model.Order
 import com.tradingplatform.app.domain.model.OrderSide
 import com.tradingplatform.app.domain.model.OrderStatus
 import com.tradingplatform.app.ui.components.MoneyText
+import com.tradingplatform.app.ui.components.PortfolioSegment
+import com.tradingplatform.app.ui.components.PortfolioSegmentedTabs
 import com.tradingplatform.app.ui.theme.IconSize
 import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.Spacing
@@ -53,7 +55,8 @@ private val timeFormatter: DateTimeFormatter =
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OrdersScreen(
-    onNavigateBack: () -> Unit,
+    onSelectSegment: (PortfolioSegment) -> Unit = {},
+    onOpenSettings: () -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: OrdersViewModel = hiltViewModel(),
 ) {
@@ -62,12 +65,12 @@ fun OrdersScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Ordres") },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
+                title = { Text("Portefeuille") },
+                actions = {
+                    IconButton(onClick = onOpenSettings) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Retour",
+                            imageVector = Icons.Filled.Settings,
+                            contentDescription = "Réglages",
                         )
                     }
                 },
@@ -80,6 +83,10 @@ fun OrdersScreen(
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
+            PortfolioSegmentedTabs(
+                selected = PortfolioSegment.Orders,
+                onSelect = onSelectSegment,
+            )
             PrimaryTabRow(selectedTabIndex = uiState.selectedTab.ordinal) {
                 Tab(
                     selected = uiState.selectedTab == OrdersTab.ACTIVE,

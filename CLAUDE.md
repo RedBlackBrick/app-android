@@ -78,8 +78,8 @@ com.tradingplatform.app/
 │       ├── portfolio/     # GetPortfolioUseCase, GetPositionsUseCase, GetPositionWsUpdatesUseCase, GetPerformanceUseCase
 │       ├── market/        # GetQuoteUseCase, GetQuoteStreamUseCase, GetAvailableSymbolsUseCase, GetSymbolHistoryUseCase, GetWatchlistUseCase, AddToWatchlistUseCase, RemoveFromWatchlistUseCase, GetPublicWsConnectionStateUseCase
 │       ├── activity/      # GetActivityFeedUseCase
-│       ├── device/        # GetDevicesUseCase, GetDeviceStatusUseCase, SendDeviceCommandUseCase, GetBrokerConnectionsUseCase
-│       ├── alerts/        # GetAlertsUseCase, GetFilteredAlertsUseCase, MarkAlertReadUseCase
+│       ├── device/        # GetDevicesUseCase, GetDeviceStatusUseCase, GetBrokerConnectionsUseCase (SendDeviceCommandUseCase / UnpairDeviceUseCase : plus appelés par l'UI — gestion des devices = web)
+│       ├── alerts/        # GetAlertsUseCase, GetFilteredAlertsUseCase, MarkAlertReadUseCase, MarkAllAlertsReadUseCase
 │       ├── notification/  # RegisterFcmTokenUseCase
 │       ├── setup/         # MarkSetupCompletedUseCase (SetupViewModel ne touche plus le DataStore directement)
 │       └── pairing/       # ParseVpsQrUseCase, ScanDeviceQrUseCase, SendPinToDeviceUseCase, ConfirmPairingUseCase, ParseSetupQrUseCase, ProvisionMobileVpnUseCase
@@ -91,11 +91,11 @@ com.tradingplatform.app/
 │   ├── components/        # Composables partagés (LoadingOverlay, ErrorBanner, MetricsComponents, CacheTimestamp, BiometricLockOverlay, etc.)
 │   └── screens/
 │       ├── auth/          # LoginScreen + LoginViewModel
-│       ├── dashboard/     # DashboardScreen + DashboardViewModel + ActivityFeedCard
+│       ├── dashboard/     # DashboardScreen (héros NAV + variation + sparkline, tuiles KPI, tuile risque conditionnelle, flux 3 lignes) + DashboardViewModel + DashboardPresentation (logique pure testée) + components/
 │       ├── market/        # MarketDataScreen + MarketDataViewModel + SymbolPickerSheet
 │       ├── portfolio/     # PositionsScreen, PositionDetailScreen, TransactionHistoryScreen + ViewModels
 │       ├── performance/   # PerformanceScreen + PerformanceViewModel
-│       ├── devices/       # DeviceListScreen, EdgeDeviceDashboardScreen (+ broker gateway, scraping) + ViewModels
+│       ├── devices/       # DeviceListScreen, EdgeDeviceDashboardScreen (LECTURE SEULE : état, santé, broker gateway, scraping ; firmware/désappairage/reboot → web) + ViewModels
 │       ├── pairing/       # ScanVpsQrScreen, ScanDeviceQrScreen, PairingProgressScreen, PairingDoneScreen + PairingViewModel
 │       ├── alerts/        # AlertListScreen + AlertsViewModel + AlertFilterBar
 │       ├── totp/          # TotpScreen + TotpViewModel (2FA post-login)
@@ -174,7 +174,8 @@ réservés aux admins (`AppNavGraph` redirige vers Dashboard si `!isAdmin`). Les
 d'entrée partagent le même graphe de navigation `PairingViewModel`/4 écrans ; seul l'écran de
 retour (`pairingReturnRoute`) diffère selon la source.
 
-- L'onglet Devices (flotte) dans la navigation est affiché **uniquement si `user.is_admin == true`**
+- La flotte d'appareils (`Screen.Devices`) est une entrée des **Réglages**, affichée **uniquement si `user.is_admin == true`** ; plus d'onglet dédié dans la barre
+- **Navigation (barre du bas à 4 onglets)** : Accueil (Dashboard), Portefeuille (Positions + segments Ordres / Historique via `PortfolioSegmentedTabs`, sélectionné aussi pour `orders`, `transactions`, `position/{id}`), Marchés, Alertes (badge non-lus). Les Réglages s'ouvrent par l'icône de la barre haute des écrans racines ; Performance s'ouvre depuis les tuiles KPI du Dashboard. Helpers : `ui/navigation/TabNavigation.kt`. La barre du bas n'apparaît que sur les 6 routes racines.
 - Les widgets admin (`SystemStatusWidget`) sont **désactivés** dans le launcher si `is_admin == false` — ils n'apparaissent pas dans le picker de widgets
 - Stocker `is_admin` dans `EncryptedDataStore` après login — relire à chaque démarrage
 - Désactiver/activer via `ApplyAdminWidgetVisibilityUseCase` (jamais un appel `PackageManager` direct

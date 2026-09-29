@@ -25,6 +25,8 @@ import com.tradingplatform.app.ui.theme.Spacing
  * @param onToggleType Called when the user taps a chip — the caller should toggle the type
  *                     in the selected set.
  * @param modifier Standard Compose modifier.
+ * @param availableTypes Types for which a chip is shown (default: all). The screen passes a
+ *                       reduced list to non-admin accounts (technical types hidden).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -32,6 +34,7 @@ fun AlertFilterBar(
     selectedTypes: Set<AlertType>,
     onToggleType: (AlertType) -> Unit,
     modifier: Modifier = Modifier,
+    availableTypes: List<AlertType> = AlertType.entries.toList(),
 ) {
     Row(
         modifier = modifier
@@ -40,7 +43,7 @@ fun AlertFilterBar(
             .padding(horizontal = Spacing.lg, vertical = Spacing.sm),
         horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
     ) {
-        AlertType.entries.forEach { type ->
+        availableTypes.forEach { type ->
             val label = alertTypeFilterLabel(type)
             val isSelected = type in selectedTypes
             val a11yDescription = if (isSelected) {

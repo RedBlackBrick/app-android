@@ -5,8 +5,6 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
@@ -22,6 +20,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.navigation.NavController
 import androidx.navigation.compose.currentBackStackEntryAsState
+import com.tradingplatform.app.ui.components.PortfolioSegment
 
 /**
  * Represents a single item in the bottom navigation bar.
@@ -39,41 +38,42 @@ data class BottomNavItem(
 )
 
 /**
- * Bottom navigation bar with 5 standard tabs and 1 conditional admin tab.
+ * Bottom navigation bar — 4 onglets fixes.
  *
  * Tabs (in order):
- * 1. Dashboard
- * 2. Marchés
- * 3. Positions
- * 4. Alertes
- * 5. Devices  — visible only when [isAdmin] is true
- * 6. Paramètres
+ * 1. Accueil      — [Screen.Dashboard]
+ * 2. Portefeuille — [Screen.Positions] (racine ; reste sélectionné sur Ordres, Historique et
+ *    le détail d'une position, voir [isBottomTabSelected])
+ * 3. Marchés      — [Screen.MarketData]
+ * 4. Alertes      — [Screen.Alerts], avec badge de non-lus ([unreadAlertCount])
  *
- * Navigation is performed by replacing the back stack up to the selected root
- * destination (launchSingleTop + restoreState) to avoid duplicate entries.
+ * Plus d'onglet Devices ni Paramètres : les Réglages s'ouvrent depuis l'icône de la TopAppBar
+ * des écrans racines, et la flotte Devices (admin) depuis les Réglages.
+ *
+ * Navigation via [navigateToTab] (popUpTo Accueil + launchSingleTop + saveState/restoreState).
+ * Re-taper sur Portefeuille alors qu'il est déjà sélectionné revient à sa racine (Positions).
  */
 @Composable
 fun BottomNavBar(
     navController: NavController,
-    isAdmin: Boolean,
     modifier: Modifier = Modifier,
     unreadAlertCount: Int = 0,
 ) {
-    val baseItems = listOf(
+    val items = listOf(
         BottomNavItem(
             screen = Screen.Dashboard,
-            label = "Dashboard",
+            label = "Accueil",
             icon = Icons.Filled.Home,
+        ),
+        BottomNavItem(
+            screen = Screen.Positions,
+            label = "Portefeuille",
+            icon = Icons.AutoMirrored.Filled.List,
         ),
         BottomNavItem(
             screen = Screen.MarketData,
             label = "March\u00e9s",
             icon = Icons.Filled.ShowChart,
-        ),
-        BottomNavItem(
-            screen = Screen.Positions,
-            label = "Positions",
-            icon = Icons.AutoMirrored.Filled.List,
         ),
         BottomNavItem(
             screen = Screen.Alerts,
@@ -82,54 +82,22 @@ fun BottomNavBar(
         ),
     )
 
-    val adminItem = BottomNavItem(
-        screen = Screen.Devices,
-        label = "Devices",
-        icon = Icons.Filled.Star,
-    )
-
-    val settingsItem = BottomNavItem(
-        screen = Screen.Settings,
-        label = "Paramètres",
-        icon = Icons.Filled.Settings,
-    )
-
-    // Build the ordered list: base + optional Devices + Settings
-    val items = buildList {
-        addAll(baseItems)
-        if (isAdmin) add(adminItem)
-        add(settingsItem)
-    }
-
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
-    // The settings section covers the hub and all settings sub-screens
-    val settingsRoutes = setOf(
-        Screen.Settings.route,
-        Screen.VpnSettings.route,
-        Screen.MyDevices.route,
-        Screen.SecuritySettings.route,
-    )
-
     NavigationBar(modifier = modifier) {
         items.forEach { item ->
-            val selected = when {
-                item.screen.route in settingsRoutes ->
-                    currentRoute in settingsRoutes
-                else -> currentRoute == item.screen.route
-            }
+            val selected = isBottomTabSelected(item.screen, currentRoute)
 
             NavigationBarItem(
                 selected = selected,
                 onClick = {
-                    navController.navigate(item.screen.route) {
-                        // Pop up to the dashboard to avoid a growing back stack
-                        popUpTo(Screen.Dashboard.route) {
-                            saveState = true
-                        }
-                        launchSingleTop = true
-                        restoreState = true
+                    if (selected && item.screen == Screen.Positions) {
+                        // Re-tap sur Portefeuille : retour à la racine de l'onglet (Positions)
+                        // plutôt qu'une restauration de l'état déjà affiché.
+                        navController.navigateToPortfolioSegment(PortfolioSegment.Positions)
+                    } else {
+                        navController.navigateToTab(item.screen.route)
                     }
                 },
                 icon = {

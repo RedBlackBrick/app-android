@@ -22,22 +22,26 @@ sealed class Screen(val route: String) {
 
     data object MarketData : Screen("market-data")
 
+    /** Racine de l'onglet Portefeuille (segment « Positions »). */
     data object Positions : Screen("positions")
 
     /** Detailed portfolio performance metrics (Sharpe, Sortino, drawdown, etc.). */
     data object Performance : Screen("performance")
 
-    /** Global transaction history across all positions. */
+    /** Global transaction history across all positions (segment « Historique » du Portefeuille). */
     data object TransactionHistory : Screen("transactions")
 
-    /** Read-only orders list (active + history) for the user's portfolio. */
+    /** Read-only orders list (active + history) — segment « Ordres » du Portefeuille. */
     data object Orders : Screen("orders")
 
     data object PositionDetail : Screen("position/{positionId}") {
         fun createRoute(positionId: Int): String = "position/$positionId"
     }
 
-    /** Admin only — conditionally displayed based on is_admin flag. */
+    /**
+     * Admin only — flotte d'appareils. Plus d'onglet : entrée « Flotte d'appareils (admin) » des
+     * Réglages, visible uniquement si is_admin ; la route reste gardée (redirection Dashboard).
+     */
     data object Devices : Screen("devices")
 
     data object DeviceDetail : Screen("device/{deviceId}") {
@@ -57,7 +61,7 @@ sealed class Screen(val route: String) {
     /** User profile screen. */
     data object Profile : Screen("profile")
 
-    /** Centralized settings hub. */
+    /** Centralized settings hub — écran poussé depuis l'icône Réglages des écrans racines (plus un onglet). */
     data object Settings : Screen("settings")
 
     data object VpnSettings : Screen("settings/vpn")

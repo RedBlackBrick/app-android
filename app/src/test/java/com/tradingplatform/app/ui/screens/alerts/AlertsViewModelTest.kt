@@ -6,6 +6,9 @@ import com.tradingplatform.app.domain.model.AlertType
 import com.tradingplatform.app.domain.usecase.alerts.GetAlertsUseCase
 import com.tradingplatform.app.domain.usecase.alerts.GetFilteredAlertsUseCase
 import com.tradingplatform.app.domain.usecase.alerts.MarkAlertReadUseCase
+import com.tradingplatform.app.domain.usecase.alerts.MarkAllAlertsReadUseCase
+import com.tradingplatform.app.domain.usecase.auth.AuthContext
+import com.tradingplatform.app.domain.usecase.auth.GetAuthContextUseCase
 import com.tradingplatform.app.util.MainDispatcherRule
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -32,8 +35,24 @@ class AlertsViewModelTest {
     private val getAlertsUseCase = mockk<GetAlertsUseCase>()
     private val getFilteredAlertsUseCase = mockk<GetFilteredAlertsUseCase>()
     private val markAlertReadUseCase = mockk<MarkAlertReadUseCase>()
+    private val markAllAlertsReadUseCase = mockk<MarkAllAlertsReadUseCase>()
+    private val getAuthContextUseCase = mockk<GetAuthContextUseCase>()
 
     private lateinit var viewModel: AlertsViewModel
+
+    private fun createViewModel(): AlertsViewModel = AlertsViewModel(
+        getAlertsUseCase = getAlertsUseCase,
+        getFilteredAlertsUseCase = getFilteredAlertsUseCase,
+        markAlertReadUseCase = markAlertReadUseCase,
+        markAllAlertsReadUseCase = markAllAlertsReadUseCase,
+        getAuthContextUseCase = getAuthContextUseCase,
+    )
+
+    private fun authContext(isAdmin: Boolean) = AuthContext(
+        isLoggedIn = true,
+        isAdmin = isAdmin,
+        setupCompleted = true,
+    )
 
     // ── Fixtures ───────────────────────────────────────────────────────────────
 
@@ -70,6 +89,9 @@ class AlertsViewModelTest {
     fun setUp() {
         // Default: stub markAlertReadUseCase so it does not throw on any call
         coEvery { markAlertReadUseCase(any()) } returns Result.success(Unit)
+        coEvery { markAllAlertsReadUseCase() } returns Result.success(Unit)
+        // Default: standard (non-admin) account
+        coEvery { getAuthContextUseCase() } returns authContext(isAdmin = false)
     }
 
     // ── Loading → Success transition ───────────────────────────────────────────
@@ -77,7 +99,7 @@ class AlertsViewModelTest {
     @Test
     fun `initial state is Loading`() = runTest {
         every { getAlertsUseCase() } returns flowOf(emptyList())
-        viewModel = AlertsViewModel(getAlertsUseCase, getFilteredAlertsUseCase, markAlertReadUseCase)
+        viewModel = createViewModel()
 
         // With UnconfinedTestDispatcher the coroutine runs eagerly, so the first
         // emission collected by Turbine is Success (init has already run).
@@ -91,7 +113,7 @@ class AlertsViewModelTest {
     @Test
     fun `uiState emits Success with empty list when no alerts`() = runTest {
         every { getAlertsUseCase() } returns flowOf(emptyList())
-        viewModel = AlertsViewModel(getAlertsUseCase, getFilteredAlertsUseCase, markAlertReadUseCase)
+        viewModel = createViewModel()
 
         viewModel.uiState.test {
             val state = awaitItem() as AlertsUiState.Success
@@ -104,7 +126,7 @@ class AlertsViewModelTest {
     @Test
     fun `uiState emits Success with correct alerts`() = runTest {
         every { getAlertsUseCase() } returns flowOf(listOf(unreadAlert, readAlert))
-        viewModel = AlertsViewModel(getAlertsUseCase, getFilteredAlertsUseCase, markAlertReadUseCase)
+        viewModel = createViewModel()
 
         viewModel.uiState.test {
             val state = awaitItem() as AlertsUiState.Success
@@ -120,7 +142,7 @@ class AlertsViewModelTest {
     @Test
     fun `unreadCount is 0 when all alerts are read`() = runTest {
         every { getAlertsUseCase() } returns flowOf(listOf(readAlert))
-        viewModel = AlertsViewModel(getAlertsUseCase, getFilteredAlertsUseCase, markAlertReadUseCase)
+        viewModel = createViewModel()
 
         viewModel.uiState.test {
             val state = awaitItem() as AlertsUiState.Success
@@ -132,7 +154,7 @@ class AlertsViewModelTest {
     @Test
     fun `unreadCount reflects number of unread alerts`() = runTest {
         every { getAlertsUseCase() } returns flowOf(listOf(unreadAlert, readAlert, criticalAlert))
-        viewModel = AlertsViewModel(getAlertsUseCase, getFilteredAlertsUseCase, markAlertReadUseCase)
+        viewModel = createViewModel()
 
         viewModel.uiState.test {
             val state = awaitItem() as AlertsUiState.Success
@@ -146,7 +168,7 @@ class AlertsViewModelTest {
     @Test
     fun `unreadCount is correct when all alerts are unread`() = runTest {
         every { getAlertsUseCase() } returns flowOf(listOf(unreadAlert, criticalAlert))
-        viewModel = AlertsViewModel(getAlertsUseCase, getFilteredAlertsUseCase, markAlertReadUseCase)
+        viewModel = createViewModel()
 
         viewModel.uiState.test {
             val state = awaitItem() as AlertsUiState.Success
@@ -161,7 +183,7 @@ class AlertsViewModelTest {
     fun `uiState updates when Flow emits new list`() = runTest {
         val alertFlow = kotlinx.coroutines.flow.MutableStateFlow(listOf(unreadAlert))
         every { getAlertsUseCase() } returns alertFlow
-        viewModel = AlertsViewModel(getAlertsUseCase, getFilteredAlertsUseCase, markAlertReadUseCase)
+        viewModel = createViewModel()
 
         viewModel.uiState.test {
             // First emission
@@ -187,7 +209,7 @@ class AlertsViewModelTest {
         every { getAlertsUseCase() } returns kotlinx.coroutines.flow.flow {
             throw RuntimeException("Room error")
         }
-        viewModel = AlertsViewModel(getAlertsUseCase, getFilteredAlertsUseCase, markAlertReadUseCase)
+        viewModel = createViewModel()
 
         viewModel.uiState.test {
             // Loading while the retries (virtual-time backoff) are pending
@@ -213,7 +235,7 @@ class AlertsViewModelTest {
                 emit(listOf(unreadAlert, readAlert))
             }
         }
-        viewModel = AlertsViewModel(getAlertsUseCase, getFilteredAlertsUseCase, markAlertReadUseCase)
+        viewModel = createViewModel()
 
         viewModel.uiState.test {
             val first = awaitItem() as AlertsUiState.Success
@@ -234,7 +256,7 @@ class AlertsViewModelTest {
         }
         every { getFilteredAlertsUseCase(setOf(AlertType.PRICE_ALERT)) } returns
             flowOf(listOf(unreadAlert))
-        viewModel = AlertsViewModel(getAlertsUseCase, getFilteredAlertsUseCase, markAlertReadUseCase)
+        viewModel = createViewModel()
 
         viewModel.uiState.test {
             assertEquals(AlertsUiState.Loading, awaitItem())
@@ -257,7 +279,7 @@ class AlertsViewModelTest {
     fun `markAsRead delegates to MarkAlertReadUseCase`() = runTest {
         every { getAlertsUseCase() } returns flowOf(listOf(unreadAlert))
         coEvery { markAlertReadUseCase(1L) } returns Result.success(Unit)
-        viewModel = AlertsViewModel(getAlertsUseCase, getFilteredAlertsUseCase, markAlertReadUseCase)
+        viewModel = createViewModel()
 
         viewModel.markAsRead(1L)
 
@@ -271,7 +293,7 @@ class AlertsViewModelTest {
     fun `markAsRead does not crash when UseCase returns failure`() = runTest {
         every { getAlertsUseCase() } returns flowOf(listOf(unreadAlert))
         coEvery { markAlertReadUseCase(any()) } returns Result.failure(RuntimeException("DB error"))
-        viewModel = AlertsViewModel(getAlertsUseCase, getFilteredAlertsUseCase, markAlertReadUseCase)
+        viewModel = createViewModel()
 
         // Should not throw — errors are silently swallowed in markAsRead
         viewModel.markAsRead(1L)
@@ -283,7 +305,7 @@ class AlertsViewModelTest {
     @Test
     fun `markAsRead can be called multiple times for different alerts`() = runTest {
         every { getAlertsUseCase() } returns flowOf(listOf(unreadAlert, criticalAlert))
-        viewModel = AlertsViewModel(getAlertsUseCase, getFilteredAlertsUseCase, markAlertReadUseCase)
+        viewModel = createViewModel()
 
         viewModel.markAsRead(1L)
         viewModel.markAsRead(3L)
@@ -291,5 +313,101 @@ class AlertsViewModelTest {
 
         coVerify(exactly = 1) { markAlertReadUseCase(1L) }
         coVerify(exactly = 1) { markAlertReadUseCase(3L) }
+    }
+
+    // ── markAllAsRead ──────────────────────────────────────────────────────────
+
+    @Test
+    fun `markAllAsRead delegates to MarkAllAlertsReadUseCase`() = runTest {
+        every { getAlertsUseCase() } returns flowOf(listOf(unreadAlert, criticalAlert))
+        viewModel = createViewModel()
+
+        viewModel.markAllAsRead()
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { markAllAlertsReadUseCase() }
+        // The single-alert path must not be used for the bulk action
+        coVerify(exactly = 0) { markAlertReadUseCase(any()) }
+    }
+
+    @Test
+    fun `markAllAsRead does not crash when UseCase returns failure`() = runTest {
+        every { getAlertsUseCase() } returns flowOf(listOf(unreadAlert))
+        coEvery { markAllAlertsReadUseCase() } returns Result.failure(RuntimeException("DB error"))
+        viewModel = createViewModel()
+
+        viewModel.markAllAsRead()
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { markAllAlertsReadUseCase() }
+        // The list stays available — a failed bulk mark-as-read is non-critical
+        assertTrue(viewModel.uiState.value is AlertsUiState.Success)
+    }
+
+    // ── availableTypes (filtre selon isAdmin) ──────────────────────────────────
+
+    @Test
+    fun `standard account only gets the non-technical filter types`() = runTest {
+        every { getAlertsUseCase() } returns flowOf(emptyList())
+        coEvery { getAuthContextUseCase() } returns authContext(isAdmin = false)
+        viewModel = createViewModel()
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(
+                AlertType.PRICE_ALERT,
+                AlertType.TRADE_EXECUTED,
+                AlertType.DEVICE_UNPAIRED,
+                AlertType.PORTFOLIO_UPDATE,
+                AlertType.UNKNOWN,
+            ),
+            viewModel.availableTypes.value,
+        )
+    }
+
+    @Test
+    fun `admin account gets every filter type`() = runTest {
+        every { getAlertsUseCase() } returns flowOf(emptyList())
+        coEvery { getAuthContextUseCase() } returns authContext(isAdmin = true)
+        viewModel = createViewModel()
+        advanceUntilIdle()
+
+        assertEquals(AlertType.entries.toList(), viewModel.availableTypes.value)
+        assertTrue(viewModel.availableTypes.value.containsAll(
+            listOf(
+                AlertType.SCRAPING_ERROR,
+                AlertType.OTA_COMPLETE,
+                AlertType.SYSTEM_ERROR,
+                AlertType.DEVICE_OFFLINE,
+                AlertType.DEVICE_ONLINE,
+            ),
+        ))
+    }
+
+    @Test
+    fun `unreadable auth context falls back to the non-admin filter types`() = runTest {
+        every { getAlertsUseCase() } returns flowOf(emptyList())
+        coEvery { getAuthContextUseCase() } throws RuntimeException("keystore corrupted")
+        viewModel = createViewModel()
+        advanceUntilIdle()
+
+        assertEquals(filterableAlertTypes(isAdmin = false), viewModel.availableTypes.value)
+        assertTrue(AlertType.SYSTEM_ERROR !in viewModel.availableTypes.value)
+    }
+
+    @Test
+    fun `filterableAlertTypes hides exactly the technical types for non-admin`() {
+        val hidden = AlertType.entries.toSet() - filterableAlertTypes(isAdmin = false).toSet()
+
+        assertEquals(
+            setOf(
+                AlertType.DEVICE_OFFLINE,
+                AlertType.DEVICE_ONLINE,
+                AlertType.SCRAPING_ERROR,
+                AlertType.OTA_COMPLETE,
+                AlertType.SYSTEM_ERROR,
+            ),
+            hidden,
+        )
     }
 }
