@@ -67,6 +67,12 @@ class PortfolioRepositoryImpl @Inject constructor(
      * `GET /positions?status=…` puis upsert + purge Room.
      * Purge APRÈS sync réussie — jamais avant (CLAUDE.md §2 Politique de rétention) ;
      * transaction atomique : upsert + purge en un seul commit SQLite.
+     *
+     * Le backend ignore `status` : il renvoie toujours les positions actives ET inactives
+     * (`is_active`). Room reçoit donc tout ce qui est renvoyé (le détail d'une position fermée
+     * doit rester résoluble), mais la liste rendue à l'appelant est filtrée ici — sinon l'onglet
+     * « Ouvertes » afficherait aussi les positions fermées. Si le backend filtre un jour lui-même,
+     * ce filtre devient un no-op.
      */
     private suspend fun fetchAndCachePositions(
         portfolioId: String,
@@ -82,7 +88,7 @@ class PortfolioRepositoryImpl @Inject constructor(
             positions.map { it.toEntity(syncedAt = now) },
             cutoffMillis = now - CacheTtl.POSITIONS_MS,
         )
-        return positions
+        return if (status == PositionStatus.ALL) positions else positions.filter { it.status == status }
     }
 
     /**
@@ -133,10 +139,28 @@ class PortfolioRepositoryImpl @Inject constructor(
         offset: Int,
         symbol: String?,
     ): Result<List<Transaction>> = runCatchingCancellable {
-        val response = portfolioApi.getTransactions(portfolioId, limit, offset, symbol)
+        // Le backend ignore `symbol` (il renvoie les transactions de tout le portefeuille, récentes
+        // d'abord). Pour un symbole : on balaie la plus grande page permise, on filtre ici puis on
+        // applique offset/limit sur le résultat filtré — jamais côté serveur, sinon l'offset
+        // s'appliquerait deux fois. Si le backend filtre un jour lui-même, le filtre est un no-op.
+        val response = if (symbol == null) {
+            portfolioApi.getTransactions(portfolioId, limit, offset, null)
+        } else {
+            portfolioApi.getTransactions(portfolioId, SYMBOL_SCAN_LIMIT, 0, symbol)
+        }
         if (!response.isSuccessful) {
             error("Get transactions failed: HTTP ${response.code()}")
         }
-        response.body()?.transactions?.map { it.toDomain() } ?: emptyList()
+        val all = response.body()?.transactions?.map { it.toDomain() } ?: emptyList()
+        if (symbol == null) {
+            all
+        } else {
+            all.filter { it.symbol.equals(symbol, ignoreCase = true) }.drop(offset).take(limit)
+        }
+    }
+
+    private companion object {
+        /** Plafond `limit` de `GET /transactions` côté backend (≤ 1000). */
+        const val SYMBOL_SCAN_LIMIT = 1000
     }
 }

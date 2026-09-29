@@ -45,6 +45,10 @@ android {
 
         buildConfigField("String", "VPS_BASE_URL",
             "\"${localProperties.getProperty("VPS_BASE_URL", "https://10.42.0.1:443")}\"")
+        // Optionnel : valeur exacte de l'en-tête Origin du handshake WebSocket, à aligner sur
+        // WS_ALLOWED_ORIGINS du backend. Vide → dérivée de VPS_BASE_URL (voir data/websocket/WsOrigin.kt).
+        buildConfigField("String", "WS_ORIGIN",
+            "\"${localProperties.getProperty("WS_ORIGIN", "")}\"")
         buildConfigField("String", "CERT_PIN_SHA256",
             "\"${localProperties.getProperty("CERT_PIN_SHA256", "sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")}\"")
         buildConfigField("String", "CERT_PIN_SHA256_BACKUP",

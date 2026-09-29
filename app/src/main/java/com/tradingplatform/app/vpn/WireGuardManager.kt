@@ -156,7 +156,10 @@ class WireGuardManager internal constructor(
                     WireGuardConfig(
                         privateKey = privateKey,
                         address = tunnelIp,
-                        dns = dns ?: "1.1.1.1",
+                        // `/register` provisionne `dns=""` (« garder le DNS LAN du téléphone ») et
+                        // ce vide est persisté tel quel : `?:` ne le voyait pas (non-null) et
+                        // parseDnsServers("") faisait échouer tout reconnect().
+                        dns = dns?.takeIf { it.isNotBlank() } ?: "1.1.1.1",
                         peer = WireGuardPeer(
                             publicKey = serverPubKey,
                             endpoint = endpoint,

@@ -88,7 +88,7 @@ class ProvisionMobileVpnUseCase @Inject constructor(
         wireGuardManager.connect(
             WireGuardConfig(
                 privateKey = privateKey,
-                address = "${result.tunnelIp}/32",
+                address = withHostMask(result.tunnelIp),
                 dns = result.dns.ifEmpty { DEFAULT_DNS_FALLBACK },
                 peer = WireGuardPeer(
                     publicKey = result.serverPubkey,
@@ -106,7 +106,15 @@ class ProvisionMobileVpnUseCase @Inject constructor(
         return raw.joinToString("") { "%02x".format(it) }
     }
 
-    private companion object {
+    internal companion object {
+        /**
+         * `/register` renvoie `tunnel_ip` déjà masqué (`10.42.0.50/32`). Ajouter un second `/32`
+         * donnait `…/32/32`, que wireguard-android rejette : l'onboarding échouait au dernier pas.
+         * Une IP nue (ancien format / tests) reçoit toujours `/32`.
+         */
+        fun withHostMask(tunnelIp: String): String =
+            if ('/' in tunnelIp) tunnelIp else "$tunnelIp/32"
+
         // Empty DNS (the server's preferred default) is treated as
         // "phone keeps its LAN DNS"; wireguard-android's parseDnsServers
         // requires at least one entry, hence the fallback. 1.1.1.1 is the

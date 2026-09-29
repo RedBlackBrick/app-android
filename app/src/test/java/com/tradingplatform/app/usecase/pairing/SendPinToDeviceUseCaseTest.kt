@@ -21,7 +21,7 @@ class SendPinToDeviceUseCaseTest {
 
     @Test
     fun `delegates to repository sendPin`() = runTest {
-        coEvery { repository.sendPin(any(), any(), any(), any(), any(), any(), any()) } returns Result.success(Unit)
+        coEvery { repository.sendPin(any(), any(), any(), any(), any(), any(), any()) } returns Result.success<String?>(null)
 
         val result = useCase(
             deviceIp = "192.168.1.42",
@@ -66,7 +66,7 @@ class SendPinToDeviceUseCaseTest {
 
     @Test
     fun `does not call repository more than once`() = runTest {
-        coEvery { repository.sendPin(any(), any(), any(), any(), any(), any(), any()) } returns Result.success(Unit)
+        coEvery { repository.sendPin(any(), any(), any(), any(), any(), any(), any()) } returns Result.success<String?>(null)
 
         useCase(
             deviceIp = "192.168.1.42",

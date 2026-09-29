@@ -193,31 +193,28 @@ class AuthRepositoryImpl @Inject constructor(
      * ou null si le corps est absent / non reconnu.
      *
      * Règles de priorité :
-     * 1. AUTH_1004 → TotpRequiredException (corps TotpRequiredErrorDto, contient session_token)
+     * 1. AUTH_1004 → TotpRequiredException (corps TotpRequiredErrorDto, contient session_token ;
+     *    le backend actuel signale la 2FA par un HTTP 200 `requires_2fa`, cette branche est de compat)
      * 2. AUTH_1008 → AccountLockedException (retryAfterSeconds depuis l'en-tête Retry-After)
      * 3. AUTH_1001 → InvalidCredentialsException
      *
-     * Le corps est parsé une seule fois via TotpRequiredErrorDto (super-set de ApiErrorDto).
+     * Le handler global du backend renvoie `{success, error_code, message, detail}` à la racine
+     * (`detail` est tantôt un objet, tantôt une chaîne — ApiErrorDto l'ignore). Le corps est donc
+     * parsé d'abord via [ApiErrorDto] ; [TotpRequiredErrorDto] (qui exige `session_token`) n'est
+     * lu que pour AUTH_1004, sinon un 401 sans `session_token` faisait échouer tout le parsing
+     * (« Login failed: HTTP 401 » au lieu de « Email ou mot de passe incorrect »).
      * Si le parsing échoue, retourne null et laisse l'appelant émettre une erreur générique.
      */
     private fun parseLoginError(errorBody: String?, retryAfter: Int?): Exception? {
         if (errorBody.isNullOrBlank()) return null
         return try {
-            // TotpRequiredErrorDto contient error_code + session_token — tenter ce parsing en premier.
-            val totpError = moshi.adapter(TotpRequiredErrorDto::class.java).fromJson(errorBody)
-            when (totpError?.errorCode) {
-                "AUTH_1004" -> TotpRequiredException(sessionToken = totpError.sessionToken)
+            val apiError = moshi.adapter(ApiErrorDto::class.java).fromJson(errorBody)
+            when (apiError?.errorCode) {
+                "AUTH_1004" -> moshi.adapter(TotpRequiredErrorDto::class.java).fromJson(errorBody)
+                    ?.let { TotpRequiredException(sessionToken = it.sessionToken) }
                 "AUTH_1008", "LOGIN_RATE_LIMITED" -> AccountLockedException(retryAfterSeconds = retryAfter)
                 "AUTH_1001", "INVALID_CREDENTIALS" -> InvalidCredentialsException()
-                else -> {
-                    // Session_token absent ou errorCode non reconnu — fallback sur ApiErrorDto générique
-                    val apiError = moshi.adapter(ApiErrorDto::class.java).fromJson(errorBody)
-                    when (apiError?.errorCode) {
-                        "AUTH_1008", "LOGIN_RATE_LIMITED" -> AccountLockedException(retryAfterSeconds = retryAfter)
-                        "AUTH_1001", "INVALID_CREDENTIALS" -> InvalidCredentialsException()
-                        else -> null
-                    }
-                }
+                else -> null
             }
         } catch (_: Exception) {
             // Parsing Moshi échoué — le corps n'est pas du JSON valide

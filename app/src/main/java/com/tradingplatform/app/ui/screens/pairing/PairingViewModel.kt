@@ -229,6 +229,12 @@ class PairingViewModel @Inject constructor(
             try {
                 _step.value = PairingStep.SendingPin
 
+                // L'id lu dans le QR Radxa est provisoire (`radxa-pending-…`) : le VPS alloue
+                // l'id définitif (`radxa-<12hex>`) que la Radxa adopte et renvoie dans le 200 de
+                // /pin. Les clés locales (local_token, pubkey, IP) sont stockées sous celui-là ;
+                // repli sur l'id du QR si le device ne le fournit pas.
+                var deviceId = current.device.deviceId
+
                 // Step 1 — send encrypted PIN + nonce to Radxa device over LAN
                 sendPinToDeviceUseCase(
                     deviceIp = current.device.localIp,
@@ -238,7 +244,9 @@ class PairingViewModel @Inject constructor(
                     localToken = current.session.localToken,   // never logged ([REDACTED])
                     nonce = current.session.nonce,              // never logged ([REDACTED])
                     radxaWgPubkey = current.device.wgPubkey,
-                ).onFailure { e ->
+                ).onSuccess { definitiveId ->
+                    definitiveId?.takeIf { it.isNotBlank() }?.let { deviceId = it }
+                }.onFailure { e ->
                     Timber.d("PairingViewModel: SendPin failed — ${e.message}")
                     _step.value = PairingStep.Error(
                         message = e.localizedMessage ?: "Erreur lors de l'envoi du PIN",
@@ -258,7 +266,7 @@ class PairingViewModel @Inject constructor(
                     Timber.d("PairingViewModel: ConfirmPairing result — status=$status")
                     if (status == PairingStatus.PAIRED) {
                         storeDevicePairingResultUseCase(
-                            deviceId = current.device.deviceId,
+                            deviceId = deviceId,
                             localToken = current.session.localToken,
                             wgPubkey = current.device.wgPubkey,
                             localIp = current.device.localIp,

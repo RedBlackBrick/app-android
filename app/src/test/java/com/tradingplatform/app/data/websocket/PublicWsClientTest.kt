@@ -111,6 +111,16 @@ class PublicWsClientTest {
     }
 
     @Test
+    fun `handshake carries the Origin header the backend whitelist compares against`() {
+        client.subscribe("AAPL")
+        awaitState(WsConnectionState.Connected)
+
+        val handshake = server.takeRequest(5, TimeUnit.SECONDS)
+            ?: throw AssertionError("The server never saw the upgrade request")
+        assertEquals("http://${server.hostName}:${server.port}", handshake.getHeader("Origin"))
+    }
+
+    @Test
     fun `second subscriber and first unsubscribe send no frame, last unsubscribe sends frame and closes`() {
         assertEquals(WsConnectionState.Disconnected, client.connectionState.value)
 

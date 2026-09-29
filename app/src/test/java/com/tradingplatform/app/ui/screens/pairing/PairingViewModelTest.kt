@@ -12,6 +12,7 @@ import com.tradingplatform.app.domain.usecase.pairing.StoreDevicePairingResultUs
 import com.tradingplatform.app.domain.usecase.pairing.UnrecognizedQrException
 import com.tradingplatform.app.util.MainDispatcherRule
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
@@ -327,7 +328,7 @@ class PairingViewModelTest {
     fun `startPairing transitions SendingPin then WaitingConfirmation then Success`() = runTest {
         coEvery { parseVpsQrUseCase(any()) } returns Result.success(fakeSession)
         coEvery { scanDeviceQrUseCase(any()) } returns Result.success(fakeDevice)
-        coEvery { sendPinToDeviceUseCase(any(), any(), any(), any(), any(), any(), any()) } returns Result.success(Unit)
+        coEvery { sendPinToDeviceUseCase(any(), any(), any(), any(), any(), any(), any()) } returns Result.success<String?>(null)
         coEvery { confirmPairingUseCase(any(), any(), any()) } returns Result.success(PairingStatus.PAIRED)
 
         viewModel.step.test {
@@ -346,6 +347,63 @@ class PairingViewModelTest {
             val finalState = expectMostRecentItem()
             assertIs<PairingStep.Success>(finalState)
             cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    private fun runPairingReturningDeviceId(deviceIdFromRadxa: String?) = runTest {
+        coEvery { parseVpsQrUseCase(any()) } returns Result.success(fakeSession)
+        coEvery { scanDeviceQrUseCase(any()) } returns Result.success(fakeDevice)
+        coEvery {
+            sendPinToDeviceUseCase(any(), any(), any(), any(), any(), any(), any())
+        } returns Result.success(deviceIdFromRadxa)
+        coEvery { confirmPairingUseCase(any(), any(), any()) } returns Result.success(PairingStatus.PAIRED)
+
+        viewModel.onVpsQrScanned("{valid-vps-qr}")
+        viewModel.onDeviceQrScanned("pairing://radxa?...")
+        viewModel.startPairing()
+
+        assertIs<PairingStep.Success>(viewModel.step.value)
+    }
+
+    @Test
+    fun `local keys are stored under the definitive device id returned by the Radxa`() {
+        runPairingReturningDeviceId("radxa-3bdf9efaeefd")
+
+        coVerify(exactly = 1) {
+            storeDevicePairingResultUseCase(
+                deviceId = "radxa-3bdf9efaeefd",
+                localToken = any(),
+                wgPubkey = any(),
+                localIp = any(),
+            )
+        }
+    }
+
+    @Test
+    fun `local keys fall back to the QR device id when the Radxa returns none`() {
+        runPairingReturningDeviceId(null)
+
+        coVerify(exactly = 1) {
+            storeDevicePairingResultUseCase(
+                deviceId = fakeDevice.deviceId,
+                localToken = any(),
+                wgPubkey = any(),
+                localIp = any(),
+            )
+        }
+    }
+
+    @Test
+    fun `local keys fall back to the QR device id when the Radxa returns a blank one`() {
+        runPairingReturningDeviceId("  ")
+
+        coVerify(exactly = 1) {
+            storeDevicePairingResultUseCase(
+                deviceId = fakeDevice.deviceId,
+                localToken = any(),
+                wgPubkey = any(),
+                localIp = any(),
+            )
         }
     }
 
@@ -378,7 +436,7 @@ class PairingViewModelTest {
     fun `startPairing transitions to Error when confirm returns FAILED`() = runTest {
         coEvery { parseVpsQrUseCase(any()) } returns Result.success(fakeSession)
         coEvery { scanDeviceQrUseCase(any()) } returns Result.success(fakeDevice)
-        coEvery { sendPinToDeviceUseCase(any(), any(), any(), any(), any(), any(), any()) } returns Result.success(Unit)
+        coEvery { sendPinToDeviceUseCase(any(), any(), any(), any(), any(), any(), any()) } returns Result.success<String?>(null)
         coEvery { confirmPairingUseCase(any(), any(), any()) } returns Result.success(PairingStatus.FAILED)
 
         viewModel.step.test {
@@ -402,7 +460,7 @@ class PairingViewModelTest {
     fun `startPairing transitions to Error on timeout`() = runTest {
         coEvery { parseVpsQrUseCase(any()) } returns Result.success(fakeSession)
         coEvery { scanDeviceQrUseCase(any()) } returns Result.success(fakeDevice)
-        coEvery { sendPinToDeviceUseCase(any(), any(), any(), any(), any(), any(), any()) } returns Result.success(Unit)
+        coEvery { sendPinToDeviceUseCase(any(), any(), any(), any(), any(), any(), any()) } returns Result.success<String?>(null)
         coEvery { confirmPairingUseCase(any(), any(), any()) } returns
             Result.failure(Exception("Pairing timeout"))
 

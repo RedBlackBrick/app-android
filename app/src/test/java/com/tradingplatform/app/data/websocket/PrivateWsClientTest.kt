@@ -110,6 +110,20 @@ class PrivateWsClientTest {
         assertTrue("server never saw the auth message", serverSide.authReceived.await(5, TimeUnit.SECONDS))
     }
 
+    // ── En-tête Origin (contrôle d'origine du backend, manager.py:_check_origin) ──
+
+    @Test
+    fun `handshake carries the Origin header the backend whitelist compares against`() {
+        tokenHolder.setToken("access")
+        server.enqueue(upgrade())
+        newClient()
+        connectAndAwaitOpen()
+
+        val handshake = server.takeRequest(5, TimeUnit.SECONDS)
+            ?: throw AssertionError("The server never saw the upgrade request")
+        assertEquals("http://${server.hostName}:${server.port}", handshake.getHeader("Origin"))
+    }
+
     // ── Fin de session ─────────────────────────────────────────────────────────
 
     @Test

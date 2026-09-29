@@ -11,6 +11,7 @@ import com.tradingplatform.app.security.sealLanBody
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import org.json.JSONException
 import org.json.JSONObject
 import timber.log.Timber
 import javax.inject.Inject
@@ -25,6 +26,27 @@ class PairingRepositoryImpl @Inject constructor(
 
     companion object {
         private const val TAG = "PairingRepositoryImpl"
+
+        /** Cadence nominale du polling `/status` (CLAUDE.md §8 — ne pas modifier). */
+        internal const val POLL_INTERVAL_MS = 2_000L
+
+        /**
+         * Attente après un HTTP 429 : les deux firmwares limitent à 10 requêtes/60 s par IP
+         * (fenêtre glissante, `/pin` compris), sans `Retry-After`. Continuer à 2 s (30 req/min) ne
+         * fait que rester bloqué ; une place se libère au plus tard en 60 s.
+         */
+        internal const val RATE_LIMITED_BACKOFF_MS = 10_000L
+
+        /**
+         * Nombre de `status: "unknown"` consécutifs (= le `session_id` demandé n'est pas celui de
+         * l'état du device) au-delà duquel le pairing est déclaré échoué. Un `unknown` isolé est
+         * toléré : sur 93fdc58 (serveur multi-thread) il peut précéder la publication de
+         * `pairing` par `/pin` ou venir d'un code saisi sur le HAT qui écrase l'état.
+         */
+        internal const val UNKNOWN_SESSION_LIMIT = 3
+
+        private const val STATUS_UNKNOWN_SESSION = "unknown"
+        private const val HTTP_TOO_MANY_REQUESTS = 429
     }
 
     /**
@@ -47,7 +69,7 @@ class PairingRepositoryImpl @Inject constructor(
         localToken: String,
         nonce: String,
         radxaWgPubkey: String,
-    ): Result<Unit> = runCatchingCancellable {
+    ): Result<String?> = runCatchingCancellable {
         Timber.tag(TAG).d("PairingRepository: sending encrypted PIN to $deviceIp:$devicePort sessionId=$sessionId pin=[REDACTED] token=[REDACTED] nonce=[REDACTED]")
 
         val payloadJson = JSONObject().apply {
@@ -69,6 +91,20 @@ class PairingRepositoryImpl @Inject constructor(
             val errorBody = response.errorBody()?.string()?.takeIf { it.isNotBlank() } ?: ""
             throw PairingDeviceException(httpCode = response.code(), body = errorBody)
         }
+        parseDeviceId(response.body()?.string())
+    }
+
+    /**
+     * `device_id` du 200 de `/pin` (`{"status":"paired","device_id":"radxa-<12hex>"}`), best-effort :
+     * un corps vide, non-JSON ou sans `device_id` donne null — jamais un échec, le pairing a réussi.
+     */
+    private fun parseDeviceId(body: String?): String? {
+        if (body.isNullOrBlank()) return null
+        return try {
+            JSONObject(body).optString("device_id").takeIf { it.isNotBlank() }
+        } catch (_: JSONException) {
+            null
+        }
     }
 
     /**
@@ -76,8 +112,11 @@ class PairingRepositoryImpl @Inject constructor(
      *
      * Règles critiques (CLAUDE.md §8) :
      * - Valide que l'IP est RFC-1918 avant chaque appel
-     * - Délai de 2s imposé — ne pas modifier (économie batterie + charge Radxa)
+     * - Délai de 2s imposé — ne pas modifier (économie batterie + charge Radxa) ; seule exception :
+     *   un HTTP 429 (limite 10 req/60 s par IP de la Radxa) attend [RATE_LIMITED_BACKOFF_MS]
      * - La boucle s'arrête dès PAIRED ou FAILED (usage unique du session_pin)
+     * - `status: "unknown"` (session_id différent) : toléré [UNKNOWN_SESSION_LIMIT] - 1 fois de suite,
+     *   puis FAILED — sans quoi l'app attendait les 120 s complètes une session qui n'existe plus
      */
     override fun pollStatus(
         deviceIp: String,
@@ -92,14 +131,23 @@ class PairingRepositoryImpl @Inject constructor(
 
         val url = "https://$deviceIp:$devicePort/status?session_id=$sessionId"
 
+        var unknownStreak = 0
         while (true) {
+            var rateLimited = false
             val status = runCatchingCancellable {
                 val response = pairingApi.getStatus(url)
                 if (response.isSuccessful) {
                     val statusStr = response.body()?.get("status")?.toString() ?: "failed"
-                    PairingStatus.fromString(statusStr)
+                    if (statusStr.equals(STATUS_UNKNOWN_SESSION, ignoreCase = true)) unknownStreak++ else unknownStreak = 0
+                    if (unknownStreak >= UNKNOWN_SESSION_LIMIT) {
+                        Timber.tag(TAG).w("PairingRepository: session unknown to the device $unknownStreak times in a row — failing")
+                        PairingStatus.FAILED
+                    } else {
+                        PairingStatus.fromString(statusStr)
+                    }
                 } else {
                     Timber.tag(TAG).w("PairingRepository: poll status HTTP ${response.code()}")
+                    rateLimited = response.code() == HTTP_TOO_MANY_REQUESTS
                     PairingStatus.PENDING
                 }
             }.getOrElse { e ->
@@ -112,8 +160,7 @@ class PairingRepositoryImpl @Inject constructor(
             // Terminer le flow dès qu'on a un état terminal
             if (status == PairingStatus.PAIRED || status == PairingStatus.FAILED) break
 
-            // Délai obligatoire de 2s — ne pas modifier
-            delay(2_000L)
+            delay(if (rateLimited) RATE_LIMITED_BACKOFF_MS else POLL_INTERVAL_MS)
         }
     }
 }

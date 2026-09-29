@@ -330,6 +330,7 @@ class PublicWsClient @Inject constructor(
         try {
             val request = Request.Builder()
                 .url(wsUrl)
+                .apply { wsOrigin(baseUrl)?.let { header("Origin", it) } }
                 .build()
 
             Timber.tag(TAG).d("Opening public WS connection to $wsUrl")

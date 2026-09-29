@@ -11,6 +11,7 @@ class SendPinToDeviceUseCase @Inject constructor(
      * Envoie le PIN de session à la Radxa via LAN (payload chiffré libsodium).
      * Le session_pin et le local_token ne sont JAMAIS loggés — [REDACTED].
      * Délègue entièrement au PairingRepository (pas d'appel réseau direct dans le UseCase).
+     * Retourne le `device_id` définitif de la Radxa (null s'il n'est pas fourni).
      */
     suspend operator fun invoke(
         deviceIp: String,
@@ -20,7 +21,7 @@ class SendPinToDeviceUseCase @Inject constructor(
         localToken: String,
         nonce: String,
         radxaWgPubkey: String,
-    ): Result<Unit> {
+    ): Result<String?> {
         Timber.d("SendPinToDevice: ip=$deviceIp port=$devicePort sessionId=$sessionId pin=[REDACTED] token=[REDACTED] nonce=[REDACTED]")
         return repository.sendPin(deviceIp, devicePort, sessionId, sessionPin, localToken, nonce, radxaWgPubkey)
     }

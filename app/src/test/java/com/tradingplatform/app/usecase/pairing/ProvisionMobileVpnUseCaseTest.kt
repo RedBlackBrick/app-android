@@ -97,4 +97,50 @@ class ProvisionMobileVpnUseCaseTest {
         assertNull(store[DataStoreKeys.WG_PRIVATE_KEY.name])
         verify(exactly = 0) { wireGuardManager.connect(any()) }
     }
+
+    // ── Adresse du tunnel : `/register` renvoie déjà `tunnel_ip` masqué (`<ip>/32`) ──
+
+    private fun connectConfigFor(result: MobileProvisioningResult): WireGuardConfig {
+        givenRegisterReturns(Result.success(result))
+        val config = slot<WireGuardConfig>()
+        every { wireGuardManager.connect(capture(config)) } returns Unit
+        kotlinx.coroutines.runBlocking { useCase(setupData) }
+        return config.captured
+    }
+
+    @Test
+    fun `a tunnel_ip that already carries its mask is not masked twice`() {
+        // Réponse réelle du backend (mobile_provisioning/service.py:249) : "10.42.0.50/32".
+        // Avant la correction : "10.42.0.50/32/32", rejeté par wireguard-android.
+        val config = connectConfigFor(provisioned.copy(tunnelIp = "10.42.0.50/32"))
+
+        assertEquals("10.42.0.50/32", config.address)
+    }
+
+    @Test
+    fun `a bare tunnel_ip still receives a host mask`() {
+        assertEquals("10.42.0.12/32", connectConfigFor(provisioned).address)
+    }
+
+    @Test
+    fun `the persisted tunnel address is what the server sent, so reconnect() reuses it as is`() = runTest {
+        givenRegisterReturns(Result.success(provisioned.copy(tunnelIp = "10.42.0.50/32")))
+        every { wireGuardManager.connect(any()) } returns Unit
+
+        useCase(setupData)
+
+        assertEquals("10.42.0.50/32", store[DataStoreKeys.WG_TUNNEL_IP.name])
+    }
+
+    @Test
+    fun `an empty provisioned dns falls back to a resolver for the initial connect`() {
+        assertEquals("1.1.1.1", connectConfigFor(provisioned.copy(dns = "")).dns)
+    }
+
+    @Test
+    fun `withHostMask leaves masked and adds a host mask to bare addresses`() {
+        assertEquals("10.42.0.50/32", ProvisionMobileVpnUseCase.withHostMask("10.42.0.50/32"))
+        assertEquals("10.42.0.50/24", ProvisionMobileVpnUseCase.withHostMask("10.42.0.50/24"))
+        assertEquals("10.42.0.50/32", ProvisionMobileVpnUseCase.withHostMask("10.42.0.50"))
+    }
 }

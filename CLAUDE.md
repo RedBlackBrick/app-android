@@ -455,6 +455,8 @@ val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
 Le token WS est distinct de l'access token — obtenir via `POST /v1/auth/ws-token` avant chaque connexion. `WebSocketModule` dans `di/` fournit les bindings Hilt.
 
+**En-tête `Origin` obligatoire au handshake** (`PrivateWsClient` et `PublicWsClient`, valeur de `data/websocket/WsOrigin.kt`). Le backend (`websocket/manager.py:_check_origin`) refuse en 403 tout handshake sans `Origin` dès que `WS_ALLOWED_ORIGINS` est renseigné (imposé en prod) et compare par égalité exacte (minuscules, sans `/` final, port par défaut omis). OkHttp n'en envoie jamais : sans lui le temps réel restait mort, en reconnexions infinies. La valeur est dérivée de `VPS_BASE_URL` (`https://10.42.0.1:443` → `https://10.42.0.1`) ou forcée par `WS_ORIGIN` dans `local.properties` ; elle doit figurer dans `WS_ALLOWED_ORIGINS`.
+
 **Connexion / déconnexion pilotées par la session (`SessionManager`).** Aucun ViewModel n'appelle `connect()`/`disconnect()`. `AuthRepositoryImpl` émet `notifySessionStarted()` juste après `tokenHolder.setToken` (login et vérification 2FA) : `PrivateWsClient` abandonne toute connexion de la session précédente, remet le backoff à zéro et se connecte immédiatement. Tout `forcedLogoutEvents` (logout utilisateur via `SettingsViewModel`, logout forcé `TokenAuthenticator`/`AuthInterceptor`, escape hatch biométrique) → `disconnect()` (close 1000, sans reconnexion). Garde `TokenHolder` : sans access token en mémoire, `connect()`/`scheduleReconnect()`/`openWebSocket()` ne font rien — la boucle de backoff s'arrête au logout. Un compteur de génération, incrémenté par `disconnect()`, rend périmée toute tentative en vol (`getWsToken()` ou handshake) : elle ne peut ni rouvrir un socket authentifié ni modifier l'état. Au démarrage à froid, `TradingApplication` appelle `connect()` après le préchargement du token (sans écraser un token déjà présent dans `TokenHolder`). Tests : `PrivateWsClientTest` (Robolectric + MockWebServer).
 
 ### Alertes — source de données (FCM → Room)
@@ -875,6 +877,9 @@ Tester en light **et** dark (deux snapshots par composant critique).
 VPS_BASE_URL=https://10.42.0.1:443
 WG_VPS_ENDPOINT=vps.example.com:51820
 WG_VPS_PUBKEY=<clé_publique_wg_du_vps>
+# Optionnel — en-tête Origin du handshake WebSocket, à aligner sur WS_ALLOWED_ORIGINS du backend.
+# Vide → dérivé de VPS_BASE_URL sans port par défaut (https://10.42.0.1:443 → https://10.42.0.1).
+WS_ORIGIN=
 CERT_PIN_SHA256=sha256/<empreinte_courante>
 CERT_PIN_SHA256_BACKUP=sha256/<empreinte_backup>
 KEYSTORE_PATH=../keystore/release.jks
@@ -905,7 +910,14 @@ App → poll GET https://radxa_ip:8099/status jusqu'à "paired"
 - La connexion vers `radxa_ip:8099` doit être faite uniquement si `VpnState.Connected`
   (le VPN garantit qu'on est sur le bon réseau avant de contacter le LAN) — appliqué au niveau
   du client `@Named("lan")` par le `VpnRequiredInterceptor`, pas seulement documenté
-- Timeout 120s sur l'opération complète (durée de vie de la session VPS)
+- Timeout 120s sur l'opération complète (durée de vie de la session VPS) : `ConfirmPairingUseCase`
+  pour le polling, et `readTimeout` de 120 s sur `POST /pin` seul (`NetworkModule.lanPinReadTimeoutInterceptor`).
+  `/pin` est synchrone côté Radxa (≈ 55 s sur fb847ec, jusqu'à ≈ 113 s sur 93fdc58) : le `readTimeout`
+  global de 10 s du client `@Named("lan")` faisait échouer l'app alors que la Radxa terminait, et un
+  rejeu donne 409 (nonce déjà consommé). **Ne jamais rejouer `/pin`.**
+- Le 200 de `/pin` renvoie le `device_id` **définitif** (alloué par le VPS) ; l'id du QR Radxa
+  (`radxa-pending-…`) est provisoire. `PairingViewModel` stocke `local_token`, pubkey et IP sous l'id
+  définitif, avec repli sur celui du QR s'il est absent.
 
 **Validation des QR scannés :**
 - QR non reconnu (ni VPS ni Radxa) → `PairingStep.Error("QR non reconnu, réessayez", retryable=true)` + vibration
@@ -980,6 +992,14 @@ domain/usecase/pairing/
 
 **Intervalle de polling : 2 secondes.** Ne pas laisser au développeur le choix — une boucle
 sans délai consomme batterie et surcharge la Radxa. `delay(2_000)` entre chaque GET status.
+Une seule exception : un HTTP 429 (les deux firmwares limitent à 10 requêtes/60 s par IP, `/pin`
+compris, sans `Retry-After`) attend 10 s avant le prochain sondage.
+
+**`status: "unknown"`** (= le `session_id` demandé n'est pas celui de l'état du device) : toléré 2 fois
+de suite puis `FAILED` (`PairingRepositoryImpl.UNKNOWN_SESSION_LIMIT` = 3). Un `unknown` isolé est
+possible sur le firmware 93fdc58 (serveur multi-thread : `/status` peut précéder la publication de
+`pairing`, ou un code saisi sur le HAT peut écraser l'état) ; sur fb847ec (mono-thread) il désigne
+toujours une autre session.
 
 **Invalidation PIN côté VPS :** le VPS invalide le `session_pin` après un usage réussi (usage
 unique, TTL 120s). L'app ne doit pas retenter `SendPinToDeviceUseCase` après un succès de

@@ -9,6 +9,8 @@ import com.tradingplatform.app.data.local.db.entity.PositionEntity
 import com.tradingplatform.app.data.model.PerformanceResponseDto
 import com.tradingplatform.app.data.model.PnlResponseDto
 import com.tradingplatform.app.data.model.PositionDto
+import com.tradingplatform.app.data.model.TransactionDto
+import com.tradingplatform.app.data.model.TransactionListResponseDto
 import com.tradingplatform.app.domain.model.PnlPeriod
 import com.tradingplatform.app.domain.model.PositionStatus
 import io.mockk.coEvery
@@ -238,5 +240,115 @@ class PortfolioRepositoryImplTest {
 
         assertEquals(0.083, metrics.maxDrawdown!!, 1e-9)
         coVerify(exactly = 0) { pnlDao.upsertAndPurge(any(), any()) }
+    }
+
+    // ── getPositions — le backend ignore `status` : filtre côté app (audit compat 29/09) ──
+
+    private fun dto(id: Int, symbol: String, active: Boolean) = PositionDto(
+        id = id,
+        symbol = symbol,
+        quantity = BigDecimal("1"),
+        avgPrice = BigDecimal("10.00"),
+        currentPrice = BigDecimal("11.00"),
+        isActive = active,
+    )
+
+    /** Ce que le backend renvoie vraiment, quel que soit `?status=` : actives ET inactives. */
+    private val mixedPositions = listOf(dto(1, "SPY", true), dto(2, "QQQ", false), dto(3, "AAPL", true))
+
+    @Test
+    fun `getPositions OPEN keeps only active positions even though the backend returns all`() = runTest {
+        coEvery { portfolioApi.getPositions(any(), any()) } returns Response.success(mixedPositions)
+
+        val open = repository.getPositions("portfolio-1", PositionStatus.OPEN).getOrThrow()
+
+        assertEquals(listOf("SPY", "AAPL"), open.map { it.symbol })
+        assertTrue(open.all { it.status == PositionStatus.OPEN })
+    }
+
+    @Test
+    fun `getPositions CLOSED keeps only inactive positions`() = runTest {
+        coEvery { portfolioApi.getPositions(any(), any()) } returns Response.success(mixedPositions)
+
+        val closed = repository.getPositions("portfolio-1", PositionStatus.CLOSED).getOrThrow()
+
+        assertEquals(listOf("QQQ"), closed.map { it.symbol })
+    }
+
+    @Test
+    fun `getPositions ALL returns everything`() = runTest {
+        coEvery { portfolioApi.getPositions(any(), any()) } returns Response.success(mixedPositions)
+
+        val all = repository.getPositions("portfolio-1", PositionStatus.ALL).getOrThrow()
+
+        assertEquals(listOf("SPY", "QQQ", "AAPL"), all.map { it.symbol })
+    }
+
+    @Test
+    fun `filtering the list never shrinks what is cached in Room`() = runTest {
+        coEvery { portfolioApi.getPositions(any(), any()) } returns Response.success(mixedPositions)
+        val cached = slot<List<PositionEntity>>()
+
+        repository.getPositions("portfolio-1", PositionStatus.OPEN).getOrThrow()
+
+        coVerify(exactly = 1) { positionDao.upsertAllAndPurge(capture(cached), any()) }
+        assertEquals(3, cached.captured.size) // la position fermée reste résoluble par getPosition()
+    }
+
+    // ── getTransactions — le backend ignore `symbol` ──────────────────────────
+
+    private fun tx(id: Long, symbol: String) = TransactionDto(
+        id = id,
+        symbol = symbol,
+        action = "BUY",
+        quantity = BigDecimal("1"),
+        price = BigDecimal("10.00"),
+        commission = BigDecimal("0.10"),
+        total = BigDecimal("10.10"),
+        executedAt = "2026-09-29T10:00:00+00:00",
+    )
+
+    private fun txPage(vararg items: TransactionDto) = Response.success(
+        TransactionListResponseDto(transactions = items.toList(), total = items.size, limit = 1000, offset = 0),
+    )
+
+    @Test
+    fun `getTransactions without a symbol forwards limit and offset untouched`() = runTest {
+        coEvery { portfolioApi.getTransactions(any(), any(), any(), any()) } returns
+            txPage(tx(1, "SPY"), tx(2, "QQQ"))
+
+        val result = repository.getTransactions("portfolio-1", limit = 50, offset = 100, symbol = null).getOrThrow()
+
+        assertEquals(listOf(1L, 2L), result.map { it.id })
+        coVerify(exactly = 1) { portfolioApi.getTransactions("portfolio-1", 50, 100, null) }
+    }
+
+    @Test
+    fun `getTransactions with a symbol scans the widest page then filters client-side`() = runTest {
+        coEvery { portfolioApi.getTransactions(any(), any(), any(), any()) } returns
+            txPage(tx(1, "SPY"), tx(2, "QQQ"), tx(3, "spy"), tx(4, "AAPL"), tx(5, "SPY"))
+
+        val result = repository.getTransactions("portfolio-1", limit = 50, offset = 0, symbol = "SPY").getOrThrow()
+
+        assertEquals(listOf(1L, 3L, 5L), result.map { it.id })
+        // Fenêtre serveur maximale, offset serveur à 0 : l'offset demandé s'applique APRÈS le filtre.
+        coVerify(exactly = 1) { portfolioApi.getTransactions("portfolio-1", 1000, 0, "SPY") }
+    }
+
+    @Test
+    fun `getTransactions with a symbol applies offset and limit to the filtered list`() = runTest {
+        coEvery { portfolioApi.getTransactions(any(), any(), any(), any()) } returns
+            txPage(tx(1, "SPY"), tx(2, "QQQ"), tx(3, "SPY"), tx(4, "SPY"), tx(5, "SPY"))
+
+        val page = repository.getTransactions("portfolio-1", limit = 2, offset = 1, symbol = "SPY").getOrThrow()
+
+        assertEquals(listOf(3L, 4L), page.map { it.id })
+    }
+
+    @Test
+    fun `getTransactions with a symbol that has no trade returns an empty list`() = runTest {
+        coEvery { portfolioApi.getTransactions(any(), any(), any(), any()) } returns txPage(tx(1, "SPY"))
+
+        assertTrue(repository.getTransactions("portfolio-1", 50, 0, "TSLA").getOrThrow().isEmpty())
     }
 }

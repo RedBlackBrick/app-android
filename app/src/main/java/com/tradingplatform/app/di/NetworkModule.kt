@@ -257,12 +257,33 @@ object NetworkModule {
 
         return OkHttpClient.Builder()
             .addInterceptor(lanOnlyHttpsGuard())
+            .addInterceptor(lanPinReadTimeoutInterceptor())
             .addInterceptor(vpnRequiredInterceptor)
             .sslSocketFactory(sslSocketFactory, trustManager)
             .hostnameVerifier(lanHostnameVerifier)
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(10, TimeUnit.SECONDS)
             .build()
+    }
+
+    /** Durée de vie de la session de pairing côté VPS (CLAUDE.md §8 : timeout 120 s). */
+    internal const val LAN_PIN_READ_TIMEOUT_SECONDS = 120
+
+    /**
+     * `POST /pin` est synchrone côté Radxa : la réponse n'arrive qu'à la fin du pairing complet
+     * (preflight VPS + register + activation du tunnel ; ≈ 55 s sur le firmware fb847ec, jusqu'à
+     * ≈ 113 s sur 93fdc58). Le `readTimeout` global de 10 s faisait échouer l'app alors que la
+     * Radxa terminait ; un rejeu donnait ensuite 409 (nonce déjà consommé). On aligne donc `/pin`
+     * — et lui seul — sur la durée de vie de la session VPS : au-delà, le pairing échoue de toute
+     * façon côté VPS. `/status` et `/identity` gardent les 10 s.
+     */
+    internal fun lanPinReadTimeoutInterceptor(): Interceptor = Interceptor { chain ->
+        if (chain.request().url.encodedPath == "/pin") {
+            chain.withReadTimeout(LAN_PIN_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                .proceed(chain.request())
+        } else {
+            chain.proceed(chain.request())
+        }
     }
 
     /**

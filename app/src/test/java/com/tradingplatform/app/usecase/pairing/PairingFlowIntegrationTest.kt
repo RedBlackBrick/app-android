@@ -124,7 +124,7 @@ class PairingFlowIntegrationTest {
                 nonce = expectedSession.nonce,
                 radxaWgPubkey = expectedDevice.wgPubkey,
             )
-        } returns Result.success(Unit)
+        } returns Result.success<String?>(null)
 
         every {
             pairingRepository.pollStatus(
@@ -177,7 +177,7 @@ class PairingFlowIntegrationTest {
         // Arrange — pollStatus never emits a terminal status
         coEvery {
             pairingRepository.sendPin(any(), any(), any(), any(), any(), any(), any())
-        } returns Result.success(Unit)
+        } returns Result.success<String?>(null)
 
         every {
             pairingRepository.pollStatus(any(), any(), any())
@@ -235,7 +235,7 @@ class PairingFlowIntegrationTest {
         // Arrange
         coEvery {
             pairingRepository.sendPin(any(), any(), any(), any(), any(), any(), any())
-        } returns Result.success(Unit)
+        } returns Result.success<String?>(null)
 
         every {
             pairingRepository.pollStatus(any(), any(), any())
@@ -273,7 +273,7 @@ class PairingFlowIntegrationTest {
         // Arrange
         coEvery {
             pairingRepository.sendPin(any(), any(), any(), any(), any(), any(), any())
-        } returns Result.success(Unit)
+        } returns Result.success<String?>(null)
 
         every {
             pairingRepository.pollStatus(any(), any(), any())
@@ -312,7 +312,7 @@ class PairingFlowIntegrationTest {
         // Arrange — order of QR scans is reversed compared to the previous test
         coEvery {
             pairingRepository.sendPin(any(), any(), any(), any(), any(), any(), any())
-        } returns Result.success(Unit)
+        } returns Result.success<String?>(null)
 
         every {
             pairingRepository.pollStatus(any(), any(), any())
@@ -381,7 +381,7 @@ class PairingFlowIntegrationTest {
 
         coEvery {
             pairingRepository.sendPin(any(), any(), any(), any(), any(), any(), any())
-        } returns Result.success(Unit)
+        } returns Result.success<String?>(null)
 
         val timeoutViewModel = PairingViewModel(
             parseVpsQrUseCase = parseVpsQrUseCase,
@@ -418,7 +418,7 @@ class PairingFlowIntegrationTest {
         // Arrange — simulate user scanning wrong QR first, then correct one
         coEvery {
             pairingRepository.sendPin(any(), any(), any(), any(), any(), any(), any())
-        } returns Result.success(Unit)
+        } returns Result.success<String?>(null)
 
         every {
             pairingRepository.pollStatus(any(), any(), any())
@@ -472,7 +472,7 @@ class PairingFlowIntegrationTest {
             // arg(4) = localToken — same
             capturedNonce = arg(5)
             capturedWgPubkey = arg(6)
-            Result.success(Unit)
+            Result.success<String?>(null)
         }
 
         val session = parseVpsQrUseCase(validVpsQrRaw).getOrThrow()

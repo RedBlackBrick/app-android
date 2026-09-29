@@ -368,4 +368,48 @@ class WireGuardManagerTest {
 
         assertEquals(WireGuardPeer.DEFAULT_ALLOWED_IPS, backend.lastUpConfig!!.peer.allowedIPs)
     }
+
+    // `/register` provisionne `dns=""` ; le vide est persisté tel quel. `dns ?: "1.1.1.1"` ne le
+    // voyait pas (non-null) et parseDnsServers("") faisait échouer tout reconnect().
+
+    @Test
+    fun `reconnect treats an empty provisioned DNS as absent`() = runTest {
+        val manager = createManager(provisionedStore + (DataStoreKeys.WG_DNS.name to ""))
+
+        manager.reconnect()
+        advanceUntilIdle()
+
+        assertEquals(VpnState.Connected(), manager.state.value)
+        assertEquals("1.1.1.1", backend.lastUpConfig!!.dns)
+    }
+
+    @Test
+    fun `reconnect treats a blank provisioned DNS as absent`() = runTest {
+        val manager = createManager(provisionedStore + (DataStoreKeys.WG_DNS.name to "  "))
+
+        manager.reconnect()
+        advanceUntilIdle()
+
+        assertEquals("1.1.1.1", backend.lastUpConfig!!.dns)
+    }
+
+    @Test
+    fun `reconnect falls back to a resolver when no DNS was ever persisted`() = runTest {
+        val manager = createManager(provisionedStore - DataStoreKeys.WG_DNS.name)
+
+        manager.reconnect()
+        advanceUntilIdle()
+
+        assertEquals("1.1.1.1", backend.lastUpConfig!!.dns)
+    }
+
+    @Test
+    fun `reconnect reuses the masked tunnel address persisted from the server response`() = runTest {
+        val manager = createManager(provisionedStore + (DataStoreKeys.WG_TUNNEL_IP.name to "10.42.0.50/32"))
+
+        manager.reconnect()
+        advanceUntilIdle()
+
+        assertEquals("10.42.0.50/32", backend.lastUpConfig!!.address)
+    }
 }
