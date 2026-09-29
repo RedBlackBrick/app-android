@@ -50,7 +50,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 private val timeFormatter: DateTimeFormatter =
-    DateTimeFormatter.ofPattern("dd MMM yyyy, HH:mm").withZone(ZoneId.systemDefault())
+    DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm").withZone(ZoneId.systemDefault())
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -96,7 +96,9 @@ fun OrdersScreen(
                 Tab(
                     selected = uiState.selectedTab == OrdersTab.HISTORY,
                     onClick = { viewModel.selectTab(OrdersTab.HISTORY) },
-                    text = { Text("Historique") },
+                    // « Terminés » et pas « Historique » : c'est déjà le libellé du segment
+                    // Transactions juste au-dessus.
+                    text = { Text("Terminés") },
                 )
             }
 

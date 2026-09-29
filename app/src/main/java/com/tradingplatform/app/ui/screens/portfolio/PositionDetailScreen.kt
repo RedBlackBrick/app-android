@@ -1,5 +1,6 @@
 package com.tradingplatform.app.ui.screens.portfolio
 
+import com.tradingplatform.app.ui.common.formatFr
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -46,7 +47,6 @@ import com.tradingplatform.app.ui.theme.pnlColor
 import java.math.BigDecimal
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import java.time.format.FormatStyle
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -58,10 +58,8 @@ fun PositionDetailScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
-    val title = when (val state = uiState) {
-        is PositionDetailUiState.Success -> state.position.symbol
-        else -> "Détail"
-    }
+    // Le symbole est déjà l'en-tête de la carte juste dessous : pas de doublon dans la barre.
+    val title = "Position"
 
     Scaffold(
         topBar = {
@@ -248,7 +246,7 @@ private fun PositionSummaryCard(
                         )
                         val pnlPct = position.unrealizedPnlPercent ?: 0.0
                         val pnlPctColor = pnlColor(position.unrealizedPnl ?: BigDecimal.ZERO)
-                        val formattedPct = "(${if (pnlPct >= 0) "+" else ""}${"%.2f".format(pnlPct)}%)"
+                        val formattedPct = "(${if (pnlPct >= 0) "+" else ""}${formatFr("%.2f", pnlPct)}%)"
                         Text(
                             text = formattedPct,
                             style = MaterialTheme.typography.bodySmall,
@@ -292,17 +290,26 @@ private fun TransactionRow(
     transaction: Transaction,
     modifier: Modifier = Modifier,
 ) {
-    val dateFormatter = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.SHORT)
+    // Format fixe (dd/MM/yyyy HH:mm) comme l'écran Historique : `ofLocalizedDateTime` suivrait la
+    // langue du téléphone (« 9/17/26, 9:29 PM » en anglais).
     val executedAt = transaction.executedAt
         .atZone(ZoneId.systemDefault())
-        .let { dateFormatter.format(it) }
+        .let { DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm").format(it) }
+    val isBuy = transaction.action.uppercase() == "BUY"
+    val isSell = transaction.action.uppercase() == "SELL"
+    val actionLabel = when {
+        isBuy -> "Achat"
+        isSell -> "Vente"
+        else -> transaction.action
+    }
+    val extendedColors = LocalExtendedColors.current
 
     Row(
         modifier = modifier
             .fillMaxWidth()
             .padding(vertical = Spacing.sm)
             .semantics {
-                contentDescription = "Transaction ${transaction.action} " +
+                contentDescription = "Transaction $actionLabel " +
                     "${transaction.quantity} ${transaction.symbol} " +
                     "à ${transaction.price} € le $executedAt"
             },
@@ -313,11 +320,12 @@ private fun TransactionRow(
             verticalArrangement = Arrangement.spacedBy(Spacing.xs),
         ) {
             Text(
-                text = transaction.action.uppercase(),
+                text = actionLabel,
                 style = MaterialTheme.typography.labelMedium,
-                color = when (transaction.action.uppercase()) {
-                    "BUY" -> MaterialTheme.colorScheme.primary
-                    "SELL" -> MaterialTheme.colorScheme.error
+                // Mêmes couleurs que l'écran Historique : vert P&L pour un achat, rouge AA pour une vente.
+                color = when {
+                    isBuy -> extendedColors.pnlPositive
+                    isSell -> extendedColors.pnlNegative
                     else -> MaterialTheme.colorScheme.onSurface
                 },
             )

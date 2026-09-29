@@ -6,6 +6,7 @@ import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
 import com.tradingplatform.app.ui.screens.setup.VPN_CONSENT_DENIED_MESSAGE
 import com.tradingplatform.app.util.MainDispatcherRule
 import com.tradingplatform.app.vpn.SystemVpnMonitor
+import com.tradingplatform.app.vpn.displayedVpnState
 import com.tradingplatform.app.vpn.VpnState
 import com.tradingplatform.app.vpn.WireGuardConfig
 import com.tradingplatform.app.vpn.WireGuardManager
@@ -127,6 +128,26 @@ class VpnSettingsViewModelTest {
         val viewModel = createViewModel()
 
         assertEquals(VpnState.SystemVpnActive, viewModel.vpnState.value)
+    }
+
+    @Test
+    fun `initial vpnState asks Android when the monitor callback has not reported the system VPN yet`() = runTest {
+        every { wireGuardManager.state } returns MutableStateFlow<VpnState>(VpnState.Disconnected)
+        // Comme le vrai moniteur : `isActiveNow()` met aussi à jour le flux `active`.
+        val sysActive = MutableStateFlow(false)
+        every { systemVpnMonitor.active } returns sysActive
+        every { systemVpnMonitor.isActiveNow() } answers { sysActive.value = true; true }
+
+        val viewModel = createViewModel()
+
+        assertEquals(VpnState.SystemVpnActive, viewModel.vpnState.value)
+    }
+
+    @Test
+    fun `displayedVpnState rules - Connecting wins over a system VPN, Disconnected without any`() {
+        assertEquals(VpnState.Connecting, displayedVpnState(VpnState.Connecting, systemVpnActive = true))
+        assertEquals(VpnState.SystemVpnActive, displayedVpnState(VpnState.Disconnected, systemVpnActive = true))
+        assertEquals(VpnState.Disconnected, displayedVpnState(VpnState.Disconnected, systemVpnActive = false))
     }
 
     @Test

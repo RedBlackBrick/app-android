@@ -7,6 +7,7 @@ import com.tradingplatform.app.data.local.datastore.DataStoreKeys
 import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
 import com.tradingplatform.app.vpn.SystemVpnMonitor
 import com.tradingplatform.app.vpn.VpnState
+import com.tradingplatform.app.vpn.displayedVpnState
 import com.tradingplatform.app.vpn.WireGuardConfig
 import com.tradingplatform.app.vpn.WireGuardManager
 import com.tradingplatform.app.vpn.WireGuardPeer
@@ -69,15 +70,16 @@ class VpnSettingsViewModel @Inject constructor(
      */
     val vpnState: StateFlow<VpnState> =
         combine(wireGuardManager.state, systemVpnMonitor.active) { inApp, sysActive ->
-            when {
-                inApp is VpnState.Connected || inApp is VpnState.Connecting -> inApp
-                sysActive -> VpnState.SystemVpnActive
-                else -> inApp
-            }
+            displayedVpnState(inApp, sysActive)
         }.stateIn(
             scope = viewModelScope,
             started = SharingStarted.Eagerly,
-            initialValue = wireGuardManager.state.value,
+            // Même règle que le flux, appliquée dès la 1re composition : sinon l'écran affichait
+            // « Tunnel WireGuard inactif » le temps de la 1re émission sous un VPN système.
+            initialValue = displayedVpnState(
+                wireGuardManager.state.value,
+                systemVpnMonitor.active.value || systemVpnMonitor.isActiveNow(),
+            ),
         )
 
     private val _consentState = MutableStateFlow<VpnConsentUiState>(VpnConsentUiState.None)

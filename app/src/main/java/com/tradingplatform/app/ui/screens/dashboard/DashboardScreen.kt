@@ -90,7 +90,9 @@ fun DashboardScreen(
     }
 
     // Dérivations de présentation (fonctions pures — cf. DashboardPresentation.kt).
-    val kpis = remember(uiState.pnlSummary.value) { dashboardKpis(uiState.pnlSummary.value) }
+    val kpis = remember(uiState.navSummary.value, uiState.pnlSummary.value) {
+        dashboardKpis(uiState.navSummary.value, uiState.pnlSummary.value)
+    }
     val riskModel = remember(uiState.circuitBreakerStatus) {
         riskTileModel(uiState.circuitBreakerStatus)
     }

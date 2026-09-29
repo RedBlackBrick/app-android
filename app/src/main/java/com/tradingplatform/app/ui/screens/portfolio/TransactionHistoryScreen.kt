@@ -174,7 +174,7 @@ private fun TransactionCard(
 ) {
     val extendedColors = LocalExtendedColors.current
     val isBuy = transaction.action.uppercase() == "BUY"
-    val actionColor = if (isBuy) extendedColors.pnlPositive else MaterialTheme.colorScheme.error
+    val actionColor = if (isBuy) extendedColors.pnlPositive else extendedColors.pnlNegative
     val actionLabel = if (isBuy) "Achat" else "Vente"
 
     val formattedDate = remember(transaction.executedAt) {

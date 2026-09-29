@@ -1,5 +1,6 @@
 package com.tradingplatform.app.ui.screens.devices
 
+import com.tradingplatform.app.ui.common.formatFr
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -268,7 +269,7 @@ private fun ScrapingCard(
 ) {
     SectionCard(title = "Scraping", modifier = modifier) {
         device.lastTicksSent?.let { ticks ->
-            InfoRow(label = "Ticks envoyés", value = "%,d".format(ticks))
+            InfoRow(label = "Ticks envoyés", value = formatFr("%,d", ticks))
         }
         device.lastScraperErrors?.let { errors ->
             InfoRow(

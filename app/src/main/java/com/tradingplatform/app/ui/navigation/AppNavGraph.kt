@@ -3,10 +3,16 @@ package com.tradingplatform.app.ui.navigation
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -40,6 +46,7 @@ import com.tradingplatform.app.ui.components.BiometricLockOverlay
 import com.tradingplatform.app.ui.components.VpnStatusBanner
 import com.tradingplatform.app.vpn.SystemVpnMonitor
 import com.tradingplatform.app.vpn.VpnState
+import com.tradingplatform.app.vpn.computeEffectiveVpnState
 import com.tradingplatform.app.vpn.WireGuardManager
 import com.tradingplatform.app.ui.screens.alerts.AlertListScreen
 import com.tradingplatform.app.ui.screens.auth.LoginScreen
@@ -238,16 +245,17 @@ class AppNavViewModel @Inject constructor(
      */
     val effectiveVpnState: StateFlow<VpnState> =
         combine(wireGuardManager.state, systemVpnMonitor.active) { inApp, sysActive ->
-            val result: VpnState = when {
-                inApp is VpnState.Connected -> inApp
-                sysActive -> VpnState.Connected(serverIp = "")
-                else -> inApp  // Disconnected or Connecting — let the in-app flow decide
-            }
-            result
+            computeEffectiveVpnState(inApp, sysActive)
         }.stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000),
-            initialValue = wireGuardManager.state.value,
+            // Valeur initiale calculée avec le VPN système : l'ancienne (`wireGuardManager.state`
+            // seul) valait `Disconnected` et affichait la bannière « VPN déconnecté » à chaque
+            // démarrage à froid sous un tunnel de l'app WireGuard officielle, jusqu'à la 1re émission.
+            initialValue = computeEffectiveVpnState(
+                wireGuardManager.state.value,
+                systemVpnMonitor.active.value || systemVpnMonitor.isActiveNow(),
+            ),
         )
 
     /** Reconnects the VPN tunnel manually. */
@@ -741,6 +749,12 @@ fun AppNavGraph(
         modifier = Modifier
             .fillMaxSize()
             .then(if (biometricLocked) Modifier.clearAndSetSemantics {} else Modifier),
+        // Pas d'inset haut ici : chaque écran a son propre Scaffold/TopAppBar (ou systemBarsPadding)
+        // qui réserve déjà la barre d'état, et la bannière VPN la réserve elle-même quand elle est
+        // visible (et la consomme). Sans ça, l'inset était compté deux fois (~130 px perdus en haut).
+        contentWindowInsets = WindowInsets.safeDrawing.only(
+            WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom,
+        ),
         bottomBar = {
             if (showBottomBar) {
                 BottomNavBar(
@@ -775,10 +789,21 @@ fun AppNavGraph(
                 onReconnect = { appNavViewModel.reconnectVpn() }
             )
 
+        // La bannière (frère du NavHost, pas son parent) occupe la zone de la barre d'état : on
+        // consomme l'inset haut côté NavHost, sinon la TopAppBar de l'écran le réserve une 2e fois.
+        val topBarInsets = TopAppBarDefaults.windowInsets.only(WindowInsetsSides.Top)
         NavHost(
             navController = navController,
             startDestination = startDestination,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .then(
+                    if (isVpnDisconnected || isVpnConnecting) {
+                        Modifier.consumeWindowInsets(topBarInsets)
+                    } else {
+                        Modifier
+                    },
+                ),
             enterTransition = { NavTransitions.enterTransition(this) },
             exitTransition = { NavTransitions.exitTransition(this) },
             popEnterTransition = { NavTransitions.popEnterTransition(this) },

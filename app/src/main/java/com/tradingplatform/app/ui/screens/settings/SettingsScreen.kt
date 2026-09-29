@@ -18,7 +18,7 @@ import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Devices
-import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.AlertDialog
@@ -151,7 +151,7 @@ fun SettingsScreen(
                         modifier = Modifier.padding(horizontal = Spacing.lg),
                     )
                     SettingsRow(
-                        icon = Icons.Default.Info,
+                        icon = Icons.Default.VpnKey,
                         title = "Connexion VPN",
                         subtitle = "Gérer le tunnel WireGuard",
                         onClick = onNavigateToVpn,

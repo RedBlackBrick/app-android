@@ -2,6 +2,7 @@ package com.tradingplatform.app.ui.screens.dashboard
 
 import com.tradingplatform.app.domain.model.ActivityItem
 import com.tradingplatform.app.domain.model.CircuitBreakerState
+import com.tradingplatform.app.domain.model.NavSummary
 import com.tradingplatform.app.domain.model.PnlPeriod
 import com.tradingplatform.app.domain.model.PnlSummary
 import com.tradingplatform.app.domain.model.PortfolioCircuitBreakerStatus
@@ -40,6 +41,16 @@ class DashboardPresentationTest {
         avgTradeReturn = null,
     )
 
+    private fun nav(
+        cash: String = "12000.00",
+        unrealized: String = "3475.29",
+    ) = NavSummary(
+        currentValue = BigDecimal("103475.29"),
+        cashBalance = BigDecimal(cash),
+        totalRealizedPnl = BigDecimal.ZERO,
+        totalUnrealizedPnl = BigDecimal(unrealized),
+    )
+
     private fun breaker(
         enabled: Boolean = true,
         state: CircuitBreakerState = CircuitBreakerState.CLOSED,
@@ -62,7 +73,7 @@ class DashboardPresentationTest {
     @Test
     fun `period labels are the historical French chip labels`() {
         assertEquals("Jour", dashboardPeriodLabel(PnlPeriod.DAY))
-        assertEquals("Semaine", dashboardPeriodLabel(PnlPeriod.WEEK))
+        assertEquals("Sem.", dashboardPeriodLabel(PnlPeriod.WEEK))
         assertEquals("Mois", dashboardPeriodLabel(PnlPeriod.MONTH))
         assertEquals("Année", dashboardPeriodLabel(PnlPeriod.YEAR))
         assertEquals("Tout", dashboardPeriodLabel(PnlPeriod.ALL))
@@ -237,60 +248,67 @@ class DashboardPresentationTest {
     // ── dashboardKpis ─────────────────────────────────────────────────────────
 
     @Test
-    fun `kpis are return then win rate then max drawdown`() {
-        val kpis = dashboardKpis(pnl(totalReturnPct = 0.045, winRate = 0.7, maxDrawdown = 0.083))
+    fun `kpis are cash then unrealized then win rate, capped at three`() {
+        val kpis = dashboardKpis(nav(), pnl(winRate = 0.7, maxDrawdown = 0.083))
 
         assertEquals(
-            listOf(DashboardKpiKind.RETURN, DashboardKpiKind.WIN_RATE, DashboardKpiKind.MAX_DRAWDOWN),
+            listOf(DashboardKpiKind.CASH, DashboardKpiKind.UNREALIZED, DashboardKpiKind.WIN_RATE),
             kpis.map { it.kind },
         )
-        assertEquals(listOf("Rendement", "Win rate", "Drawdown max"), kpis.map { it.label })
-        assertEquals(listOf("+4,50%", "70%", "8,30%"), kpis.map { it.value })
+        assertEquals(listOf("Liquidités", "Latent", "Win rate"), kpis.map { it.label })
+        assertEquals(listOf("12 000 €", "+3 475 €", "70%"), kpis.map { it.value.replace('\u202f', ' ').replace('\u00a0', ' ') })
         assertEquals(
-            listOf(
-                "Rendement : plus 4,50 pour cent",
-                "Taux de réussite : 70 pour cent",
-                "Drawdown maximum : 8,30 pour cent",
-            ),
-            kpis.map { it.spokenDescription },
+            listOf(PnlTone.NEUTRAL, PnlTone.POSITIVE, PnlTone.NEUTRAL),
+            kpis.map { it.tone },
         )
-        assertEquals(listOf(PnlTone.POSITIVE, PnlTone.NEUTRAL, PnlTone.NEUTRAL), kpis.map { it.tone })
     }
 
     @Test
-    fun `a negative return is red-toned and spoken as moins`() {
-        val kpi = dashboardKpis(pnl(totalReturnPct = -0.0123, winRate = null)).single()
+    fun `the return is not a tile any more, the hero already shows it`() {
+        val kpis = dashboardKpis(nav(), pnl(totalReturnPct = 0.045, winRate = 0.7))
 
-        assertEquals("-1,23%", kpi.value)
+        assertEquals(false, kpis.any { it.label == "Rendement" })
+    }
+
+    @Test
+    fun `a negative unrealized pnl is red-toned and spoken as a loss`() {
+        val kpi = dashboardKpis(nav(unrealized = "-1250.40"), null).first { it.kind == DashboardKpiKind.UNREALIZED }
+
+        assertEquals("-1 250 €", kpi.value.replace('\u202f', ' ').replace('\u00a0', ' '))
         assertEquals(PnlTone.NEGATIVE, kpi.tone)
-        assertEquals("Rendement : moins 1,23 pour cent", kpi.spokenDescription)
+        assertEquals(
+            "Plus-value latente : Perte de 1 250,40 €",
+            kpi.spokenDescription.replace('\u202f', ' ').replace('\u00a0', ' '),
+        )
     }
 
     @Test
-    fun `a flat return is neutral`() {
-        val kpi = dashboardKpis(pnl(totalReturnPct = 0.0, winRate = null)).single()
+    fun `an unrealized pnl that rounds to zero is neutral, never a red minus zero`() {
+        val kpi = dashboardKpis(nav(unrealized = "-0.40"), null).first { it.kind == DashboardKpiKind.UNREALIZED }
 
-        assertEquals("0,00%", kpi.value)
+        assertEquals("0 €", kpi.value)
         assertEquals(PnlTone.NEUTRAL, kpi.tone)
     }
 
     @Test
-    fun `tiles without a value are omitted, as with the real pnl endpoint that has no drawdown`() {
-        val kpis = dashboardKpis(pnl(totalReturnPct = 0.045, winRate = 0.7, maxDrawdown = null))
+    fun `the drawdown only shows when a tile is missing, as the real pnl endpoint has none`() {
+        val withoutNav = dashboardKpis(null, pnl(winRate = null, maxDrawdown = 0.083))
 
-        assertEquals(listOf(DashboardKpiKind.RETURN, DashboardKpiKind.WIN_RATE), kpis.map { it.kind })
+        assertEquals(listOf(DashboardKpiKind.MAX_DRAWDOWN), withoutNav.map { it.kind })
+        assertEquals("8,30%", withoutNav.single().value)
     }
 
     @Test
     fun `win rate is omitted when there was no trade in the period`() {
-        val kpis = dashboardKpis(pnl(totalReturnPct = 0.01, winRate = null))
+        val kpis = dashboardKpis(nav(), pnl(winRate = null))
 
-        assertEquals(listOf(DashboardKpiKind.RETURN), kpis.map { it.kind })
+        assertEquals(listOf(DashboardKpiKind.CASH, DashboardKpiKind.UNREALIZED), kpis.map { it.kind })
     }
 
     @Test
-    fun `corrupted values are omitted`() {
+    fun `corrupted pnl values are omitted`() {
         val kpis = dashboardKpis(
+            null,
             pnl(totalReturnPct = Double.NaN, winRate = Double.POSITIVE_INFINITY, maxDrawdown = 1e9),
         )
 
@@ -298,8 +316,8 @@ class DashboardPresentationTest {
     }
 
     @Test
-    fun `no pnl means no kpis`() {
-        assertEquals(emptyList<DashboardKpi>(), dashboardKpis(null))
+    fun `nothing loaded means no kpis`() {
+        assertEquals(emptyList<DashboardKpi>(), dashboardKpis(null, null))
     }
 
     // ── riskTileModel ─────────────────────────────────────────────────────────

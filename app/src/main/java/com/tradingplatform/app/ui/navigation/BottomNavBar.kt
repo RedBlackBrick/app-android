@@ -11,6 +11,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -100,6 +101,11 @@ fun BottomNavBar(
                         navController.navigateToTab(item.screen.route)
                     }
                 },
+                // Pastille de l'onglet actif en primaryContainer (indigo-100) : la valeur par défaut
+                // (secondaryContainer = slate-100) était quasi invisible sur fond blanc.
+                colors = NavigationBarItemDefaults.colors(
+                    indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                ),
                 icon = {
                     if (item.screen == Screen.Alerts && unreadAlertCount > 0) {
                         BadgedBox(

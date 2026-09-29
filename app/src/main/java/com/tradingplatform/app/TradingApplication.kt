@@ -72,6 +72,9 @@ class TradingApplication : Application(), Configuration.Provider {
         // les runBlocking sur le thread OkHttp au cold start. Le premier appel réseau
         // doit trouver TokenHolder et EncryptedCookieJar déjà peuplés.
         appScope.launch {
+            // DEV_MODE (émulateur, jamais en release) : pas de QR d'onboarding à scanner — on marque
+            // le setup comme fait pour arriver directement sur l'écran de connexion.
+            if (BuildConfig.DEV_MODE) encryptedDataStore.writeBoolean(DataStoreKeys.SETUP_COMPLETED, true)
             val tokenResult = encryptedDataStore.readStringSafe(DataStoreKeys.ACCESS_TOKEN)
             // Politique de verrou au démarrage à froid (D7) — dans la même coroutine que la
             // lecture du token : BiometricLockManager.isLocked vaut true par défaut (fail-closed).

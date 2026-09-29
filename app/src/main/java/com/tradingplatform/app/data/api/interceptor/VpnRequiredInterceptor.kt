@@ -44,7 +44,9 @@ class VpnRequiredInterceptor @Inject constructor(
         }
         // Décision D6 (commit 7da1974) : un VPN système tiers est accepté — même politique
         // que VpnState.SystemVpnActive côté UI (voir docs/security-model.md §1 MitM).
-        if (systemVpnMonitor.active.value) {
+        // `isActiveNow()` : relecture directe auprès d'Android si les callbacks du moniteur ont
+        // raté (ou pas encore livré) le réseau VPN — évite de bloquer à tort sous un tunnel bien monté.
+        if (systemVpnMonitor.active.value || systemVpnMonitor.isActiveNow()) {
             return chain.proceed(chain.request())
         }
         throw VpnNotConnectedException()

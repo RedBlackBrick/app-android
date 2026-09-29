@@ -87,6 +87,13 @@ val DarkColorScheme = darkColorScheme(
     inverseOnSurface = Slate900,         // #0f172a (slate-900)
     inversePrimary = Indigo600,          // #4f46e5 (indigo-600)
     scrim = Black,                       // #000000
+    // Rôles surfaceContainer* définis explicitement : sans eux, Material 3 dérive des teintes
+    // violacées (lavande) du seed par défaut pour la NavigationBar, les sheets et les menus.
+    surfaceContainerLowest = Slate950,   // #020617
+    surfaceContainerLow = Slate900,      // #0f172a
+    surfaceContainer = Slate900,         // #0f172a
+    surfaceContainerHigh = Slate800,     // #1e293b
+    surfaceContainerHighest = Slate700,  // #334155
 )
 
 // ── Light Color Scheme ────────────────────────────────────────────────────────
@@ -116,4 +123,11 @@ val LightColorScheme = lightColorScheme(
     inverseOnSurface = Slate50,         // #f8fafc (slate-50)
     inversePrimary = Indigo400,         // #818cf8 (indigo-400)
     scrim = Slate900,                   // #0f172a (slate-900)
+    // Rôles surfaceContainer* définis explicitement (cf. thème sombre) : barre de navigation et
+    // sheets en blanc/slate neutre, jamais la teinte lavande dérivée par défaut.
+    surfaceContainerLowest = White,     // #ffffff
+    surfaceContainerLow = Slate50,      // #f8fafc
+    surfaceContainer = White,           // #ffffff
+    surfaceContainerHigh = Slate100,    // #f1f5f9
+    surfaceContainerHighest = Slate200, // #e2e8f0
 )

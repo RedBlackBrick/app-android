@@ -29,6 +29,7 @@ import com.tradingplatform.app.ui.components.MoneyText
 import com.tradingplatform.app.ui.components.ShimmerBox
 import com.tradingplatform.app.ui.components.SparklineChart
 import com.tradingplatform.app.ui.components.TradingCard
+import com.tradingplatform.app.ui.components.tradingSegmentedButtonColors
 import com.tradingplatform.app.ui.components.formatMoneyAmount
 import com.tradingplatform.app.ui.screens.dashboard.DASHBOARD_PERIODS
 import com.tradingplatform.app.ui.screens.dashboard.HeroFooter
@@ -227,6 +228,7 @@ private fun PeriodSelector(
                 selected = period == selected,
                 onClick = { onSelect(period) },
                 shape = SegmentedButtonDefaults.itemShape(index, DASHBOARD_PERIODS.size),
+                colors = tradingSegmentedButtonColors(),
                 icon = {},
                 label = {
                     Text(

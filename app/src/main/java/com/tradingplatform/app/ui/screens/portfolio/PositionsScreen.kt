@@ -1,5 +1,6 @@
 package com.tradingplatform.app.ui.screens.portfolio
 
+import com.tradingplatform.app.ui.common.formatFr
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -309,7 +310,7 @@ private fun PositionCard(
                 // P&L percentage
                 val pnlColor = pnlColor(position.unrealizedPnl ?: BigDecimal.ZERO)
                 val pnlPct = position.unrealizedPnlPercent ?: 0.0
-                val formattedPct = "${if (pnlPct >= 0) "+" else ""}${"%.2f".format(pnlPct)}%"
+                val formattedPct = "${if (pnlPct >= 0) "+" else ""}${formatFr("%.2f", pnlPct)}%"
                 Text(
                     text = formattedPct,
                     style = MaterialTheme.typography.bodySmall.copy(

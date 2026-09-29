@@ -2,11 +2,13 @@ package com.tradingplatform.app.ui.screens.dashboard
 
 import com.tradingplatform.app.domain.model.ActivityItem
 import com.tradingplatform.app.domain.model.CircuitBreakerState
+import com.tradingplatform.app.domain.model.NavSummary
 import com.tradingplatform.app.domain.model.PnlPeriod
 import com.tradingplatform.app.domain.model.PnlSummary
 import com.tradingplatform.app.domain.model.PortfolioCircuitBreakerStatus
 import com.tradingplatform.app.ui.common.DataState
 import com.tradingplatform.app.ui.components.buildPnlDescription
+import com.tradingplatform.app.ui.components.formatMoneyAmount
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.time.Duration
@@ -27,10 +29,10 @@ import kotlin.math.abs
 internal val DASHBOARD_PERIODS: List<PnlPeriod> =
     listOf(PnlPeriod.DAY, PnlPeriod.WEEK, PnlPeriod.MONTH, PnlPeriod.YEAR)
 
-/** Libellé d'une période — identique à celui des anciennes puces. */
+/** Libellé court d'une période (« Sem. » : « Semaine » est tronqué sur 4 segments en 360 dp). */
 internal fun dashboardPeriodLabel(period: PnlPeriod): String = when (period) {
     PnlPeriod.DAY -> "Jour"
-    PnlPeriod.WEEK -> "Semaine"
+    PnlPeriod.WEEK -> "Sem."
     PnlPeriod.MONTH -> "Mois"
     PnlPeriod.YEAR -> "Année"
     PnlPeriod.ALL -> "Tout"
@@ -143,12 +145,15 @@ internal fun heroFooter(nav: DataState<*>, pnl: DataState<*>): HeroFooter {
 
 // ── Tuiles KPI ────────────────────────────────────────────────────────────────
 
-internal enum class DashboardKpiKind { RETURN, WIN_RATE, MAX_DRAWDOWN }
+internal enum class DashboardKpiKind { CASH, UNREALIZED, WIN_RATE, MAX_DRAWDOWN }
+
+/** Nombre maximal de tuiles KPI : au-delà, la ligne devient illisible à largeur de téléphone. */
+internal const val DASHBOARD_KPI_LIMIT = 3
 
 /**
  * Une tuile KPI prête à afficher.
  *
- * @property spokenDescription phrase complète pour TalkBack (ex. « Rendement : plus 4,50 pour cent »).
+ * @property spokenDescription phrase complète pour TalkBack (ex. « Liquidités : 12 000,00 € »).
  */
 internal data class DashboardKpi(
     val kind: DashboardKpiKind,
@@ -158,27 +163,47 @@ internal data class DashboardKpi(
     val tone: PnlTone,
 )
 
+/** Montant arrondi à l'euro pour une tuile (les centimes ne tiennent pas dans 1/3 de largeur). */
+private fun wholeEuros(amount: BigDecimal): BigDecimal = amount.setScale(0, RoundingMode.HALF_UP)
+
 /**
- * KPI de la période affichée : Rendement %, Win rate, Drawdown max — dans cet ordre.
+ * KPI du Dashboard, dans cet ordre : Liquidités, Latent (P&L non réalisé), Win rate, Drawdown max.
+ * Le rendement n'y figure plus : il est déjà dans la ligne « P&L » du héros.
  *
- * Une tuile sans valeur exploitable est OMISE (pas de tuile « — » : l'écran reste concis). En
- * pratique le drawdown n'apparaît que si la source `/pnl` le fournit (`PnlSummary.maxDrawdown`).
+ * Une tuile sans valeur exploitable est OMISE (pas de tuile « — » : l'écran reste concis) et la
+ * ligne est plafonnée à [DASHBOARD_KPI_LIMIT] tuiles. Le drawdown n'apparaît que si la source
+ * `/pnl` le fournit (`PnlSummary.maxDrawdown`) ; il ne passe donc la coupe que si une autre
+ * tuile manque.
  */
-internal fun dashboardKpis(pnl: PnlSummary?): List<DashboardKpi> {
-    if (pnl == null) return emptyList()
-    return buildList {
-        val totalReturnPct = pnl.totalReturnPct
-        if (roundedPercent(totalReturnPct, 2) != null) {
-            add(
-                DashboardKpi(
-                    kind = DashboardKpiKind.RETURN,
-                    label = "Rendement",
-                    value = formatPercent(totalReturnPct, signed = true),
-                    spokenDescription = "Rendement : ${spokenPercent(totalReturnPct, signed = true)}",
-                    tone = percentTone(totalReturnPct),
-                ),
-            )
-        }
+internal fun dashboardKpis(nav: NavSummary?, pnl: PnlSummary?): List<DashboardKpi> = buildList {
+    if (nav != null) {
+        val cash = wholeEuros(nav.cashBalance)
+        add(
+            DashboardKpi(
+                kind = DashboardKpiKind.CASH,
+                label = "Liquidités",
+                value = formatMoneyAmount(cash, "€", decimals = 0),
+                spokenDescription = "Liquidités : ${formatMoneyAmount(nav.cashBalance, "€")}",
+                tone = PnlTone.NEUTRAL,
+            ),
+        )
+        val unrealized = wholeEuros(nav.totalUnrealizedPnl)
+        add(
+            DashboardKpi(
+                kind = DashboardKpiKind.UNREALIZED,
+                label = "Latent",
+                // Le ton et le signe suivent la valeur AFFICHÉE (jamais de « -0 € » rouge).
+                value = (if (unrealized.signum() > 0) "+" else "") + formatMoneyAmount(unrealized, "€", decimals = 0),
+                spokenDescription = "Plus-value latente : ${buildPnlDescription(nav.totalUnrealizedPnl, "€")}",
+                tone = when {
+                    unrealized.signum() > 0 -> PnlTone.POSITIVE
+                    unrealized.signum() < 0 -> PnlTone.NEGATIVE
+                    else -> PnlTone.NEUTRAL
+                },
+            ),
+        )
+    }
+    if (pnl != null) {
         val winRate = pnl.winRate
         if (roundedPercent(winRate, 0) != null) {
             add(
@@ -204,7 +229,7 @@ internal fun dashboardKpis(pnl: PnlSummary?): List<DashboardKpi> {
             )
         }
     }
-}
+}.take(DASHBOARD_KPI_LIMIT)
 
 // ── Tuile risque (circuit-breaker) ────────────────────────────────────────────
 

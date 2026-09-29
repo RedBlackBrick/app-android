@@ -43,8 +43,10 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
+        // `-PVPS_BASE_URL=…` prime sur local.properties (ex. émulateur : http://10.0.2.2:8000).
         buildConfigField("String", "VPS_BASE_URL",
-            "\"${localProperties.getProperty("VPS_BASE_URL", "https://10.42.0.1:443")}\"")
+            "\"${project.findProperty("VPS_BASE_URL")?.toString()
+                ?: localProperties.getProperty("VPS_BASE_URL", "https://10.42.0.1:443")}\"")
         // Optionnel : valeur exacte de l'en-tête Origin du handshake WebSocket, à aligner sur
         // WS_ALLOWED_ORIGINS du backend. Vide → dérivée de VPS_BASE_URL (voir data/websocket/WsOrigin.kt).
         buildConfigField("String", "WS_ORIGIN",
@@ -82,10 +84,15 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.getByName("release")
             buildConfigField("boolean", "DEV_MODE", "false")
+            buildConfigField("boolean", "ALLOW_SCREENSHOTS", "false")
         }
         debug {
             isMinifyEnabled = false
             buildConfigField("boolean", "DEV_MODE", project.findProperty("DEV_MODE")?.toString() ?: "false")
+            // Émulateur / vérification visuelle uniquement (`-PALLOW_SCREENSHOTS=true`) : retire
+            // FLAG_SECURE pour que `adb screencap` ne renvoie pas une image noire. Toujours false
+            // en release (garde ci-dessous) et par défaut en debug.
+            buildConfigField("boolean", "ALLOW_SCREENSHOTS", project.findProperty("ALLOW_SCREENSHOTS")?.toString() ?: "false")
         }
     }
 
@@ -201,6 +208,12 @@ tasks.configureEach {
                 throw GradleException(
                     "DEV_MODE=true is not allowed in release builds. " +
                     "Set DEV_MODE=false in local.properties before building release."
+                )
+            }
+            val allowScreenshots = project.findProperty("ALLOW_SCREENSHOTS")?.toString()?.toBoolean() ?: false
+            if (allowScreenshots) {
+                throw GradleException(
+                    "ALLOW_SCREENSHOTS=true is not allowed in release builds (it removes FLAG_SECURE)."
                 )
             }
         }

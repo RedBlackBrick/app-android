@@ -78,7 +78,7 @@ fun DeviceListScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(text = "Devices") },
+                title = { Text(text = "Flotte d'appareils") },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(

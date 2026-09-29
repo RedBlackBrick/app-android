@@ -1,6 +1,7 @@
 package com.tradingplatform.app.security
 
 import androidx.lifecycle.DefaultLifecycleObserver
+import com.tradingplatform.app.BuildConfig
 import androidx.lifecycle.LifecycleOwner
 import com.tradingplatform.app.data.local.datastore.DataStoreKeys
 import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
@@ -67,7 +68,8 @@ class BiometricLockManager internal constructor(
      */
     private val lastInteractionAt = AtomicLong(0L)
 
-    private val _isLocked = MutableStateFlow(true)
+    // DEV_MODE (émulateur, jamais en release) : pas de biométrie disponible → jamais verrouillé.
+    private val _isLocked = MutableStateFlow(!BuildConfig.DEV_MODE)
     val isLocked: StateFlow<Boolean> = _isLocked.asStateFlow()
 
     /** true dès qu'un lock()/unlock() explicite a eu lieu — un restore tardif ne l'écrase pas. */
@@ -85,6 +87,7 @@ class BiometricLockManager internal constructor(
     }
 
     fun lock() {
+        if (BuildConfig.DEV_MODE) return
         explicitTransition = true
         if (!_isLocked.value) Timber.d("BiometricLockManager: locking")
         _isLocked.value = true
@@ -108,6 +111,10 @@ class BiometricLockManager internal constructor(
      * dernière interaction date de plus de [INACTIVITY_TIMEOUT_MS].
      */
     suspend fun restorePersistedState() {
+        if (BuildConfig.DEV_MODE) {
+            _isLocked.value = false
+            return
+        }
         val persistedLocked = try {
             dataStore.readBoolean(DataStoreKeys.BIOMETRIC_LOCKED)
         } catch (e: CancellationException) {

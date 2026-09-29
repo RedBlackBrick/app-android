@@ -110,7 +110,7 @@ class WidgetUpdateWorker @AssistedInject constructor(
         //    politique que VpnRequiredInterceptor (in-app Connected OU SystemVpnMonitor.active),
         //    quel que soit l'état du tunnel intégré (Disconnected, Error, ConsentRequired…).
         val inAppConnected = vpnManager.state.value is VpnState.Connected
-        val systemConnected = systemVpnMonitor.active.value
+        val systemConnected = systemVpnMonitor.active.value || systemVpnMonitor.isActiveNow()
         if (!inAppConnected && !systemConnected) {
             Timber.tag(TAG).d("WidgetUpdateWorker — VPN not connected, skipping sync (cache retained)")
             return Result.success()

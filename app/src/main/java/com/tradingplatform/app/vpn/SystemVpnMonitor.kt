@@ -43,6 +43,29 @@ class SystemVpnMonitor @Inject constructor(
     // rare but possible, e.g. during a tunnel switch).
     private val vpnNetworks = mutableSetOf<Network>()
 
+    /**
+     * Relit l'état réel auprès d'Android (sans dépendre des callbacks) et met [active] à jour.
+     *
+     * Filet de sécurité : les callbacks peuvent être en retard ou manquer un réseau (ex. VPN monté
+     * pendant que le process était gelé, réseau sortant du filtre de la requête). Appelé par les
+     * intercepteurs / le Worker quand [active] vaut `false`, et au retour au premier plan.
+     * Ne consulte volontairement que les réseaux connus d'Android, jamais un état mémorisé.
+     */
+    fun isActiveNow(): Boolean {
+        val found = currentVpnNetworks()
+        synchronized(vpnNetworks) {
+            // Les réseaux découverts ici sont ajoutés au même ensemble que ceux des callbacks :
+            // leur `onLost` ultérieur repasse donc bien [active] à `false`.
+            vpnNetworks.addAll(found)
+            val now = vpnNetworks.isNotEmpty()
+            if (now != _active.value) {
+                _active.value = now
+                Timber.tag(TAG).d("SystemVpnMonitor: refreshed from system, active=$now")
+            }
+            return now
+        }
+    }
+
     private val callback = object : ConnectivityManager.NetworkCallback() {
         override fun onCapabilitiesChanged(
             network: Network,
@@ -73,12 +96,14 @@ class SystemVpnMonitor @Inject constructor(
         try {
             val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
             if (cm != null) {
+                // `NetworkRequest.Builder()` impose par défaut NOT_RESTRICTED + TRUSTED (+ FOREGROUND
+                // sur les Android récents) et NOT_VPN. Un VPN tiers qui n'a pas exactement ces
+                // capacités — ou qui perd FOREGROUND quand aucune app ne l'utilise — sortait du
+                // filtre : `onLost` → « VPN déconnecté » alors que le tunnel était bien monté.
+                // On efface donc toutes les capacités par défaut et on ne filtre que sur le transport.
                 val request = NetworkRequest.Builder()
+                    .clearCapabilities()
                     .addTransportType(NetworkCapabilities.TRANSPORT_VPN)
-                    // Don't require NOT_VPN, don't require NET_CAPABILITY_INTERNET
-                    // (some VPNs pass all traffic and don't advertise internet on
-                    // the VPN network itself).
-                    .removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
                     .build()
                 cm.registerNetworkCallback(request, callback)
                 Timber.tag(TAG).d("SystemVpnMonitor: callback registered")
@@ -92,14 +117,15 @@ class SystemVpnMonitor @Inject constructor(
         }
     }
 
-    private fun currentlyActive(): Boolean {
+    private fun currentlyActive(): Boolean = currentVpnNetworks().isNotEmpty()
+
+    @Suppress("DEPRECATION") // allNetworks : seul moyen de lire l'état courant de façon synchrone.
+    private fun currentVpnNetworks(): List<Network> {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
-            ?: return false
-        for (network in cm.allNetworks) {
-            val caps = cm.getNetworkCapabilities(network) ?: continue
-            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) return true
+            ?: return emptyList()
+        return cm.allNetworks.filter { network ->
+            cm.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
         }
-        return false
     }
 
     companion object {

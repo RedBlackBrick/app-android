@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- DEBUG UNIQUEMENT (source set `debug`, remplace res/xml/network_security_config.xml du main).
+     Autorise le HTTP clair vers 10.0.2.2 — l'hôte de la machine de dev vu depuis l'émulateur Android —
+     pour joindre un backend local / simulé (voir docs/local-dev-testing.md). Le build release
+     utilise la configuration de main : aucun trafic clair. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="@raw/caddy_root_ca" />
+        </trust-anchors>
+    </base-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">10.0.2.2</domain>
+    </domain-config>
+</network-security-config>

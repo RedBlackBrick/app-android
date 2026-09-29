@@ -3,6 +3,7 @@ package com.tradingplatform.app.ui.components
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -23,6 +24,21 @@ enum class PortfolioSegment(val label: String) {
     Orders("Ordres"),
     History("Historique"),
 }
+
+/**
+ * Couleurs des segments de l'app : le segment actif est nettement distinct (conteneur
+ * `primaryContainer` + bordure `primary`), les autres restent sur la surface. Par défaut Material
+ * 3 met l'actif en `secondaryContainer` (slate-100), quasi indiscernable du blanc en thème clair.
+ */
+@Composable
+fun tradingSegmentedButtonColors() = SegmentedButtonDefaults.colors(
+    activeContainerColor = MaterialTheme.colorScheme.primaryContainer,
+    activeContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+    activeBorderColor = MaterialTheme.colorScheme.primary,
+    inactiveContainerColor = MaterialTheme.colorScheme.surface,
+    inactiveContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+    inactiveBorderColor = MaterialTheme.colorScheme.outline,
+)
 
 /** Cible tactile minimale (Material / TalkBack) — hauteur de chaque segment. */
 private val MinTouchTarget = 48.dp
@@ -55,6 +71,7 @@ fun PortfolioSegmentedTabs(
                 onClick = { onSelect(segment) },
                 shape = SegmentedButtonDefaults.itemShape(index = index, count = segments.size),
                 modifier = Modifier.heightIn(min = MinTouchTarget),
+                colors = tradingSegmentedButtonColors(),
                 icon = {},
                 label = {
                     Text(

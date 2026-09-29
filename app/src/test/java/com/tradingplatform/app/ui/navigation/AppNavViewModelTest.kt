@@ -10,6 +10,7 @@ import com.tradingplatform.app.security.BiometricLockManager
 import com.tradingplatform.app.security.BiometricManager
 import com.tradingplatform.app.util.MainDispatcherRule
 import com.tradingplatform.app.vpn.SystemVpnMonitor
+import com.tradingplatform.app.vpn.computeEffectiveVpnState
 import com.tradingplatform.app.vpn.VpnState
 import com.tradingplatform.app.vpn.WireGuardManager
 import io.mockk.clearMocks
@@ -415,5 +416,49 @@ class AppNavViewModelTest {
 
         assertEquals(Screen.Setup.route, vm.startDestination.value)
         assertEquals(false, vm.isSetupCompleted.value)
+    }
+
+    // ── État VPN perçu (système + intégré) ─────────────────────────────────────
+
+    @Test
+    fun `effectiveVpnState starts Connected when a system VPN is already up - no banner flash at cold start`() {
+        every { systemVpnMonitor.active } returns MutableStateFlow(true)
+
+        val vm = createViewModel(AuthContext(isLoggedIn = true, isAdmin = false, setupCompleted = true))
+
+        // Lu SANS collecteur : c'est la valeur du 1er rendu, qui valait Disconnected avant le correctif.
+        assertTrue(vm.effectiveVpnState.value is VpnState.Connected)
+    }
+
+    @Test
+    fun `effectiveVpnState initial value asks Android when the monitor callback has not reported yet`() {
+        every { systemVpnMonitor.active } returns MutableStateFlow(false)
+        every { systemVpnMonitor.isActiveNow() } returns true
+
+        val vm = createViewModel(AuthContext(isLoggedIn = true, isAdmin = false, setupCompleted = true))
+
+        assertTrue(vm.effectiveVpnState.value is VpnState.Connected)
+    }
+
+    @Test
+    fun `effectiveVpnState stays Disconnected without any VPN`() {
+        every { systemVpnMonitor.active } returns MutableStateFlow(false)
+        every { systemVpnMonitor.isActiveNow() } returns false
+
+        val vm = createViewModel(AuthContext(isLoggedIn = true, isAdmin = false, setupCompleted = true))
+
+        assertEquals(VpnState.Disconnected, vm.effectiveVpnState.value)
+    }
+
+    @Test
+    fun `computeEffectiveVpnState rules`() {
+        assertTrue(computeEffectiveVpnState(VpnState.Disconnected, systemVpnActive = true) is VpnState.Connected)
+        assertEquals(VpnState.Disconnected, computeEffectiveVpnState(VpnState.Disconnected, systemVpnActive = false))
+        assertEquals(VpnState.Connecting, computeEffectiveVpnState(VpnState.Connecting, systemVpnActive = false))
+        // Un tunnel intégré Connected est conservé tel quel (avec son serverIp).
+        val inApp = VpnState.Connected(serverIp = "10.42.0.1")
+        assertEquals(inApp, computeEffectiveVpnState(inApp, systemVpnActive = true))
+        // ConsentRequired sans VPN système : traité comme déconnecté par l'appelant (bannière).
+        assertEquals(VpnState.ConsentRequired, computeEffectiveVpnState(VpnState.ConsentRequired, systemVpnActive = false))
     }
 }

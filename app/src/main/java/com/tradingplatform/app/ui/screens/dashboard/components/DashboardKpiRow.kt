@@ -20,7 +20,7 @@ import com.tradingplatform.app.ui.theme.Spacing
 import com.tradingplatform.app.ui.theme.asNumeric
 
 /**
- * Ligne de petites tuiles KPI (Rendement, Win rate, Drawdown max), en mono. Chaque tuile est
+ * Ligne de petites tuiles KPI (Liquidités, Latent, Win rate / Drawdown max), en mono. Chaque tuile est
  * cliquable et mène à l'écran Performance ([onClick]). Rien n'est rendu si [kpis] est vide.
  */
 @Composable
@@ -57,7 +57,7 @@ private fun KpiTile(
         Column(
             modifier = Modifier
                 .padding(horizontal = Spacing.sm, vertical = Spacing.md)
-                // Une seule phrase TalkBack (« Rendement : plus 4,50 pour cent ») ; le nœud de la
+                // Une seule phrase TalkBack (« Liquidités : 12 000,00 € ») ; le nœud de la
                 // carte porte déjà le rôle bouton et l'action de clic.
                 .clearAndSetSemantics { contentDescription = kpi.spokenDescription },
             verticalArrangement = Arrangement.spacedBy(Spacing.xxs),

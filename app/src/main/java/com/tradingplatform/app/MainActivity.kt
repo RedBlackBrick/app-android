@@ -11,6 +11,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.fragment.app.FragmentActivity
 import com.tradingplatform.app.data.session.SessionManager
 import com.tradingplatform.app.security.BiometricLockManager
+import com.tradingplatform.app.vpn.SystemVpnMonitor
 import com.tradingplatform.app.security.RootDetector
 import com.tradingplatform.app.ui.navigation.AppNavGraph
 import com.tradingplatform.app.ui.theme.TradingPlatformTheme
@@ -29,6 +30,7 @@ class MainActivity : FragmentActivity() {
     @Inject lateinit var rootDetector: RootDetector
     @Inject lateinit var biometricLockManager: BiometricLockManager
     @Inject lateinit var sessionManager: SessionManager
+    @Inject lateinit var systemVpnMonitor: SystemVpnMonitor
 
     companion object {
         const val EXTRA_NAVIGATE_TO = "navigate_to"
@@ -37,11 +39,15 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Prevent screenshots, screen recording, and Recent Apps thumbnail
-        window.setFlags(
-            WindowManager.LayoutParams.FLAG_SECURE,
-            WindowManager.LayoutParams.FLAG_SECURE,
-        )
+        // Prevent screenshots, screen recording, and Recent Apps thumbnail.
+        // Seule exception : un build debug émulateur (`-PALLOW_SCREENSHOTS=true`, false en release)
+        // pour la vérification visuelle du design.
+        if (!BuildConfig.ALLOW_SCREENSHOTS) {
+            window.setFlags(
+                WindowManager.LayoutParams.FLAG_SECURE,
+                WindowManager.LayoutParams.FLAG_SECURE,
+            )
+        }
 
         // Edge-to-edge + immersive sticky: draw behind the status/nav bars and
         // hide them unless the user swipes from an edge (BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE).
@@ -61,6 +67,13 @@ class MainActivity : FragmentActivity() {
                 AppNavGraph()
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        // Retour au premier plan : relit l'état réel des VPN système (un tunnel monté ou coupé
+        // pendant que l'app était en arrière-plan ne doit pas laisser une bannière périmée).
+        systemVpnMonitor.isActiveNow()
     }
 
     override fun onNewIntent(intent: Intent) {
