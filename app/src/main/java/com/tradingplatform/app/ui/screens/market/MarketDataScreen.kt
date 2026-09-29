@@ -60,6 +60,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tradingplatform.app.domain.model.Quote
 import com.tradingplatform.app.ui.components.AnimatedPriceText
+import com.tradingplatform.app.ui.components.ErrorBanner
 import com.tradingplatform.app.ui.components.SkeletonQuoteCard
 import com.tradingplatform.app.ui.components.SparklineChart
 import com.tradingplatform.app.ui.components.TradingCard
@@ -161,10 +162,12 @@ fun MarketDataScreen(
                         .padding(innerPadding),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(
-                        text = state.message,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.error,
+                    // Même composant d'erreur (avec « Réessayer ») que le reste de l'app, à la place
+                    // d'un texte rouge sans action.
+                    ErrorBanner(
+                        message = state.message,
+                        onRetry = { viewModel.refresh() },
+                        modifier = Modifier.padding(horizontal = Spacing.lg),
                     )
                 }
             }

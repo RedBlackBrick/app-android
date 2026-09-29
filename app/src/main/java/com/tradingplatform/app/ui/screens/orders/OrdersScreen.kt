@@ -2,6 +2,7 @@ package com.tradingplatform.app.ui.screens.orders
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -55,6 +56,7 @@ import com.tradingplatform.app.ui.components.MoneyText
 import com.tradingplatform.app.ui.components.PortfolioSegment
 import com.tradingplatform.app.ui.components.PortfolioSegmentedTabs
 import com.tradingplatform.app.ui.components.PortfolioSwitcher
+import com.tradingplatform.app.ui.components.SkeletonPositionCard
 import com.tradingplatform.app.ui.theme.IconSize
 import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.Spacing
@@ -400,11 +402,13 @@ private fun CancelOrderButton(
 
 @Composable
 private fun CenteredLoading() {
-    Box(
+    // Squelettes (même gabarit que les cartes d'ordres) plutôt qu'un spinner nu.
+    LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center,
+        contentPadding = PaddingValues(Spacing.lg),
+        verticalArrangement = Arrangement.spacedBy(Spacing.sm),
     ) {
-        CircularProgressIndicator()
+        items(4) { SkeletonPositionCard() }
     }
 }
 

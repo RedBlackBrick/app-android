@@ -41,6 +41,7 @@ import com.tradingplatform.app.ui.components.MoneyText
 import com.tradingplatform.app.ui.components.PortfolioSegment
 import com.tradingplatform.app.ui.components.PortfolioSegmentedTabs
 import com.tradingplatform.app.ui.components.PortfolioSwitcher
+import com.tradingplatform.app.ui.components.SkeletonPositionCard
 import com.tradingplatform.app.ui.theme.IconSize
 import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.Spacing
@@ -92,11 +93,12 @@ fun TransactionHistoryScreen(
             ) {
                 when (val state = uiState) {
                     is TransactionHistoryUiState.Loading -> {
-                        Box(
+                        LazyColumn(
                             modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center,
+                            contentPadding = PaddingValues(Spacing.lg),
+                            verticalArrangement = Arrangement.spacedBy(Spacing.sm),
                         ) {
-                            CircularProgressIndicator()
+                            items(5) { SkeletonPositionCard() }
                         }
                     }
                     is TransactionHistoryUiState.Error -> {
