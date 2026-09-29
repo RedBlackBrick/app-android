@@ -1,15 +1,21 @@
 package com.tradingplatform.app.ui.screens.auth
 
+import android.app.Activity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
@@ -37,7 +43,11 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tradingplatform.app.ui.components.ErrorBanner
 import com.tradingplatform.app.ui.components.LoadingOverlay
+import com.tradingplatform.app.ui.components.LoginBackdrop
+import com.tradingplatform.app.ui.screens.settings.VpnConsentUiState
+import com.tradingplatform.app.ui.screens.setup.launchVpnConsent
 import com.tradingplatform.app.ui.theme.Spacing
+import com.tradingplatform.app.vpn.VpnState
 import kotlinx.coroutines.delay
 
 /**
@@ -55,6 +65,27 @@ fun LoginScreen(
     viewModel: LoginViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val vpnState by viewModel.vpnState.collectAsStateWithLifecycle()
+    val hasVpnConfig by viewModel.hasVpnConfig.collectAsStateWithLifecycle()
+    val consentState by viewModel.consentState.collectAsStateWithLifecycle()
+
+    // Dialogue de consentement VPN d'Android (`VpnService.prepare`), comme VpnSettingsScreen :
+    // RESULT_OK = accordé. Lancé une seule fois (`Launched` vit dans le ViewModel).
+    val vpnConsentLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        viewModel.onVpnConsentResult(granted = result.resultCode == Activity.RESULT_OK)
+    }
+    LaunchedEffect(consentState) {
+        if (consentState == VpnConsentUiState.Required) {
+            launchVpnConsent(
+                intent = viewModel.vpnConsentIntent(),
+                launch = { vpnConsentLauncher.launch(it) },
+                onLaunched = viewModel::onVpnConsentLaunched,
+                onResult = viewModel::onVpnConsentResult,
+            )
+        }
+    }
 
     // Réagir aux états de navigation — une seule fois par transition
     LaunchedEffect(uiState) {
@@ -73,8 +104,12 @@ fun LoginScreen(
 
     LoginScreenContent(
         uiState = uiState,
+        vpnState = vpnState,
+        hasVpnConfig = hasVpnConfig,
+        consentDenied = consentState == VpnConsentUiState.Denied,
         onLoginClick = { email, password -> viewModel.login(email, password) },
         onDismissError = { viewModel.resetState() },
+        onActivateVpn = viewModel::onActivateVpn,
         modifier = modifier,
     )
 }
@@ -82,8 +117,12 @@ fun LoginScreen(
 @Composable
 private fun LoginScreenContent(
     uiState: LoginUiState,
+    vpnState: VpnState,
+    hasVpnConfig: Boolean,
+    consentDenied: Boolean,
     onLoginClick: (email: String, password: String) -> Unit,
     onDismissError: () -> Unit,
+    onActivateVpn: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var email by rememberSaveable { mutableStateOf("") }
@@ -92,17 +131,29 @@ private fun LoginScreenContent(
 
     val isLoading = uiState is LoginUiState.Loading
     val errorState = uiState as? LoginUiState.Error
+    val vpnBanner = loginVpnBanner(
+        state = vpnState,
+        hasVpnConfig = hasVpnConfig,
+        consentDenied = consentDenied,
+    )
 
-    Box(
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
             .systemBarsPadding()
             .imePadding(),
     ) {
+        // Décor : courbe de cours qui se trace lentement, très discrète, derrière le formulaire.
+        LoginBackdrop(modifier = Modifier.fillMaxSize())
+
+        // Défilable (bandeau VPN + clavier + police agrandie) mais centré quand tout tient :
+        // hauteur minimale = hauteur disponible.
         Column(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = Spacing.xl),
+                .fillMaxWidth()
+                .heightIn(min = maxHeight)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = Spacing.xl, vertical = Spacing.lg),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -121,7 +172,15 @@ private fun LoginScreenContent(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
-            Spacer(modifier = Modifier.height(Spacing.xxxl))
+            Spacer(modifier = Modifier.height(Spacing.lg))
+
+            // État du tunnel VPN — informe sans bloquer : « Se connecter » reste actif.
+            LoginVpnBanner(
+                model = vpnBanner,
+                onActivate = onActivateVpn,
+            )
+
+            Spacer(modifier = Modifier.height(Spacing.xl))
 
             // Champ email
             OutlinedTextField(

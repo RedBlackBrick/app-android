@@ -11,6 +11,7 @@ import com.tradingplatform.app.data.session.TokenHolder
 import com.tradingplatform.app.domain.exception.AccountLockedException
 import com.tradingplatform.app.domain.exception.InvalidCredentialsException
 import com.tradingplatform.app.domain.exception.TotpRequiredException
+import com.tradingplatform.app.domain.repository.PortfolioSelectionRepository
 import io.mockk.coEvery
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
@@ -43,6 +44,7 @@ class AuthRepositoryImplLoginErrorTest {
         cookieJar = mockk<EncryptedCookieJar>(relaxed = true),
         okHttpClient = OkHttpClient(),
         sessionManager = mockk<SessionManager>(relaxed = true),
+        portfolioSelectionRepository = mockk<PortfolioSelectionRepository>(relaxed = true),
     )
 
     private fun errorResponse(code: Int, body: String, retryAfter: String? = null): Response<LoginResponseDto> {

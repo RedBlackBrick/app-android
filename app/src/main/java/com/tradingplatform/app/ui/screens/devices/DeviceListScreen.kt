@@ -46,6 +46,7 @@ import com.tradingplatform.app.domain.model.Device
 import com.tradingplatform.app.domain.model.DeviceStatus
 import com.tradingplatform.app.ui.components.CacheTimestamp
 import com.tradingplatform.app.ui.components.CompactHealthBar
+import com.tradingplatform.app.ui.components.DeviceLinkDiagram
 import com.tradingplatform.app.ui.components.EmptyDevicesIllustration
 import com.tradingplatform.app.ui.components.EmptyState
 import com.tradingplatform.app.ui.components.HealthStatusBadge
@@ -262,6 +263,9 @@ private fun DeviceCard(
                     }
                 }
             }
+
+            // Mini schéma Radxa ↔ serveur : points qui circulent en ligne, ligne coupée hors ligne.
+            DeviceLinkDiagram(online = isOnline, compact = true)
 
             LabeledValue(label = "IP WireGuard", value = device.wgIp)
             LabeledValue(label = "Dernière vue", value = device.lastHeartbeat?.let { formatHeartbeat(it) })

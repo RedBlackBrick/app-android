@@ -13,11 +13,13 @@ import com.tradingplatform.app.data.local.db.AppDatabase
 import com.tradingplatform.app.data.local.db.dao.AlertDao
 import com.tradingplatform.app.data.local.db.dao.QuoteDao
 import com.tradingplatform.app.data.local.db.dao.WatchlistDao
-import com.tradingplatform.app.data.model.PnlResponseDto
+import com.tradingplatform.app.data.model.BatchPnlItemDto
+import com.tradingplatform.app.data.model.BatchPnlResponseDto
 import com.tradingplatform.app.data.model.PositionDto
 import com.tradingplatform.app.data.repository.PortfolioRepositoryImpl
 import com.tradingplatform.app.domain.model.PnlPeriod
 import com.tradingplatform.app.domain.model.Quote
+import com.tradingplatform.app.domain.repository.PortfolioSelectionRepository
 import com.tradingplatform.app.domain.usecase.market.GetQuoteUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPnlUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPositionsUseCase
@@ -99,6 +101,7 @@ class WidgetUpdateWorkerRoomTest {
             portfolioApi = portfolioApi,
             positionDao = db.positionDao(),
             pnlDao = db.pnlDao(),
+            portfolioSelection = mockk<PortfolioSelectionRepository>(relaxed = true),
         )
         getPositionsUseCase = GetPositionsUseCase(repository)
         getPnlUseCase = GetPnlUseCase(repository)
@@ -120,16 +123,19 @@ class WidgetUpdateWorkerRoomTest {
                 )
             )
         )
-        coEvery { portfolioApi.getPnl("1", "day") } returns Response.success(
-            PnlResponseDto(
-                period = "day",
-                realizedPnl = BigDecimal("100.00"),
-                unrealizedPnl = BigDecimal("50.00"),
-                totalPnl = BigDecimal("150.00"),
-                totalPnlPercent = 4.5,
-                tradesCount = 10,
-                winningTrades = 7,
-                losingTrades = 3,
+        // Période DAY : `batch/pnl` (pnl_pct = FRACTION 0.045 = 4,5 %).
+        coEvery { portfolioApi.getBatchPnl(any()) } returns Response.success(
+            BatchPnlResponseDto(
+                data = mapOf(
+                    "1" to BatchPnlItemDto(
+                        portfolioId = "1",
+                        pnlAmount = "150.00",
+                        pnlPct = 0.045,
+                        previousValue = "3333.33",
+                        currentValue = "3483.33",
+                        currencyCode = "EUR",
+                    ),
+                ),
             )
         )
         coEvery { quoteDao.getAllSymbols() } returns listOf("AAPL")
@@ -197,6 +203,7 @@ class WidgetUpdateWorkerRoomTest {
             db.positionDao().getAll().size,
         )
         coVerify(exactly = 0) { portfolioApi.getPositions(any(), any()) }
+        coVerify(exactly = 0) { portfolioApi.getBatchPnl(any()) }
         coVerify(exactly = 0) { portfolioApi.getPnl(any(), any()) }
         coVerify(exactly = 0) { getQuoteUseCase(any()) }
     }

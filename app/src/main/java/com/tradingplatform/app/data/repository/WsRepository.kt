@@ -77,6 +77,7 @@ class WsRepository(
                 unrealizedPnl = event.data.optDoubleOrNull("unrealized_pnl"),
                 realizedPnl = event.data.optDoubleOrNull("realized_pnl"),
                 isActive = !event.data.has("is_active") || event.data.optBoolean("is_active", true),
+                portfolioId = event.data.optString("portfolio_id", null),
             )
         }
 

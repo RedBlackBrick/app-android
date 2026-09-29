@@ -5,13 +5,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tradingplatform.app.domain.model.Position
 import com.tradingplatform.app.domain.model.Transaction
-import com.tradingplatform.app.domain.usecase.auth.GetPortfolioIdUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPositionUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetTransactionsUseCase
+import com.tradingplatform.app.domain.usecase.portfolio.ObserveActivePortfolioUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -30,7 +31,7 @@ sealed interface PositionDetailUiState {
 class PositionDetailViewModel @Inject constructor(
     private val getPositionUseCase: GetPositionUseCase,
     private val getTransactionsUseCase: GetTransactionsUseCase,
-    private val getPortfolioIdUseCase: GetPortfolioIdUseCase,
+    private val observeActivePortfolioUseCase: ObserveActivePortfolioUseCase,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -52,7 +53,9 @@ class PositionDetailViewModel @Inject constructor(
 
     private suspend fun loadDetail(forceRefresh: Boolean) {
         _uiState.update { PositionDetailUiState.Loading }
-        val portfolioId = getPortfolioIdUseCase()
+        // Position identifiée par la route : pas de collecte continue du portefeuille actif, on lit
+        // sa valeur courante (suspend tant qu'elle est inconnue) à chaque chargement / rafraîchissement.
+        val portfolioId = observeActivePortfolioUseCase().first()
 
         // Une seule position par ID — cache Room servi s'il est frais (< CacheTtl.POSITIONS_MS)
         val positionResult = getPositionUseCase(portfolioId, positionId, forceRefresh)

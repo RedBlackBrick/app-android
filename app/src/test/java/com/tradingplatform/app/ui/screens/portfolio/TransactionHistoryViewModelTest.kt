@@ -1,14 +1,16 @@
 package com.tradingplatform.app.ui.screens.portfolio
 
 import com.tradingplatform.app.domain.model.Transaction
-import com.tradingplatform.app.domain.usecase.auth.GetPortfolioIdUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetTransactionsUseCase
+import com.tradingplatform.app.domain.usecase.portfolio.ObserveActivePortfolioUseCase
 import com.tradingplatform.app.util.MainDispatcherRule
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -31,7 +33,10 @@ class TransactionHistoryViewModelTest {
     val mainDispatcherRule = MainDispatcherRule()
 
     private val getTransactionsUseCase = mockk<GetTransactionsUseCase>()
-    private val getPortfolioIdUseCase = mockk<GetPortfolioIdUseCase>()
+    private val observeActivePortfolioUseCase = mockk<ObserveActivePortfolioUseCase>()
+
+    /** Portefeuille actif simulé : modifier `.value` équivaut à un changement de sélection. */
+    private val activePortfolio = MutableStateFlow("1")
 
     private lateinit var viewModel: TransactionHistoryViewModel
 
@@ -51,13 +56,13 @@ class TransactionHistoryViewModelTest {
 
     @Before
     fun setUp() {
-        coEvery { getPortfolioIdUseCase() } returns "1"
+        every { observeActivePortfolioUseCase() } returns activePortfolio
         coEvery { getTransactionsUseCase(any(), any(), 0, any()) } returns Result.success(firstPage)
     }
 
     private fun createViewModel(): TransactionHistoryViewModel = TransactionHistoryViewModel(
         getTransactionsUseCase = getTransactionsUseCase,
-        getPortfolioIdUseCase = getPortfolioIdUseCase,
+        observeActivePortfolioUseCase = observeActivePortfolioUseCase,
     )
 
     @Test
@@ -149,5 +154,70 @@ class TransactionHistoryViewModelTest {
         viewModel = createViewModel()
 
         assertTrue(viewModel.uiState.value is TransactionHistoryUiState.Error)
+    }
+
+    // ── Changement de portefeuille actif ─────────────────────────────────────────
+
+    @Test
+    fun `changing the active portfolio resets the list and pagination then reloads with the new id`() = runTest {
+        val gate = CompletableDeferred<Result<List<Transaction>>>()
+        coEvery { getTransactionsUseCase("p1", any(), 0, any()) } returns Result.success(firstPage)
+        coEvery { getTransactionsUseCase("p2", any(), 0, any()) } coAnswers { gate.await() }
+        activePortfolio.value = "p1"
+        viewModel = createViewModel()
+        assertEquals(50, (viewModel.uiState.value as TransactionHistoryUiState.Success).transactions.size)
+
+        activePortfolio.value = "p2"
+
+        // Les 50 lignes de p1 ne doivent plus être visibles sous p2 pendant le rechargement.
+        assertTrue(
+            "Expected Loading while p2 loads, got ${viewModel.uiState.value}",
+            viewModel.uiState.value is TransactionHistoryUiState.Loading,
+        )
+        gate.complete(Result.success((101L..110L).map(::tx)))
+
+        val state = viewModel.uiState.value as TransactionHistoryUiState.Success
+        assertEquals((101L..110L).toList(), state.transactions.map { it.id })
+        assertFalse("10 lignes < 50 : pas de page suivante", state.hasMore)
+        coVerify(exactly = 1) { getTransactionsUseCase("p2", any(), 0, any()) }
+    }
+
+    @Test
+    fun `pagination restarts from offset 0 for the new portfolio`() = runTest {
+        coEvery { getTransactionsUseCase("p1", any(), 0, any()) } returns Result.success(firstPage)
+        coEvery { getTransactionsUseCase("p1", any(), 50, any()) } returns
+            Result.success((51L..100L).map(::tx))
+        coEvery { getTransactionsUseCase("p2", any(), 0, any()) } returns
+            Result.success((201L..250L).map(::tx))
+        coEvery { getTransactionsUseCase("p2", any(), 50, any()) } returns
+            Result.success((251L..260L).map(::tx))
+        activePortfolio.value = "p1"
+        viewModel = createViewModel()
+        viewModel.loadMore() // p1 : offset 100 après cette page
+
+        activePortfolio.value = "p2"
+        viewModel.loadMore()
+
+        // Sans remise à zéro de l'offset, cette page aurait été demandée à l'offset 150.
+        coVerify(exactly = 1) { getTransactionsUseCase("p2", any(), 50, any()) }
+        val state = viewModel.uiState.value as TransactionHistoryUiState.Success
+        assertEquals(60, state.transactions.size)
+        assertEquals(201L, state.transactions.first().id)
+    }
+
+    @Test
+    fun `a response arriving after a portfolio switch never reaches the screen`() = runTest {
+        val lateP1 = CompletableDeferred<Result<List<Transaction>>>()
+        coEvery { getTransactionsUseCase("p1", any(), 0, any()) } coAnswers { lateP1.await() }
+        coEvery { getTransactionsUseCase("p2", any(), 0, any()) } returns
+            Result.success((201L..205L).map(::tx))
+        activePortfolio.value = "p1"
+        viewModel = createViewModel() // le chargement de p1 est suspendu
+
+        activePortfolio.value = "p2"
+        lateP1.complete(Result.success(firstPage)) // réponse tardive de p1
+
+        val state = viewModel.uiState.value as TransactionHistoryUiState.Success
+        assertEquals((201L..205L).toList(), state.transactions.map { it.id })
     }
 }

@@ -60,6 +60,8 @@ sealed class WsUpdate {
         val unrealizedPnl: Double? = null,
         val realizedPnl: Double? = null,
         val isActive: Boolean = true,
+        /** Portefeuille de la position (`portfolio_id` du payload WS) ; null si absent. */
+        val portfolioId: String? = null,
     ) : WsUpdate()
 
     /** User-facing notification received via the private WebSocket channel. */

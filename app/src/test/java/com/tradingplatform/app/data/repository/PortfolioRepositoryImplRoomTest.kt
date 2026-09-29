@@ -9,11 +9,14 @@ import com.tradingplatform.app.data.local.db.CacheTtl
 import com.tradingplatform.app.data.local.db.dao.PnlDao
 import com.tradingplatform.app.data.local.db.dao.PositionDao
 import com.tradingplatform.app.data.local.db.entity.PositionEntity
+import com.tradingplatform.app.data.model.BatchPnlItemDto
+import com.tradingplatform.app.data.model.BatchPnlResponseDto
 import com.tradingplatform.app.data.model.PositionDto
 import com.tradingplatform.app.data.model.PnlResponseDto
 import com.tradingplatform.app.data.model.toEntity
 import com.tradingplatform.app.domain.model.PnlPeriod
 import com.tradingplatform.app.domain.model.PositionStatus
+import com.tradingplatform.app.domain.repository.PortfolioSelectionRepository
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
@@ -84,6 +87,7 @@ class PortfolioRepositoryImplRoomTest {
             portfolioApi = portfolioApi,
             positionDao = positionDao,
             pnlDao = pnlDao,
+            portfolioSelection = mockk<PortfolioSelectionRepository>(relaxed = true),
         )
     }
 
@@ -94,6 +98,7 @@ class PortfolioRepositoryImplRoomTest {
 
     // ── getPnlSummary — writes pnl_snapshots ──────────────────────────────────
 
+    /** `/pnl` (ALL / YEAR) : `total_pnl_percent` est un POURCENTAGE. */
     private fun pnlDto(period: String, totalPnlPercent: Double = 4.5) = PnlResponseDto(
         period = period,
         realizedPnl = BigDecimal("100.00"),
@@ -105,9 +110,25 @@ class PortfolioRepositoryImplRoomTest {
         losingTrades = 3,
     )
 
+    /** `batch/pnl` (DAY / WEEK / MONTH) : `pnl_pct` est une FRACTION. */
+    private fun batchPnl(amount: String = "150.00", fraction: Double = 0.045) = Response.success(
+        BatchPnlResponseDto(
+            data = mapOf(
+                portfolioId to BatchPnlItemDto(
+                    portfolioId = portfolioId,
+                    pnlAmount = amount,
+                    pnlPct = fraction,
+                    previousValue = "3333.33",
+                    currentValue = "3483.33",
+                    currencyCode = "EUR",
+                ),
+            ),
+        ),
+    )
+
     @Test
-    fun `getPnlSummary persists a row in pnl_snapshots with period=day and the percent stored as a fraction`() = runTest {
-        coEvery { portfolioApi.getPnl(portfolioId, "day") } returns Response.success(pnlDto("day", totalPnlPercent = 4.5))
+    fun `getPnlSummary DAY persists a row from batch pnl with the fraction stored as is`() = runTest {
+        coEvery { portfolioApi.getBatchPnl(any()) } returns batchPnl(amount = "150.00", fraction = 0.045)
 
         val result = repository.getPnlSummary(portfolioId, PnlPeriod.DAY)
 
@@ -115,8 +136,25 @@ class PortfolioRepositoryImplRoomTest {
         val row = pnlDao.getByPeriod("day")
         assertNotNull("Expected a pnl_snapshots row for period=day", row)
         assertEquals("day", row!!.period)
-        // Backend sends a percent (4.5) — the Room cache stores a fraction (mapper divides by 100).
+        assertEquals("150.00", row.totalPnl)
+        // batch/pnl envoie DÉJÀ une fraction (0.045) : le cache la stocke telle quelle, sans /100.
         assertEquals(0.045, row.totalPnlPercent, 1e-9)
+        // batch/pnl ne fournit ni compteurs de trades ni réalisé/latent : écrits à zéro.
+        assertEquals(0, row.tradesCount)
+        assertEquals("0", row.realizedPnl)
+    }
+
+    @Test
+    fun `getPnlSummary ALL persists a row from pnl with the percent stored as a fraction`() = runTest {
+        coEvery { portfolioApi.getPnl(portfolioId, "all") } returns Response.success(pnlDto("all", totalPnlPercent = 4.5))
+
+        val result = repository.getPnlSummary(portfolioId, PnlPeriod.ALL)
+
+        assertTrue(result.isSuccess)
+        val row = pnlDao.getByPeriod("all")
+        assertNotNull("Expected a pnl_snapshots row for period=all", row)
+        // Backend sends a percent (4.5) — the Room cache stores a fraction (mapper divides by 100).
+        assertEquals(0.045, row!!.totalPnlPercent, 1e-9)
         assertEquals(10, row.tradesCount)
         assertEquals(7, row.winningTrades)
         assertEquals(3, row.losingTrades)
@@ -124,8 +162,8 @@ class PortfolioRepositoryImplRoomTest {
 
     @Test
     fun `getPnlSummary for a second period adds a row without deleting the first (24h retention, not 5 min freshness)`() = runTest {
-        coEvery { portfolioApi.getPnl(portfolioId, "day") } returns Response.success(pnlDto("day"))
-        coEvery { portfolioApi.getPnl(portfolioId, "week") } returns Response.success(pnlDto("week", totalPnlPercent = 9.0))
+        coEvery { portfolioApi.getBatchPnl(match { it.period == "day" }) } returns batchPnl(fraction = 0.045)
+        coEvery { portfolioApi.getBatchPnl(match { it.period == "week" }) } returns batchPnl(fraction = 0.09)
 
         repository.getPnlSummary(portfolioId, PnlPeriod.DAY)
         repository.getPnlSummary(portfolioId, PnlPeriod.WEEK)
@@ -159,7 +197,7 @@ class PortfolioRepositoryImplRoomTest {
             )
         )
 
-        coEvery { portfolioApi.getPnl(portfolioId, "day") } returns Response.success(pnlDto("day"))
+        coEvery { portfolioApi.getBatchPnl(any()) } returns batchPnl()
         repository.getPnlSummary(portfolioId, PnlPeriod.DAY)
 
         assertNull("MONTH row is older than the 24h retention cutoff — must be purged", pnlDao.getByPeriod("month"))
@@ -169,10 +207,10 @@ class PortfolioRepositoryImplRoomTest {
 
     @Test
     fun `getPnlSummary upserts (REPLACE) rather than duplicating a row for the same period`() = runTest {
-        coEvery { portfolioApi.getPnl(portfolioId, "day") } returns Response.success(pnlDto("day", totalPnlPercent = 4.5))
+        coEvery { portfolioApi.getBatchPnl(any()) } returns batchPnl(fraction = 0.045)
         repository.getPnlSummary(portfolioId, PnlPeriod.DAY)
 
-        coEvery { portfolioApi.getPnl(portfolioId, "day") } returns Response.success(pnlDto("day", totalPnlPercent = 6.0))
+        coEvery { portfolioApi.getBatchPnl(any()) } returns batchPnl(fraction = 0.06)
         repository.getPnlSummary(portfolioId, PnlPeriod.DAY)
 
         val row = pnlDao.getByPeriod("day")
@@ -182,7 +220,7 @@ class PortfolioRepositoryImplRoomTest {
 
     @Test
     fun `getPnlSummary returns failure and does not write Room when the API call errors`() = runTest {
-        coEvery { portfolioApi.getPnl(portfolioId, "day") } returns
+        coEvery { portfolioApi.getBatchPnl(any()) } returns
             Response.error(500, "boom".toResponseBody(null))
 
         val result = repository.getPnlSummary(portfolioId, PnlPeriod.DAY)

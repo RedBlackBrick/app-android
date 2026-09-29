@@ -43,6 +43,7 @@ import com.tradingplatform.app.domain.model.DeviceStatus
 import com.tradingplatform.app.ui.components.CPU_THRESHOLDS
 import com.tradingplatform.app.ui.components.CacheTimestamp
 import com.tradingplatform.app.ui.components.DISK_THRESHOLDS
+import com.tradingplatform.app.ui.components.DeviceLinkDiagram
 import com.tradingplatform.app.ui.components.EmptyDevicesIllustration
 import com.tradingplatform.app.ui.components.EmptyState
 import com.tradingplatform.app.ui.components.LoadingOverlay
@@ -206,6 +207,9 @@ private fun DeviceSummaryCard(
                     DeviceStatus.OFFLINE -> OfflineBadge()
                 }
             }
+
+            // Schéma en tête : liaison WireGuard Radxa ↔ serveur (points qui circulent si en ligne).
+            DeviceLinkDiagram(online = device.status == DeviceStatus.ONLINE)
 
             HorizontalDivider(color = LocalExtendedColors.current.divider)
 

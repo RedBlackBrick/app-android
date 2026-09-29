@@ -2,11 +2,13 @@ package com.tradingplatform.app.data.repository
 
 import com.tradingplatform.app.data.api.OrderDto
 import com.tradingplatform.app.data.api.OrdersApi
+import com.tradingplatform.app.data.api.OrdersWriteApi
 import com.tradingplatform.app.domain.model.Order
 import com.tradingplatform.app.domain.model.OrderSide
 import com.tradingplatform.app.domain.model.OrderStatus
 import com.tradingplatform.app.domain.model.OrderType
 import com.tradingplatform.app.domain.model.Page
+import com.tradingplatform.app.domain.model.WriteOutcome
 import com.tradingplatform.app.domain.repository.OrdersRepository
 import com.tradingplatform.app.domain.util.parseInstantOrNull
 import com.tradingplatform.app.domain.util.runCatchingCancellable
@@ -16,6 +18,7 @@ import javax.inject.Singleton
 @Singleton
 class OrdersRepositoryImpl @Inject constructor(
     private val api: OrdersApi,
+    private val writeApi: OrdersWriteApi,
 ) : OrdersRepository {
 
     override suspend fun listActiveOrders(portfolioId: String): Result<List<Order>> = runCatchingCancellable {
@@ -42,6 +45,12 @@ class OrdersRepositoryImpl @Inject constructor(
         )
     }
 
+    override suspend fun cancelOrder(orderId: Long): Result<WriteOutcome> =
+        OrdersStrategiesWriteSupport.execute(
+            endpoint = CANCEL_ENDPOINT,
+            conflictMessage = "Ordre non annulable dans son état actuel",
+        ) { writeApi.cancelOrder(orderId) }
+
     private fun toDomain(dto: OrderDto): Order = Order(
         id = dto.id,
         symbol = dto.symbol,
@@ -58,4 +67,9 @@ class OrdersRepositoryImpl @Inject constructor(
         createdAt = dto.createdAt.parseInstantOrNull(),
         updatedAt = dto.updatedAt.parseInstantOrNull(),
     )
+
+    private companion object {
+        // Gabarit (jamais l'identifiant réel) : utilisé dans HttpStatusException et les logs.
+        const val CANCEL_ENDPOINT = "v1/orders/{order_id}/cancel"
+    }
 }

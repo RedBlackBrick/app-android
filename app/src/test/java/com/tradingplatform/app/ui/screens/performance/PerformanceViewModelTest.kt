@@ -2,13 +2,17 @@ package com.tradingplatform.app.ui.screens.performance
 
 import app.cash.turbine.test
 import com.tradingplatform.app.domain.model.PerformanceMetrics
-import com.tradingplatform.app.domain.usecase.auth.GetPortfolioIdUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPerformanceUseCase
+import com.tradingplatform.app.domain.usecase.portfolio.ObserveActivePortfolioUseCase
 import com.tradingplatform.app.util.MainDispatcherRule
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Before
@@ -24,7 +28,10 @@ class PerformanceViewModelTest {
     val mainDispatcherRule = MainDispatcherRule()
 
     private val getPerformanceUseCase = mockk<GetPerformanceUseCase>()
-    private val getPortfolioIdUseCase = mockk<GetPortfolioIdUseCase>()
+    private val observeActivePortfolioUseCase = mockk<ObserveActivePortfolioUseCase>()
+
+    /** Portefeuille actif simulé : modifier `.value` équivaut à un changement de sélection. */
+    private val activePortfolio = MutableStateFlow("42")
 
     /**
      * `maxDrawdown` is already converted to a **fraction** by `PerformanceResponseDto.toPerformanceMetrics()`
@@ -48,12 +55,12 @@ class PerformanceViewModelTest {
 
     @Before
     fun setUp() {
-        coEvery { getPortfolioIdUseCase() } returns "42"
+        every { observeActivePortfolioUseCase() } returns activePortfolio
     }
 
     private fun createViewModel(): PerformanceViewModel = PerformanceViewModel(
         getPerformanceUseCase = getPerformanceUseCase,
-        getPortfolioIdUseCase = getPortfolioIdUseCase,
+        observeActivePortfolioUseCase = observeActivePortfolioUseCase,
     )
 
     // ── init ─────────────────────────────────────────────────────────────────
@@ -112,15 +119,15 @@ class PerformanceViewModelTest {
         viewModel.refresh()
 
         coVerify(exactly = 2) { getPerformanceUseCase("42") }
-        // portfolioId is resolved once in init and cached — refresh() must not re-resolve it.
-        coVerify(exactly = 1) { getPortfolioIdUseCase() }
+        // Le flux du portefeuille actif est collecté une seule fois (init) — refresh() ne le relit pas.
+        verify(exactly = 1) { observeActivePortfolioUseCase() }
     }
 
     @Test
     fun `refresh is a no-op when portfolioId has not resolved yet`() = runTest {
         // Portfolio id resolves to empty synchronously in this test setup (UnconfinedTestDispatcher),
         // so this exercises the defensive early-return guard directly.
-        coEvery { getPortfolioIdUseCase() } returns ""
+        activePortfolio.value = ""
         coEvery { getPerformanceUseCase(any()) } returns Result.success(fakeMetrics)
 
         val viewModel = createViewModel()
@@ -144,5 +151,58 @@ class PerformanceViewModelTest {
             assertEquals(fakeMetrics, state.metrics)
             cancelAndIgnoreRemainingEvents()
         }
+    }
+
+    // ── Changement de portefeuille actif ─────────────────────────────────────
+
+    @Test
+    fun `changing the active portfolio resets to Loading then reloads with the new id`() = runTest {
+        val gate = CompletableDeferred<Result<PerformanceMetrics>>()
+        val p2Metrics = fakeMetrics.copy(sharpeRatio = 2.5, totalReturnPct = 0.31)
+        coEvery { getPerformanceUseCase("p1") } returns Result.success(fakeMetrics)
+        coEvery { getPerformanceUseCase("p2") } coAnswers { gate.await() }
+        activePortfolio.value = "p1"
+        val viewModel = createViewModel()
+        assertEquals(fakeMetrics, (viewModel.uiState.value as PerformanceUiState.Success).metrics)
+
+        activePortfolio.value = "p2"
+
+        // Les métriques de p1 ne doivent plus être visibles sous p2 pendant le rechargement.
+        assertIs<PerformanceUiState.Loading>(viewModel.uiState.value)
+        gate.complete(Result.success(p2Metrics))
+
+        val state = viewModel.uiState.value
+        assertIs<PerformanceUiState.Success>(state)
+        assertEquals(p2Metrics, state.metrics)
+        coVerify(exactly = 1) { getPerformanceUseCase("p2") }
+    }
+
+    @Test
+    fun `a late response for the previous portfolio never reaches the screen`() = runTest {
+        val lateP1 = CompletableDeferred<Result<PerformanceMetrics>>()
+        val p2Metrics = fakeMetrics.copy(sharpeRatio = 2.5)
+        coEvery { getPerformanceUseCase("p1") } coAnswers { lateP1.await() }
+        coEvery { getPerformanceUseCase("p2") } returns Result.success(p2Metrics)
+        activePortfolio.value = "p1"
+        val viewModel = createViewModel() // le chargement de p1 est suspendu
+
+        activePortfolio.value = "p2"
+        lateP1.complete(Result.success(fakeMetrics)) // réponse tardive de p1
+
+        val state = viewModel.uiState.value
+        assertIs<PerformanceUiState.Success>(state)
+        assertEquals(p2Metrics, state.metrics)
+    }
+
+    @Test
+    fun `refresh after a portfolio switch uses the new id`() = runTest {
+        coEvery { getPerformanceUseCase(any()) } returns Result.success(fakeMetrics)
+        val viewModel = createViewModel()
+
+        activePortfolio.value = "p2"
+        viewModel.refresh()
+
+        coVerify(exactly = 2) { getPerformanceUseCase("p2") }
+        coVerify(exactly = 1) { getPerformanceUseCase("42") }
     }
 }

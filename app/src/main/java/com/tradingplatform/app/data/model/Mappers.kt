@@ -95,7 +95,11 @@ fun PerformanceResponseDto.toPerformanceMetrics(): PerformanceMetrics = Performa
     avgTradeReturn = avgTradeReturn,
 )
 
-/** `/pnl` → domaine. `total_pnl_percent` est un pourcentage côté backend → fraction. */
+/**
+ * `/pnl` → domaine (P&L depuis la création : périodes ALL / YEAR). `total_pnl_percent` est un
+ * pourcentage côté backend → fraction. `winRate` reste `null` : `winning_trades` compare le produit
+ * d'une vente aux frais, ce n'est pas un taux de réussite (contrat §8.1 / §9).
+ */
 fun PnlResponseDto.toPnlSummary(): PnlSummary = PnlSummary(
     totalReturn = totalPnl,
     totalReturnPct = totalPnlPercent / 100.0,
@@ -104,7 +108,7 @@ fun PnlResponseDto.toPnlSummary(): PnlSummary = PnlSummary(
     maxDrawdown = null,
     volatility = null,
     cagr = null,
-    winRate = if (tradesCount > 0) winningTrades.toDouble() / tradesCount else null,
+    winRate = null,
     profitFactor = null,
     avgTradeReturn = null,
     tradesCount = tradesCount,
@@ -210,8 +214,9 @@ fun PositionEntity.toDomain(): Position = Position(
 )
 
 /**
- * Cache `/pnl` → domaine. [PnlSnapshotEntity.totalPnlPercent] est déjà une fraction.
- * Les ratios de risque (`/performance` uniquement) sont null.
+ * Cache `pnl_snapshots` → domaine (ligne écrite par `getPnlSummary`, depuis `batch/pnl` ou `/pnl`).
+ * [PnlSnapshotEntity.totalPnlPercent] est déjà une fraction. Les ratios de risque
+ * (`/performance` uniquement) et `winRate` (jamais fiable côté backend) sont null.
  */
 fun PnlSnapshotEntity.toDomain(): PnlSummary = PnlSummary(
     totalReturn = BigDecimal(totalPnl),
@@ -221,7 +226,7 @@ fun PnlSnapshotEntity.toDomain(): PnlSummary = PnlSummary(
     maxDrawdown = null,
     volatility = null,
     cagr = null,
-    winRate = if (tradesCount > 0) winningTrades.toDouble() / tradesCount else null,
+    winRate = null,
     profitFactor = null,
     avgTradeReturn = null,
     tradesCount = tradesCount,

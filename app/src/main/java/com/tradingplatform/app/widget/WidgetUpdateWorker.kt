@@ -145,11 +145,11 @@ class WidgetUpdateWorker @AssistedInject constructor(
                 async {
                     try {
                         syncPositions(portfolioId)
+                    } catch (e: VpnNotConnectedException) {
+                        Timber.tag(TAG).d("WidgetUpdateWorker — VPN disconnected during positions sync")
                     } catch (e: IOException) {
                         Timber.tag(TAG).w(e, "WidgetUpdateWorker — positions sync failed (IOException)")
                         ioFailCount.incrementAndGet()
-                    } catch (e: VpnNotConnectedException) {
-                        Timber.tag(TAG).d("WidgetUpdateWorker — VPN disconnected during positions sync")
                     } catch (e: android.database.SQLException) {
                         Timber.tag(TAG).e(e, "WidgetUpdateWorker — positions sync Room error (non-retryable)")
                     }
@@ -157,11 +157,11 @@ class WidgetUpdateWorker @AssistedInject constructor(
                 async {
                     try {
                         syncPnl(portfolioId)
+                    } catch (e: VpnNotConnectedException) {
+                        Timber.tag(TAG).d("WidgetUpdateWorker — VPN disconnected during PnL sync")
                     } catch (e: IOException) {
                         Timber.tag(TAG).w(e, "WidgetUpdateWorker — PnL sync failed (IOException)")
                         ioFailCount.incrementAndGet()
-                    } catch (e: VpnNotConnectedException) {
-                        Timber.tag(TAG).d("WidgetUpdateWorker — VPN disconnected during PnL sync")
                     } catch (e: android.database.SQLException) {
                         Timber.tag(TAG).e(e, "WidgetUpdateWorker — PnL sync Room error (non-retryable)")
                     }
@@ -173,11 +173,11 @@ class WidgetUpdateWorker @AssistedInject constructor(
                             Timber.tag(TAG).w("WidgetUpdateWorker — some quotes failed (IOException)")
                             ioFailCount.incrementAndGet()
                         }
+                    } catch (e: VpnNotConnectedException) {
+                        Timber.tag(TAG).d("WidgetUpdateWorker — VPN disconnected during quotes sync")
                     } catch (e: IOException) {
                         Timber.tag(TAG).w(e, "WidgetUpdateWorker — quotes sync failed entirely (IOException)")
                         ioFailCount.incrementAndGet()
-                    } catch (e: VpnNotConnectedException) {
-                        Timber.tag(TAG).d("WidgetUpdateWorker — VPN disconnected during quotes sync")
                     } catch (e: android.database.SQLException) {
                         Timber.tag(TAG).e(e, "WidgetUpdateWorker — quotes sync Room error (non-retryable)")
                     }

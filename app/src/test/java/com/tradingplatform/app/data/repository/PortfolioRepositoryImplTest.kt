@@ -13,6 +13,7 @@ import com.tradingplatform.app.data.model.TransactionDto
 import com.tradingplatform.app.data.model.TransactionListResponseDto
 import com.tradingplatform.app.domain.model.PnlPeriod
 import com.tradingplatform.app.domain.model.PositionStatus
+import com.tradingplatform.app.domain.repository.PortfolioSelectionRepository
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
@@ -20,6 +21,7 @@ import io.mockk.slot
 import kotlinx.coroutines.test.runTest
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import retrofit2.Response
@@ -31,6 +33,10 @@ import java.math.BigDecimal
  * (`PnlWidget` → `pnlDao.getByPeriod`). `getPnlSummary` (reached by both the Dashboard and
  * the worker through `GetPnlUseCase`) is now the single writer of that table; the former
  * dead writer `getPnl` (fed by `/performance`) has been removed.
+ *
+ * Sémantique des périodes : DAY / WEEK / MONTH passent par `batch/pnl` (voir
+ * [PortfolioRepositoryImplOverviewTest]) ; ce fichier couvre le chemin `/pnl` (ALL / YEAR),
+ * les positions et les transactions.
  */
 class PortfolioRepositoryImplTest {
 
@@ -38,7 +44,9 @@ class PortfolioRepositoryImplTest {
     private val positionDao = mockk<PositionDao>(relaxed = true)
     private val pnlDao = mockk<PnlDao>(relaxed = true)
 
-    private val repository = PortfolioRepositoryImpl(portfolioApi, positionDao, pnlDao)
+    private val portfolioSelection = mockk<PortfolioSelectionRepository>(relaxed = true)
+
+    private val repository = PortfolioRepositoryImpl(portfolioApi, positionDao, pnlDao, portfolioSelection)
 
     private val pnlFixture = PnlResponseDto(
         period = "day",
@@ -65,29 +73,32 @@ class PortfolioRepositoryImplTest {
     )
 
     @Test
-    fun `getPnlSummary persists the snapshot read by the PnL widget`() = runTest {
+    fun `getPnlSummary ALL persists the since-inception snapshot read by the PnL widget`() = runTest {
         coEvery { portfolioApi.getPnl(any(), any()) } returns Response.success(pnlFixture)
         val entity = slot<PnlSnapshotEntity>()
 
-        val result = repository.getPnlSummary("portfolio-1", PnlPeriod.DAY)
+        val result = repository.getPnlSummary("portfolio-1", PnlPeriod.ALL)
 
         assertTrue(result.isSuccess)
+        coVerify(exactly = 1) { portfolioApi.getPnl("portfolio-1", "all") }
+        coVerify(exactly = 0) { portfolioApi.getBatchPnl(any()) }
         coVerify(exactly = 1) { pnlDao.upsertAndPurge(capture(entity), any()) }
-        assertEquals("day", entity.captured.period)
+        assertEquals("all", entity.captured.period)
         assertEquals("100.25", entity.captured.totalPnl)
         assertEquals(0.0175, entity.captured.totalPnlPercent, 1e-9)
         assertEquals(4, entity.captured.tradesCount)
     }
 
     @Test
-    fun `getPnlSummary returns the domain summary with percent converted to fraction`() = runTest {
+    fun `getPnlSummary ALL returns the domain summary with percent converted to fraction and no winRate`() = runTest {
         coEvery { portfolioApi.getPnl(any(), any()) } returns Response.success(pnlFixture)
 
-        val summary = repository.getPnlSummary("portfolio-1", PnlPeriod.DAY).getOrThrow()
+        val summary = repository.getPnlSummary("portfolio-1", PnlPeriod.ALL).getOrThrow()
 
         assertEquals(BigDecimal("100.25"), summary.totalReturn)
         assertEquals(0.0175, summary.totalReturnPct!!, 1e-9)
-        assertEquals(0.75, summary.winRate!!, 1e-9)
+        // winning_trades / trades_count n'est pas un win rate (contrat §9) : jamais exposé.
+        assertNull(summary.winRate)
     }
 
     @Test
@@ -96,7 +107,7 @@ class PortfolioRepositoryImplTest {
         val cutoff = slot<Long>()
         val before = System.currentTimeMillis()
 
-        repository.getPnlSummary("portfolio-1", PnlPeriod.DAY)
+        repository.getPnlSummary("portfolio-1", PnlPeriod.ALL)
 
         coVerify { pnlDao.upsertAndPurge(any(), capture(cutoff)) }
         assertTrue(cutoff.captured < before)
@@ -110,7 +121,7 @@ class PortfolioRepositoryImplTest {
         val cutoff = slot<Long>()
         val before = System.currentTimeMillis()
 
-        repository.getPnlSummary("portfolio-1", PnlPeriod.DAY)
+        repository.getPnlSummary("portfolio-1", PnlPeriod.ALL)
         val after = System.currentTimeMillis()
 
         coVerify { pnlDao.upsertAndPurge(any(), capture(cutoff)) }
@@ -222,11 +233,11 @@ class PortfolioRepositoryImplTest {
     }
 
     @Test
-    fun `getPnlSummary does not write Room on HTTP error`() = runTest {
+    fun `getPnlSummary ALL does not write Room on HTTP error`() = runTest {
         coEvery { portfolioApi.getPnl(any(), any()) } returns
             Response.error(500, "boom".toResponseBody(null))
 
-        val result = repository.getPnlSummary("portfolio-1", PnlPeriod.DAY)
+        val result = repository.getPnlSummary("portfolio-1", PnlPeriod.ALL)
 
         assertTrue(result.isFailure)
         coVerify(exactly = 0) { pnlDao.upsertAndPurge(any(), any()) }

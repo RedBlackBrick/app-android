@@ -44,6 +44,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tradingplatform.app.domain.model.VpnPeer
 import com.tradingplatform.app.domain.model.VpnPeerType
 import com.tradingplatform.app.ui.components.CacheTimestamp
+import com.tradingplatform.app.ui.components.DeviceLinkDiagram
 import com.tradingplatform.app.ui.theme.Spacing
 import java.time.Duration
 import java.time.Instant
@@ -242,78 +243,91 @@ private fun VpnPeerCard(
             containerColor = MaterialTheme.colorScheme.surfaceVariant,
         ),
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(Spacing.lg),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+            verticalArrangement = Arrangement.spacedBy(Spacing.md),
         ) {
-            // Peer type icon with status indicator
-            Box {
-                Icon(
-                    imageVector = typeIcon,
-                    contentDescription = typeLabel,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(Spacing.xl),
-                )
-                Surface(
-                    shape = CircleShape,
-                    color = statusColor,
-                    modifier = Modifier
-                        .size(Spacing.sm)
-                        .align(Alignment.BottomEnd),
-                ) {}
-            }
-
-            // Info
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Spacing.md),
             ) {
-                Text(
-                    text = peer.label,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-                ) {
-                    Text(
-                        text = typeLabel,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                // Peer type icon with status indicator
+                Box {
+                    Icon(
+                        imageVector = typeIcon,
+                        contentDescription = typeLabel,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(Spacing.xl),
                     )
-                    Text(
-                        text = peer.wgTunnelIp,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                // Handshake row: green/gray dot + relative time
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
-                ) {
                     Surface(
                         shape = CircleShape,
-                        color = handshakeDotColor,
-                        modifier = Modifier.size(Spacing.xs),
+                        color = statusColor,
+                        modifier = Modifier
+                            .size(Spacing.sm)
+                            .align(Alignment.BottomEnd),
                     ) {}
-                    Text(
-                        text = handshakeText,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                 }
+
+                // Info
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+                ) {
+                    Text(
+                        text = peer.label,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                    ) {
+                        Text(
+                            text = typeLabel,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            text = peer.wgTunnelIp,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    // Handshake row: green/gray dot + relative time
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = handshakeDotColor,
+                            modifier = Modifier.size(Spacing.xs),
+                        ) {}
+                        Text(
+                            text = handshakeText,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+
+                // Status badge
+                Text(
+                    text = statusLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = statusColor,
+                )
             }
 
-            // Status badge
-            Text(
-                text = statusLabel,
-                style = MaterialTheme.typography.labelSmall,
-                color = statusColor,
-            )
+            // Liaison Radxa ↔ serveur (WireGuard) : en ligne = appairé actif ET handshake récent.
+            if (peer.peerType == VpnPeerType.RADXA_BOARD) {
+                DeviceLinkDiagram(
+                    online = peer.isActive && recentHandshake,
+                    compact = true,
+                )
+            }
         }
     }
 }

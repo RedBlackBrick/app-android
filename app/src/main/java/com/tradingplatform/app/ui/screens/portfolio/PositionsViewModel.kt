@@ -6,14 +6,16 @@ import androidx.lifecycle.viewModelScope
 import com.tradingplatform.app.domain.model.Position
 import com.tradingplatform.app.domain.model.PositionStatus
 import com.tradingplatform.app.domain.model.WsUpdate
-import com.tradingplatform.app.domain.usecase.auth.GetPortfolioIdUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPositionWsUpdatesUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPositionsUseCase
+import com.tradingplatform.app.domain.usecase.portfolio.ObserveActivePortfolioUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -43,7 +45,7 @@ enum class StatusFilter(val label: String) {
 @HiltViewModel
 class PositionsViewModel @Inject constructor(
     private val getPositionsUseCase: GetPositionsUseCase,
-    private val getPortfolioIdUseCase: GetPortfolioIdUseCase,
+    private val observeActivePortfolioUseCase: ObserveActivePortfolioUseCase,
     private val getPositionWsUpdatesUseCase: GetPositionWsUpdatesUseCase,
 ) : ViewModel() {
 
@@ -63,22 +65,40 @@ class PositionsViewModel @Inject constructor(
         _selectedFilter.value = filter
     }
 
+    /** Portefeuille actif courant ; vide tant que le premier id n'est pas connu. */
     private var portfolioId: String = ""
 
     /** Tracks the in-flight load so a filter change/refresh can cancel a stale one. */
     private var loadJob: Job? = null
 
     init {
-        loadJob = viewModelScope.launch {
-            portfolioId = getPortfolioIdUseCase()
-            loadPositions(_selectedFilter.value)
+        viewModelScope.launch {
+            // collectLatest : un changement de portefeuille actif annule le chargement de l'ancien.
+            observeActivePortfolioUseCase().collectLatest { id -> onActivePortfolio(id) }
         }
         collectPositionWsUpdates()
+    }
+
+    /**
+     * Nouveau portefeuille actif (dont le premier) : l'état est remis à [PositionsUiState.Loading]
+     * AVANT le rechargement, pour ne jamais laisser afficher les positions de l'ancien portefeuille.
+     * Le filtre courant est conservé. Le chargement est un enfant du bloc `collectLatest` (annulé
+     * avec lui) tout en restant tracé par [loadJob] pour que filtre/refresh puissent l'annuler.
+     */
+    private suspend fun onActivePortfolio(id: String) {
+        loadJob?.cancel()
+        portfolioId = id
+        _uiState.value = PositionsUiState.Loading
+        coroutineScope {
+            loadJob = launch { loadPositions(_selectedFilter.value) }
+        }
     }
 
     fun selectFilter(filter: StatusFilter) {
         loadJob?.cancel()
         _selectedFilter.value = filter
+        // Portefeuille encore inconnu : le chargement partira à sa résolution avec ce filtre.
+        if (portfolioId.isEmpty()) return
         loadJob = viewModelScope.launch { loadPositions(filter) }
     }
 
@@ -96,10 +116,16 @@ class PositionsViewModel @Inject constructor(
      * and marked CLOSED otherwise (ALL/CLOSED filters keep it visible).
      *
      * Updates are ignored when the UI state is not [PositionsUiState.Success].
+     *
+     * Multi-portefeuille : un [WsUpdate.PositionUpdate] dont `portfolioId` est non nul et différent du
+     * portefeuille actif est ignoré (un `position_update` d'un autre portefeuille, même symbole).
      */
     private fun collectPositionWsUpdates() {
         viewModelScope.launch {
             getPositionWsUpdatesUseCase().collect { wsUpdate ->
+                // Compte multi-portefeuilles : un position_update d'un autre portefeuille (même symbole)
+                // ne doit pas modifier la liste affichée.
+                if (wsUpdate.portfolioId != null && wsUpdate.portfolioId != portfolioId) return@collect
                 _uiState.update { current ->
                     if (current !is PositionsUiState.Success) return@update current
                     val filter = _selectedFilter.value
@@ -147,6 +173,7 @@ class PositionsViewModel @Inject constructor(
     }
 
     fun refresh() {
+        if (portfolioId.isEmpty()) return
         loadJob?.cancel()
         loadJob = viewModelScope.launch { loadPositions(_selectedFilter.value, keepCurrent = true) }
     }
@@ -160,11 +187,15 @@ class PositionsViewModel @Inject constructor(
      * between a response arriving and cancellation taking effect — it drops the result if the
      * user has since moved on to a different filter, rather than trusting cancellation alone.
      *
+     * Un second garde écarte de la même façon un résultat arrivé après un changement de portefeuille
+     * actif : il ne doit jamais s'afficher sous le nouveau portefeuille.
+     *
      * Internal (not private) so tests can drive this directly to exercise that guard without
      * depending on coroutine cancellation timing.
      */
     @VisibleForTesting
     internal suspend fun loadPositions(requestedFilter: StatusFilter, keepCurrent: Boolean = false) {
+        val requestedPortfolioId = portfolioId
         // Rafraîchissement du MÊME filtre : la liste affichée reste à l'écran (indicateur du
         // pull-to-refresh) au lieu de retomber sur un skeleton. Changement de filtre / premier
         // chargement : la liste courante n'est pas celle demandée → skeleton.
@@ -180,9 +211,11 @@ class PositionsViewModel @Inject constructor(
             StatusFilter.CLOSED -> PositionStatus.CLOSED
             StatusFilter.ALL -> PositionStatus.ALL
         }
-        getPositionsUseCase(portfolioId, status)
+        getPositionsUseCase(requestedPortfolioId, status)
             .onSuccess { positions ->
-                if (_selectedFilter.value != requestedFilter) return@onSuccess
+                if (_selectedFilter.value != requestedFilter || portfolioId != requestedPortfolioId) {
+                    return@onSuccess
+                }
                 _uiState.update {
                     PositionsUiState.Success(
                         positions = positions,
@@ -191,7 +224,9 @@ class PositionsViewModel @Inject constructor(
                 }
             }
             .onFailure { e ->
-                if (_selectedFilter.value != requestedFilter) return@onFailure
+                if (_selectedFilter.value != requestedFilter || portfolioId != requestedPortfolioId) {
+                    return@onFailure
+                }
                 val message = e.localizedMessage ?: "Erreur"
                 _uiState.update { current ->
                     // Valeur périmée conservée + erreur annoncée, plutôt que d'effacer la liste.

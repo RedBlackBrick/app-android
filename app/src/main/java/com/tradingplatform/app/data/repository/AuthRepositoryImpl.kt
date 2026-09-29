@@ -22,6 +22,7 @@ import com.tradingplatform.app.domain.model.WsTokenInfo
 import com.tradingplatform.app.data.session.SessionManager
 import com.tradingplatform.app.data.session.TokenHolder
 import com.tradingplatform.app.domain.repository.AuthRepository
+import com.tradingplatform.app.domain.repository.PortfolioSelectionRepository
 import com.tradingplatform.app.domain.util.parseInstantLenient
 import com.tradingplatform.app.domain.util.runCatchingCancellable
 import kotlinx.coroutines.CancellationException
@@ -41,6 +42,7 @@ class AuthRepositoryImpl @Inject constructor(
     private val cookieJar: EncryptedCookieJar,
     private val okHttpClient: OkHttpClient,
     private val sessionManager: SessionManager,
+    private val portfolioSelectionRepository: PortfolioSelectionRepository,
 ) : AuthRepository {
 
     companion object {
@@ -159,28 +161,14 @@ class AuthRepositoryImpl @Inject constructor(
             Pair(user, tokens)
         }
 
-    override suspend fun getPortfolios(): Result<List<Portfolio>> = runCatchingCancellable {
-        val response = authApi.getPortfolios()
-        if (!response.isSuccessful) {
-            error("Get portfolios failed: HTTP ${response.code()}")
-        }
-        val portfolios = response.body()?.map { it.toDomain() } ?: emptyList()
-
-        when {
-            portfolios.isEmpty() -> {
-                Timber.tag(TAG).e("AuthRepository: empty portfolio list — incoherent server state")
-                error("No portfolio found")
-            }
-            portfolios.size > 1 -> {
-                Timber.tag(TAG).w("AuthRepository: [PORTFOLIO_MULTI] count=${portfolios.size}, using portfolios[0]")
-            }
-        }
-
-        // Persister le portfolioId pour réutilisation sans re-fetch
-        dataStore.writeString(DataStoreKeys.PORTFOLIO_ID, portfolios[0].id)
-
-        portfolios
-    }
+    /**
+     * Délègue à [PortfolioSelectionRepository.refresh] : `GET /v1/portfolios`, liste vide =>
+     * `IllegalStateException("No portfolio found")`, et la sélection persistée est conservée si
+     * elle existe encore (sinon 1er portefeuille) au lieu d'être réécrite avec `portfolios[0]`
+     * à chaque login. Le portefeuille actif est persisté dans `DataStoreKeys.PORTFOLIO_ID` par
+     * ce repository (relu par les widgets et le Worker).
+     */
+    override suspend fun getPortfolios(): Result<List<Portfolio>> = portfolioSelectionRepository.refresh()
 
     /** Délai en secondes de l'en-tête `Retry-After` (format entier uniquement), ou null. */
     private fun retryAfterSeconds(response: Response<*>): Int? =

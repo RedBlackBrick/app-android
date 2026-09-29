@@ -5,14 +5,17 @@ import com.tradingplatform.app.domain.model.Cached
 import com.tradingplatform.app.domain.model.Position
 import com.tradingplatform.app.domain.model.PositionStatus
 import com.tradingplatform.app.domain.model.Transaction
-import com.tradingplatform.app.domain.usecase.auth.GetPortfolioIdUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPositionUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetTransactionsUseCase
+import com.tradingplatform.app.domain.usecase.portfolio.ObserveActivePortfolioUseCase
 import com.tradingplatform.app.util.MainDispatcherRule
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -31,7 +34,10 @@ class PositionDetailViewModelTest {
 
     private val getPositionUseCase = mockk<GetPositionUseCase>()
     private val getTransactionsUseCase = mockk<GetTransactionsUseCase>()
-    private val getPortfolioIdUseCase = mockk<GetPortfolioIdUseCase>()
+    private val observeActivePortfolioUseCase = mockk<ObserveActivePortfolioUseCase>()
+
+    /** Portefeuille actif simulé : modifier `.value` équivaut à un changement de sélection. */
+    private val activePortfolio = MutableStateFlow("1")
 
     private val fakePositionId = 42
 
@@ -65,7 +71,7 @@ class PositionDetailViewModelTest {
 
     @Before
     fun setUp() {
-        coEvery { getPortfolioIdUseCase() } returns "1"
+        every { observeActivePortfolioUseCase() } returns activePortfolio
         coEvery { getPositionUseCase(any(), any(), any()) } returns Result.success(Cached(fakePosition, fakeSyncedAt))
         coEvery { getTransactionsUseCase(any(), any(), any(), any()) } returns
             Result.success(listOf(fakeTransaction))
@@ -74,7 +80,7 @@ class PositionDetailViewModelTest {
     private fun createViewModel(): PositionDetailViewModel = PositionDetailViewModel(
         getPositionUseCase = getPositionUseCase,
         getTransactionsUseCase = getTransactionsUseCase,
-        getPortfolioIdUseCase = getPortfolioIdUseCase,
+        observeActivePortfolioUseCase = observeActivePortfolioUseCase,
         savedStateHandle = savedStateHandle,
     )
 
@@ -219,21 +225,45 @@ class PositionDetailViewModelTest {
         )
     }
 
-    // ── portfolioId ───────────────────────────────────────────────────────────
+    // ── Portefeuille actif ────────────────────────────────────────────────────
 
     @Test
-    fun `uses portfolioId from use case`() = runTest {
-        coEvery { getPortfolioIdUseCase() } returns "7"
+    fun `uses the active portfolio id`() = runTest {
+        activePortfolio.value = "7"
         val viewModel = createViewModel()
 
-        coVerify { getPositionUseCase("7", any(), any()) }
+        coVerify { getPositionUseCase("7", fakePositionId, false) }
+        coVerify { getTransactionsUseCase("7", any(), any(), "TSLA") }
     }
 
     @Test
-    fun `defaults to empty portfolioId when use case returns empty`() = runTest {
-        coEvery { getPortfolioIdUseCase() } returns ""
+    fun `stays Loading without fetching until an active portfolio is known`() = runTest {
+        val raw = MutableStateFlow<String?>(null)
+        every { observeActivePortfolioUseCase() } returns raw.filterNotNull()
+
         val viewModel = createViewModel()
 
-        coVerify { getPositionUseCase("", any(), any()) }
+        assertTrue(viewModel.uiState.value is PositionDetailUiState.Loading)
+        coVerify(exactly = 0) { getPositionUseCase(any(), any(), any()) }
+
+        viewModel.refresh() // toujours en attente : aucun appel avec un id vide
+        coVerify(exactly = 0) { getPositionUseCase(any(), any(), any()) }
+    }
+
+    @Test
+    fun `reloading reads the active portfolio current at that time`() = runTest {
+        activePortfolio.value = "p1"
+        val viewModel = createViewModel()
+        coVerify(exactly = 1) { getPositionUseCase("p1", fakePositionId, false) }
+
+        // Pas de collecte continue : le changement est pris en compte au rechargement suivant.
+        activePortfolio.value = "p2"
+        coVerify(exactly = 0) { getPositionUseCase("p2", any(), any()) }
+
+        viewModel.refresh()
+
+        coVerify(exactly = 1) { getPositionUseCase("p2", fakePositionId, true) }
+        coVerify(exactly = 1) { getTransactionsUseCase("p2", any(), any(), "TSLA") }
+        assertTrue(viewModel.uiState.value is PositionDetailUiState.Success)
     }
 }

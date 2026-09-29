@@ -41,6 +41,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tradingplatform.app.ui.components.OfflineBadge
 import com.tradingplatform.app.ui.components.OnlineBadge
 import com.tradingplatform.app.ui.components.StatusBadge
+import com.tradingplatform.app.ui.components.VpnTunnelDiagram
 import com.tradingplatform.app.ui.screens.setup.VPN_CONSENT_DENIED_MESSAGE
 import com.tradingplatform.app.ui.screens.setup.launchVpnConsent
 import com.tradingplatform.app.ui.theme.LocalExtendedColors
@@ -159,6 +160,9 @@ private fun VpnStatusCard(
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+
+            // ── Schéma animé téléphone — tunnel — serveur (état affiché) ──────
+            VpnTunnelDiagram(state = vpnState)
 
             // ── Status badge ──────────────────────────────────────────────────
             Row(

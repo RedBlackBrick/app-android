@@ -1,6 +1,29 @@
 package com.tradingplatform.app.contracts
 
 import com.squareup.moshi.Json
+import com.tradingplatform.app.data.api.KillSwitchActiveDto
+import com.tradingplatform.app.data.api.OrdersWriteApi
+import com.tradingplatform.app.data.api.PortfolioKillSwitchActivateRequestDto
+import com.tradingplatform.app.data.api.PortfolioStrategyActiveUpdateDto
+import com.tradingplatform.app.data.api.PreferencesApi
+import com.tradingplatform.app.data.api.PreferencesWriteApi
+import com.tradingplatform.app.data.api.Risk360KillSwitchDto
+import com.tradingplatform.app.data.api.Risk360SummaryDto
+import com.tradingplatform.app.data.api.RiskViolationDto
+import com.tradingplatform.app.data.api.RiskWriteApi
+import com.tradingplatform.app.data.api.StrategiesWriteApi
+import com.tradingplatform.app.data.api.StrategyListItemDto
+import com.tradingplatform.app.data.api.StrategyListResponseDto
+import com.tradingplatform.app.data.model.BatchPnlItemDto
+import com.tradingplatform.app.data.model.BatchPnlRequestDto
+import com.tradingplatform.app.data.model.BatchPnlResponseDto
+import com.tradingplatform.app.data.model.DashboardOverviewDto
+import com.tradingplatform.app.data.model.DashboardPortfolioDto
+import com.tradingplatform.app.data.model.InboxNotificationDto
+import com.tradingplatform.app.data.model.PortfolioBrokerConnectionDto
+import com.tradingplatform.app.data.model.UnreadCountDto
+import com.tradingplatform.app.data.model.ValueHistoryPointDto
+import com.tradingplatform.app.data.model.ValueHistoryResponseDto
 import com.tradingplatform.app.data.api.ActiveOrdersResponseDto
 import com.tradingplatform.app.data.api.AuthApi
 import com.tradingplatform.app.data.api.BrokerConnectionApi
@@ -211,6 +234,28 @@ class DtoContractTest {
         // real DTO with a real backend counterpart — kept in the guard so it doesn't bit-rot
         // silently if it's wired up later.
         Triple(NavResponseDto::class, "NavResponse", emptySet()),
+        // ── Multi-portefeuille, courbe de NAV, broker du portefeuille ──────────────────────
+        Triple(BatchPnlRequestDto::class, "BatchPnlRequest", emptySet()),
+        Triple(BatchPnlResponseDto::class, "BatchPnlResponse", emptySet()),
+        Triple(BatchPnlItemDto::class, "BatchPnlResponseItem", emptySet()),
+        Triple(DashboardOverviewDto::class, "DashboardOverviewResponse", emptySet()),
+        Triple(DashboardPortfolioDto::class, "DashboardPortfolioSummary", emptySet()),
+        Triple(ValueHistoryResponseDto::class, "ValueHistoryResponse", emptySet()),
+        Triple(ValueHistoryPointDto::class, "ValueSnapshot", emptySet()),
+        Triple(PortfolioBrokerConnectionDto::class, "BrokerConnectionResponse", emptySet()),
+        // ── Stratégies : PATCH is_active (corps partiel de UpdateStrategyAllocationRequest, dont
+        // tous les champs sont optionnels) et catalogue paginé pour les noms.
+        Triple(PortfolioStrategyActiveUpdateDto::class, "UpdateStrategyAllocationRequest", setOf("is_active")),
+        Triple(StrategyListItemDto::class, "StrategyWithMetrics", emptySet()),
+        Triple(StrategyListResponseDto::class, "PaginatedStrategyResponse", emptySet()),
+        // ── Boîte de notifications serveur et risque ────────────────────────────────────────
+        Triple(InboxNotificationDto::class, "NotificationResponse", emptySet()),
+        Triple(UnreadCountDto::class, "UnreadCountResponse", emptySet()),
+        Triple(KillSwitchActiveDto::class, "RiskKillSwitchActiveResponse", emptySet()),
+        Triple(Risk360SummaryDto::class, "Risk360SummaryResponse", emptySet()),
+        Triple(Risk360KillSwitchDto::class, "Risk360KillSwitch", emptySet()),
+        Triple(RiskViolationDto::class, "ViolationResponse", emptySet()),
+        Triple(PortfolioKillSwitchActivateRequestDto::class, "PortfolioKillSwitchActivate", emptySet()),
     )
 
     @Test
@@ -293,6 +338,12 @@ class DtoContractTest {
         BrokerConnectionApi::class,
         RiskApi::class,
         StrategiesApi::class,
+        // Écritures (client @Named("write") sans retry) et préférences — mêmes contrats backend.
+        OrdersWriteApi::class,
+        StrategiesWriteApi::class,
+        RiskWriteApi::class,
+        PreferencesApi::class,
+        PreferencesWriteApi::class,
     )
 
     private fun normalizePath(path: String) = if (path.startsWith("/")) path else "/$path"

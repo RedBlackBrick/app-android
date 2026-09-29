@@ -21,6 +21,12 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.VIBRATE" />
 
+    <!-- Visibilité des paquets (Android 11+) : l'écran de connexion propose « Ouvrir WireGuard »
+         seulement si l'app WireGuard officielle est installée (getLaunchIntentForPackage). -->
+    <queries>
+        <package android:name="com.wireguard.android" />
+    </queries>
+
     <!-- android:allowBackup="false" disables cloud backup, device-to-device transfer and adb
          backup entirely, on every API level down to minSdk 28 — tokens, WireGuard keys and the
          Room db never leave the device via any backup path. android:dataExtractionRules is kept

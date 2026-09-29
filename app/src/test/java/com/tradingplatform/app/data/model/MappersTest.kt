@@ -87,12 +87,13 @@ class MappersTest {
     // ── Room → domain ───────────────────────────────────────────────────────────
 
     @Test
-    fun `pnl entity to domain computes winRate and keeps the fraction`() {
+    fun `pnl entity to domain keeps the fraction and never derives a winRate`() {
         val summary = pnlDto.toEntity(PnlPeriod.DAY, syncedAt = 0L).toDomain()
 
         assertEquals(BigDecimal("100.25"), summary.totalReturn)
         assertEquals(0.0175, summary.totalReturnPct!!, 1e-9)
-        assertEquals(0.75, summary.winRate!!, 1e-9)
+        // winning_trades / trades_count n'est pas un win rate (contrat backend §8.1 / §9).
+        assertNull(summary.winRate)
         assertEquals(4, summary.tradesCount)
         assertEquals(3, summary.winningTrades)
         assertEquals(1, summary.losingTrades)
@@ -124,7 +125,8 @@ class MappersTest {
 
         assertEquals(live.totalReturn, cached.totalReturn)
         assertEquals(live.totalReturnPct!!, cached.totalReturnPct!!, 1e-12)
-        assertEquals(live.winRate!!, cached.winRate!!, 1e-12)
+        assertNull(live.winRate)
+        assertNull(cached.winRate)
     }
 
     // ── PnlPeriod ───────────────────────────────────────────────────────────────

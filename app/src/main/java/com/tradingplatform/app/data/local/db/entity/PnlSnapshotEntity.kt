@@ -8,14 +8,16 @@ import androidx.room.PrimaryKey
 /**
  * Room entity caching the P&L summary of one period — **one row per period**.
  *
- * Sourced from `GET /v1/portfolios/{id}/pnl?period=…` (backend `PnlResponse` schema),
- * written only by `PortfolioRepositoryImpl.getPnlSummary` (Dashboard and
+ * Sourced from `POST /v1/portfolios/batch/pnl` for day / week / month (a real period P&L: only
+ * [totalPnl] and [totalPnlPercent] are meaningful, the other columns are written as "0"), and from
+ * `GET /v1/portfolios/{id}/pnl` (backend `PnlResponse`, "since inception") for ytd / all.
+ * Written only by `PortfolioRepositoryImpl.getPnlSummary` (Dashboard and
  * `WidgetUpdateWorker` both go through `GetPnlUseCase`). Read by `PnlWidget`.
  *
  * [period] is the primary key, so `OnConflictStrategy.REPLACE` is a true upsert.
  * Amounts are stored as BigDecimal plain strings (TEXT). [totalPnlPercent] is stored
- * as a **fraction** (backend sends a percent — converted in the mapper), consistent
- * with the domain convention (fractions everywhere).
+ * as a **fraction** (`batch/pnl` already sends one; `/pnl` sends a percent — converted in the
+ * mapper), consistent with the domain convention (fractions everywhere).
  */
 @Entity(
     tableName = "pnl_snapshots",

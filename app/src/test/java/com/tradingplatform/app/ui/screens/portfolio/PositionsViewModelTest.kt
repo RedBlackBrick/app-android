@@ -4,9 +4,9 @@ import app.cash.turbine.test
 import com.tradingplatform.app.domain.model.Position
 import com.tradingplatform.app.domain.model.PositionStatus
 import com.tradingplatform.app.domain.model.WsUpdate
-import com.tradingplatform.app.domain.usecase.auth.GetPortfolioIdUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPositionWsUpdatesUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPositionsUseCase
+import com.tradingplatform.app.domain.usecase.portfolio.ObserveActivePortfolioUseCase
 import com.tradingplatform.app.util.MainDispatcherRule
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -14,7 +14,9 @@ import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -32,8 +34,11 @@ class PositionsViewModelTest {
     val mainDispatcherRule = MainDispatcherRule()
 
     private val getPositionsUseCase = mockk<GetPositionsUseCase>()
-    private val getPortfolioIdUseCase = mockk<GetPortfolioIdUseCase>()
+    private val observeActivePortfolioUseCase = mockk<ObserveActivePortfolioUseCase>()
     private val getPositionWsUpdatesUseCase = mockk<GetPositionWsUpdatesUseCase>()
+
+    /** Portefeuille actif simulé : modifier `.value` équivaut à un changement de sélection. */
+    private val activePortfolio = MutableStateFlow("1")
 
     private lateinit var viewModel: PositionsViewModel
 
@@ -79,14 +84,14 @@ class PositionsViewModelTest {
 
     @Before
     fun setUp() {
-        coEvery { getPortfolioIdUseCase() } returns "1"
+        every { observeActivePortfolioUseCase() } returns activePortfolio
         coEvery { getPositionsUseCase(any(), any()) } returns Result.success(fakePositions)
         every { getPositionWsUpdatesUseCase() } returns emptyFlow()
     }
 
     private fun createViewModel(): PositionsViewModel = PositionsViewModel(
         getPositionsUseCase = getPositionsUseCase,
-        getPortfolioIdUseCase = getPortfolioIdUseCase,
+        observeActivePortfolioUseCase = observeActivePortfolioUseCase,
         getPositionWsUpdatesUseCase = getPositionWsUpdatesUseCase,
     )
 
@@ -288,22 +293,98 @@ class PositionsViewModelTest {
         )
     }
 
-    // ── portfolioId ───────────────────────────────────────────────────────────
+    // ── Portefeuille actif ────────────────────────────────────────────────────
 
     @Test
-    fun `uses portfolioId from dataStore`() = runTest {
-        coEvery { getPortfolioIdUseCase() } returns "7"
+    fun `loads the positions of the active portfolio`() = runTest {
+        activePortfolio.value = "7"
         viewModel = createViewModel()
 
-        coVerify { getPositionsUseCase("7", any()) }
+        coVerify { getPositionsUseCase("7", PositionStatus.OPEN) }
     }
 
     @Test
-    fun `defaults to empty portfolioId when dataStore returns null`() = runTest {
-        coEvery { getPortfolioIdUseCase() } returns ""
+    fun `does not load until an active portfolio is known then loads with the current filter`() = runTest {
+        val raw = MutableStateFlow<String?>(null)
+        every { observeActivePortfolioUseCase() } returns raw.filterNotNull()
         viewModel = createViewModel()
 
-        coVerify { getPositionsUseCase("", any()) }
+        viewModel.selectFilter(StatusFilter.CLOSED)
+        viewModel.refresh()
+
+        assertTrue(viewModel.uiState.value is PositionsUiState.Loading)
+        coVerify(exactly = 0) { getPositionsUseCase(any(), any()) }
+
+        raw.value = "p3"
+
+        coVerify(exactly = 1) { getPositionsUseCase("p3", PositionStatus.CLOSED) }
+        assertTrue(viewModel.uiState.value is PositionsUiState.Success)
+    }
+
+    @Test
+    fun `changing the active portfolio resets to Loading then reloads with the new id`() = runTest {
+        val p2Position = fakeOpenTsla.copy(id = 7, symbol = "AAPL")
+        val gate = CompletableDeferred<Unit>()
+        coEvery { getPositionsUseCase("p1", any()) } returns Result.success(fakePositions)
+        coEvery { getPositionsUseCase("p2", any()) } coAnswers {
+            gate.await()
+            Result.success(listOf(p2Position))
+        }
+        activePortfolio.value = "p1"
+        viewModel = createViewModel()
+        assertEquals(fakePositions, (viewModel.uiState.value as PositionsUiState.Success).positions)
+
+        activePortfolio.value = "p2"
+
+        // Les positions de p1 ne doivent plus être visibles sous p2 pendant le rechargement.
+        assertTrue(
+            "Expected Loading while p2 loads, got ${viewModel.uiState.value}",
+            viewModel.uiState.value is PositionsUiState.Loading,
+        )
+        gate.complete(Unit)
+
+        assertEquals(
+            listOf(p2Position),
+            (viewModel.uiState.value as PositionsUiState.Success).positions,
+        )
+        coVerify(exactly = 1) { getPositionsUseCase("p2", PositionStatus.OPEN) }
+    }
+
+    @Test
+    fun `a stale response for the previous portfolio never reaches the screen`() = runTest {
+        val p2Position = fakeOpenTsla.copy(id = 7, symbol = "AAPL")
+        val gateP1 = CompletableDeferred<Result<List<Position>>>()
+        coEvery { getPositionsUseCase("p1", any()) } coAnswers { gateP1.await() }
+        coEvery { getPositionsUseCase("p2", any()) } returns Result.success(listOf(p2Position))
+        activePortfolio.value = "p1"
+        viewModel = createViewModel() // le chargement de p1 est suspendu
+
+        activePortfolio.value = "p2"
+        gateP1.complete(Result.success(fakePositions)) // réponse tardive de p1
+
+        assertEquals(
+            listOf(p2Position),
+            (viewModel.uiState.value as PositionsUiState.Success).positions,
+        )
+    }
+
+    @Test
+    fun `filter and refresh keep working with the new active portfolio`() = runTest {
+        viewModel = createViewModel()
+        viewModel.selectFilter(StatusFilter.CLOSED)
+
+        activePortfolio.value = "p2"
+
+        // Le filtre choisi est conservé au changement de portefeuille.
+        assertEquals(StatusFilter.CLOSED, viewModel.selectedFilter.value)
+        coVerify(exactly = 1) { getPositionsUseCase("p2", PositionStatus.CLOSED) }
+
+        viewModel.refresh()
+        viewModel.selectFilter(StatusFilter.ALL)
+
+        coVerify(exactly = 2) { getPositionsUseCase("p2", PositionStatus.CLOSED) }
+        coVerify(exactly = 1) { getPositionsUseCase("p2", PositionStatus.ALL) }
+        coVerify(exactly = 0) { getPositionsUseCase("1", PositionStatus.ALL) }
     }
 
     // ── Turbine StateFlow test ────────────────────────────────────────────────
@@ -347,6 +428,33 @@ class PositionsViewModelTest {
         val updated = state.positions.first()
         assertEquals(0, BigDecimal("295.5").compareTo(updated.currentPrice))
         assertEquals(0, BigDecimal("455.0").compareTo(updated.unrealizedPnl))
+    }
+
+    @Test
+    fun `position update from another portfolio is ignored, same or unknown portfolio is merged`() = runTest {
+        val wsUpdates = MutableSharedFlow<WsUpdate.PositionUpdate>(extraBufferCapacity = 3)
+        every { getPositionWsUpdatesUseCase() } returns wsUpdates
+        viewModel = createViewModel() // portefeuille actif = "1"
+
+        wsUpdates.emit(WsUpdate.PositionUpdate(symbol = "TSLA", lastPrice = 111.0, portfolioId = "2"))
+        val untouched = (viewModel.uiState.value as PositionsUiState.Success).positions.first()
+        assertEquals(false, BigDecimal("111.0").compareTo(untouched.currentPrice) == 0)
+
+        wsUpdates.emit(WsUpdate.PositionUpdate(symbol = "TSLA", lastPrice = 222.0, portfolioId = "1"))
+        assertEquals(
+            0,
+            BigDecimal("222.0").compareTo(
+                (viewModel.uiState.value as PositionsUiState.Success).positions.first().currentPrice,
+            ),
+        )
+
+        wsUpdates.emit(WsUpdate.PositionUpdate(symbol = "TSLA", lastPrice = 333.0, portfolioId = null))
+        assertEquals(
+            0,
+            BigDecimal("333.0").compareTo(
+                (viewModel.uiState.value as PositionsUiState.Success).positions.first().currentPrice,
+            ),
+        )
     }
 
     @Test
