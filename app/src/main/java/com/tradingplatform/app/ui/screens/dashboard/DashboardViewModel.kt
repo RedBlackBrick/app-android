@@ -6,16 +6,11 @@ import com.tradingplatform.app.domain.model.NavSummary
 import com.tradingplatform.app.domain.model.PnlPeriod
 import com.tradingplatform.app.domain.model.PnlSummary
 import com.tradingplatform.app.domain.model.PortfolioCircuitBreakerStatus
-import com.tradingplatform.app.domain.model.Quote
 import com.tradingplatform.app.domain.model.WsConnectionState
 import com.tradingplatform.app.domain.model.WsUpdate
 import com.tradingplatform.app.domain.model.ActivityItem
 import com.tradingplatform.app.domain.usecase.activity.GetActivityFeedUseCase
 import com.tradingplatform.app.domain.usecase.auth.GetPortfolioIdUseCase
-import com.tradingplatform.app.domain.usecase.market.GetDefaultQuoteSymbolUseCase
-import com.tradingplatform.app.domain.usecase.market.GetPublicWsConnectionStateUseCase
-import com.tradingplatform.app.domain.usecase.market.GetQuoteStreamUseCase
-import com.tradingplatform.app.domain.usecase.market.GetQuoteUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetActiveStrategyCountUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPnlUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPortfolioNavUseCase
@@ -23,8 +18,6 @@ import com.tradingplatform.app.domain.usecase.portfolio.GetPortfolioWsUpdatesUse
 import com.tradingplatform.app.domain.usecase.portfolio.GetWsConnectionStateUseCase
 import com.tradingplatform.app.domain.usecase.risk.GetPortfolioCircuitBreakerStatusUseCase
 import com.tradingplatform.app.ui.common.DataState
-import com.tradingplatform.app.ui.common.QuoteFallbackController
-import com.tradingplatform.app.vpn.VpnNotConnectedException
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
@@ -43,25 +36,11 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import timber.log.Timber
-import java.io.IOException
 import java.math.BigDecimal
-import java.net.SocketTimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 
 // ── UiState definitions ──────────────────────────────────────────────────────
-
-sealed interface QuoteUiState {
-    data object Loading : QuoteUiState
-    data class Success(val data: Quote) : QuoteUiState
-
-    /**
-     * Dernière valeur connue, affichée quand le VPN est inactif ou le WS en échec.
-     * Indique visuellement que le cours n'est plus live.
-     */
-    data class Stale(val data: Quote) : QuoteUiState
-    data class Error(val message: String) : QuoteUiState
-}
 
 data class DashboardUiState(
     /**
@@ -72,7 +51,6 @@ data class DashboardUiState(
     val navSummary: DataState<NavSummary> = DataState(isRefreshing = true),
     /** P&L de [selectedPeriod] — même contrat que [navSummary] (hors changement de période). */
     val pnlSummary: DataState<PnlSummary> = DataState(isRefreshing = true),
-    val quote: QuoteUiState = QuoteUiState.Loading,
     val portfolioId: String = "",
     val selectedPeriod: PnlPeriod = PnlPeriod.DAY,
 
@@ -126,16 +104,12 @@ internal const val WS_REFETCH_DEBOUNCE_MS = 750L
 class DashboardViewModel @Inject constructor(
     private val getPnlUseCase: GetPnlUseCase,
     private val getPortfolioNavUseCase: GetPortfolioNavUseCase,
-    private val getQuoteUseCase: GetQuoteUseCase,
-    private val getQuoteStreamUseCase: GetQuoteStreamUseCase,
-    private val getDefaultQuoteSymbolUseCase: GetDefaultQuoteSymbolUseCase,
     private val getPortfolioIdUseCase: GetPortfolioIdUseCase,
     private val getPortfolioWsUpdatesUseCase: GetPortfolioWsUpdatesUseCase,
     getWsConnectionStateUseCase: GetWsConnectionStateUseCase,
     private val getActivityFeedUseCase: GetActivityFeedUseCase,
     private val getActiveStrategyCountUseCase: GetActiveStrategyCountUseCase,
     private val getPortfolioCircuitBreakerStatusUseCase: GetPortfolioCircuitBreakerStatusUseCase,
-    getPublicWsConnectionStateUseCase: GetPublicWsConnectionStateUseCase,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(DashboardUiState())
@@ -182,28 +156,6 @@ class DashboardViewModel @Inject constructor(
             initialValue = false,
         )
 
-    /** État de la connexion WS publique (cours) — consulté par [refresh]. */
-    private val publicWsState: StateFlow<WsConnectionState> = getPublicWsConnectionStateUseCase()
-
-    /**
-     * Cours du Dashboard : flux WS public + fallback REST piloté par [publicWsState]
-     * (audit #13/#14). Le polling 30 s ne tourne que si le WS n'est pas Connected
-     * (debounce 2 s) et que l'app est au premier plan ; il s'arrête dès la reconnexion.
-     */
-    private val quoteFallback = QuoteFallbackController(
-        scope = viewModelScope,
-        connectionState = publicWsState,
-        isForeground = getPublicWsConnectionStateUseCase.isAppForeground(),
-        stream = { symbol -> getQuoteStreamUseCase(symbol) },
-        fetch = { symbol -> getQuoteUseCase(symbol) },
-        onQuote = { _, quote -> _uiState.update { it.copy(quote = QuoteUiState.Success(quote)) } },
-        onStale = { markQuoteStale() },
-        onFetchError = { _, e -> onQuoteFetchError(e) },
-    )
-
-    /** Job de surveillance du cours (WS + fallback REST). */
-    private var quoteWatchJob: Job? = null
-
     /**
      * Job de collection du flux WS privé (portfolio updates) — relancé automatiquement
      * en cas d'erreur avec backoff exponentiel (R4 fix).
@@ -233,15 +185,6 @@ class DashboardViewModel @Inject constructor(
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
 
-    /**
-     * Symbole effectivement suivi pour le cours du Dashboard — résolu au démarrage par
-     * [GetDefaultQuoteSymbolUseCase] (préférence utilisateur > premier symbole watchlist
-     * > [AppDefaults.DEFAULT_QUOTE_SYMBOL]). Consommé par [refresh] pour rejouer un fetch
-     * REST quand le polling fallback est actif.
-     */
-    @Volatile
-    private var dashboardQuoteSymbol: String = ""
-
     init {
         viewModelScope.launch {
             val portfolioId = getPortfolioIdUseCase()
@@ -261,17 +204,6 @@ class DashboardViewModel @Inject constructor(
         // Relancé automatiquement en cas d'erreur avec backoff (R4 fix).
         startWsRefetchCollection()
         startWsPrivateCollection()
-
-        // Démarrer l'abonnement WS public pour les cours en temps réel.
-        // Symbole résolu via [GetDefaultQuoteSymbolUseCase] — préférence utilisateur,
-        // sinon premier symbole de la watchlist, sinon fallback hardcodé.
-        // Si le WS public n'est pas Connected (VPN coupé, serveur injoignable), le
-        // QuoteFallbackController bascule sur le polling REST puis l'arrête à la reconnexion.
-        viewModelScope.launch {
-            val symbol = getDefaultQuoteSymbolUseCase()
-            dashboardQuoteSymbol = symbol
-            startWsQuoteSubscription(symbol)
-        }
 
         // Collect merged activity feed from all WS streams.
         // New items are prepended; list is capped at ACTIVITY_FEED_MAX_ITEMS.
@@ -383,28 +315,6 @@ class DashboardViewModel @Inject constructor(
     }
 
     /**
-     * Démarre la surveillance du cours [symbol] : flux WS public (jamais annulé sur coupure →
-     * resouscription automatique) + polling REST 30 s tant que le WS public n'est pas
-     * Connected et que l'app est au premier plan (cf. [quoteFallback]).
-     *
-     * La souscription WS est ref-comptée côté client : si MarketData suit le même symbole
-     * et le retire de la watchlist, le Dashboard garde sa propre souscription (audit #13).
-     */
-    private fun startWsQuoteSubscription(symbol: String) {
-        quoteWatchJob?.cancel()
-        Timber.tag(TAG).d("DashboardViewModel: watching quote $symbol (WS public + REST fallback)")
-        quoteWatchJob = quoteFallback.watch(symbol)
-    }
-
-    /** WS public non live (debouncé) — le dernier cours affiché passe en [QuoteUiState.Stale]. */
-    private fun markQuoteStale() {
-        _uiState.update { state ->
-            val prev = state.quote
-            if (prev is QuoteUiState.Success) state.copy(quote = QuoteUiState.Stale(prev.data)) else state
-        }
-    }
-
-    /**
      * Collects the merged activity feed from [GetActivityFeedUseCase].
      *
      * New items are prepended to the list so the most recent appear first.
@@ -461,11 +371,6 @@ class DashboardViewModel @Inject constructor(
             } finally {
                 _isRefreshing.set(false)
             }
-        }
-        // Pour le cours : forcer un fetch REST immédiat si le WS public n'est pas live
-        // (mode fallback) ; si le WS est Connected le prochain update arrivera naturellement.
-        if (publicWsState.value != WsConnectionState.Connected && dashboardQuoteSymbol.isNotEmpty()) {
-            viewModelScope.launch { fetchQuote(dashboardQuoteSymbol) }
         }
     }
 
@@ -541,33 +446,6 @@ class DashboardViewModel @Inject constructor(
             .onFailure { e ->
                 Timber.tag(TAG).w(e, "DashboardViewModel: circuit-breaker status fetch failed")
             }
-    }
-
-    /** One-shot REST fetch of the quote (pull-to-refresh while the WS public is down). */
-    private suspend fun fetchQuote(symbol: String) {
-        getQuoteUseCase(symbol)
-            .onSuccess { quote ->
-                _uiState.update { it.copy(quote = QuoteUiState.Success(quote)) }
-            }
-            .onFailure { e -> onQuoteFetchError(e) }
-    }
-
-    /**
-     * REST quote fetch failure (fallback polling or refresh). Three distinct cases (CLAUDE.md §2):
-     * - VpnNotConnectedException → transition to Stale (keep last value) — not a blocking error
-     * - SocketTimeoutException / IOException → transient, keep previous state
-     * - Other → display error
-     */
-    private fun onQuoteFetchError(e: Throwable) {
-        when (e) {
-            // VPN coupé — garder la valeur précédente, pas d'erreur bloquante
-            is VpnNotConnectedException -> markQuoteStale()
-            // Transitoire — garder l'état précédent sans modification
-            is SocketTimeoutException, is IOException -> Unit
-            else -> _uiState.update {
-                it.copy(quote = QuoteUiState.Error(e.localizedMessage ?: "Erreur"))
-            }
-        }
     }
 }
 

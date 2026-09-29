@@ -13,7 +13,6 @@ import com.tradingplatform.app.data.local.db.dao.AlertDao
 import com.tradingplatform.app.data.local.db.dao.QuoteDao
 import com.tradingplatform.app.data.local.db.dao.WatchlistDao
 import com.tradingplatform.app.domain.model.PnlPeriod
-import com.tradingplatform.app.domain.usecase.market.GetDefaultQuoteSymbolUseCase
 import com.tradingplatform.app.domain.usecase.market.GetQuoteUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPnlUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPositionsUseCase
@@ -65,7 +64,6 @@ class WidgetUpdateWorker @AssistedInject constructor(
     private val getPositionsUseCase: GetPositionsUseCase,
     private val getPnlUseCase: GetPnlUseCase,
     private val getQuoteUseCase: GetQuoteUseCase,
-    private val getDefaultQuoteSymbolUseCase: GetDefaultQuoteSymbolUseCase,
     private val alertDao: AlertDao,
     private val quoteDao: QuoteDao,
     private val watchlistDao: WatchlistDao,
@@ -276,8 +274,9 @@ class WidgetUpdateWorker @AssistedInject constructor(
     /**
      * Symboles à rafraîchir : tickers configurés par un [QuoteWidget] (affichés sur l'écran
      * d'accueil, prioritaires) ∪ watchlist ∪ symboles déjà en cache `quotes`, en majuscules,
-     * dédupliqués, plafonnés à [QUOTES_MAX_SYMBOLS]. Si l'union est vide (premier démarrage),
-     * le symbole par défaut ([GetDefaultQuoteSymbolUseCase]).
+     * dédupliqués, plafonnés à [QUOTES_MAX_SYMBOLS]. Si l'union est vide (premier démarrage,
+     * aucun widget cours ni watchlist), il n'y a rien à synchroniser — aucun symbole n'est
+     * imposé par défaut.
      */
     private suspend fun resolveQuoteSymbols(): List<String> {
         val symbols = LinkedHashSet<String>()
@@ -288,7 +287,6 @@ class WidgetUpdateWorker @AssistedInject constructor(
         addSymbols(watchlistDao.getAllSymbols())
         addSymbols(quoteDao.getAllSymbols())
 
-        if (symbols.isEmpty()) return listOf(getDefaultQuoteSymbolUseCase())
         if (symbols.size > QUOTES_MAX_SYMBOLS) {
             Timber.tag(TAG).w(
                 "WidgetUpdateWorker — ${symbols.size} quote symbols, capped to $QUOTES_MAX_SYMBOLS"

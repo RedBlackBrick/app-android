@@ -10,7 +10,6 @@ interface AuthRepository {
     suspend fun logout(): Result<Unit>
     suspend fun verify2fa(sessionToken: String, totpCode: String): Result<Pair<User, AuthTokens>>
     suspend fun getPortfolios(): Result<List<Portfolio>>
-    suspend fun refreshToken(): Result<AuthTokens>
 
     /**
      * Retourne un JWT avec claim `type=websocket` et son expiration pour authentifier

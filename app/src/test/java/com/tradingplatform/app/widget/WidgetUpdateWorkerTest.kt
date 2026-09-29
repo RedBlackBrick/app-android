@@ -14,7 +14,6 @@ import com.tradingplatform.app.domain.model.PnlSummary
 import com.tradingplatform.app.domain.model.Position
 import com.tradingplatform.app.domain.model.PositionStatus
 import com.tradingplatform.app.domain.model.Quote
-import com.tradingplatform.app.domain.usecase.market.GetDefaultQuoteSymbolUseCase
 import com.tradingplatform.app.domain.usecase.market.GetQuoteUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPnlUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPositionsUseCase
@@ -54,7 +53,6 @@ class WidgetUpdateWorkerTest {
     private val getPositionsUseCase = mockk<GetPositionsUseCase>()
     private val getPnlUseCase = mockk<GetPnlUseCase>()
     private val getQuoteUseCase = mockk<GetQuoteUseCase>()
-    private val getDefaultQuoteSymbolUseCase = mockk<GetDefaultQuoteSymbolUseCase>()
     private val alertDao = mockk<AlertDao>(relaxed = true)
     private val quoteDao = mockk<QuoteDao>(relaxed = true)
     private val watchlistDao = mockk<WatchlistDao>(relaxed = true)
@@ -107,7 +105,6 @@ class WidgetUpdateWorkerTest {
         coEvery { quoteDao.getAllSymbols() } returns listOf("AAPL")
         coEvery { watchlistDao.getAllSymbols() } returns emptyList()
         coEvery { getQuoteUseCase(any()) } returns Result.success(fakeQuote)
-        coEvery { getDefaultQuoteSymbolUseCase() } returns "AAPL"
     }
 
     // ── Factory helper ─────────────────────────────────────────────────────────
@@ -137,7 +134,6 @@ class WidgetUpdateWorkerTest {
                         getPositionsUseCase = getPositionsUseCase,
                         getPnlUseCase = getPnlUseCase,
                         getQuoteUseCase = getQuoteUseCase,
-                        getDefaultQuoteSymbolUseCase = getDefaultQuoteSymbolUseCase,
                         alertDao = alertDao,
                         quoteDao = quoteDao,
                         watchlistDao = watchlistDao,
@@ -364,42 +360,16 @@ class WidgetUpdateWorkerTest {
     // ── Tests comportement non-admin ───────────────────────────────────────────
 
     @Test
-    fun `doWork returns success with default quote symbol when quote cache is empty`() = runTest {
+    fun `doWork with nothing to sync (no widget, watchlist or cache) succeeds and fetches no quote`() = runTest {
         every { vpnManager.state } returns MutableStateFlow(VpnState.Connected())
         coEvery { quoteDao.getAllSymbols() } returns emptyList()
+        coEvery { watchlistDao.getAllSymbols() } returns emptyList()
 
         val result = buildWorker().doWork()
 
         assertEquals(ListenableWorker.Result.success(), result)
-        // Doit utiliser le symbole par défaut (AAPL)
-        coVerify(exactly = 1) { getQuoteUseCase("AAPL") }
-    }
-
-    @Test
-    fun `doWork uses user-configured default symbol when cache is empty`() = runTest {
-        every { vpnManager.state } returns MutableStateFlow(VpnState.Connected())
-        coEvery { quoteDao.getAllSymbols() } returns emptyList()
-        coEvery { getDefaultQuoteSymbolUseCase() } returns "TSLA"
-        coEvery { getQuoteUseCase("TSLA") } returns Result.success(fakeQuote.copy(symbol = "TSLA"))
-
-        buildWorker().doWork()
-
-        // La résolution du symbole passe par GetDefaultQuoteSymbolUseCase
-        // (préférence utilisateur EncryptedDataStore > watchlist > AppDefaults)
-        coVerify(exactly = 1) { getDefaultQuoteSymbolUseCase() }
-        coVerify(exactly = 1) { getQuoteUseCase("TSLA") }
-        coVerify(exactly = 0) { getQuoteUseCase("AAPL") }
-    }
-
-    @Test
-    fun `doWork does not call default symbol resolver when cache is populated`() = runTest {
-        every { vpnManager.state } returns MutableStateFlow(VpnState.Connected())
-        coEvery { quoteDao.getAllSymbols() } returns listOf("AAPL", "MSFT")
-
-        buildWorker().doWork()
-
-        // Pas besoin d'appeler le resolver si la watchlist cache a déjà des symboles
-        coVerify(exactly = 0) { getDefaultQuoteSymbolUseCase() }
+        // Aucun symbole n'est imposé par défaut : plus de « AAPL » de secours.
+        coVerify(exactly = 0) { getQuoteUseCase(any()) }
     }
 
     @Test
@@ -432,7 +402,6 @@ class WidgetUpdateWorkerTest {
         coVerify(exactly = 1) { getQuoteUseCase("MSFT") }
         coVerify(exactly = 1) { getQuoteUseCase("TSLA") }
         coVerify(exactly = 3) { getQuoteUseCase(any()) }
-        coVerify(exactly = 0) { getDefaultQuoteSymbolUseCase() }
     }
 
     @Test

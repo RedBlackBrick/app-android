@@ -322,18 +322,6 @@ Tous les UseCases sont dans `domain/usecase/pairing/`.
 - **Timeout** : 120 secondes. Leve `PairingTimeoutException` via catch de `TimeoutCancellationException`
 - **Intervalle de polling** : 2 secondes (impose cote Repository)
 
-### StoreDevicePairingResultUseCase
-
-- **Fichier** : `StoreDevicePairingResultUseCase.kt`
-- **Injection** : `EncryptedDataStore`
-- **Entree** : `deviceId`, `localToken`, `wgPubkey`, `localIp`
-- **Sortie** : `Result<Unit>`
-- **Logique** : persiste 3 valeurs dans `EncryptedDataStore` :
-  - `local_token_{deviceId}` : token pour chiffrement LAN futur
-  - `device_wg_pubkey_{deviceId}` : cle publique Curve25519 du device
-  - `device_local_ip_{deviceId}` : IP LAN du device
-- **Securite** : le localToken n'est jamais logge
-
 ### ParseSetupQrUseCase (hors flux de pairing device)
 
 - **Fichier** : `ParseSetupQrUseCase.kt`
@@ -491,11 +479,6 @@ masquer ces champs.
 - Les erreurs reseau transitoires sont absorbees et le statut est traite comme `PENDING`
 - Le polling continue jusqu'au timeout de 120s
 
-**Echec de sauvegarde** (`StoreDevicePairingResultUseCase` echoue) :
-- Message : "Echec de la sauvegarde des cles du device"
-- `retryable=false`
-- Le pairing cote VPS et Radxa a reussi mais les donnees locales n'ont pas ete persistees
-
 ---
 
 ## 9. Contraintes
@@ -527,23 +510,20 @@ Il n'y a pas de mecanisme de reprise de session en cours.
 
 Le polling du statut est fixe a 2 secondes (`delay(2_000L)` dans `PairingRepositoryImpl`).
 Cette valeur ne doit pas etre modifiee pour preserver la batterie et limiter la charge
-sur le Radxa.
+sur le Radxa. Seule exception : un HTTP 429 (limite 10 requetes/60 s par IP, `/pin` compris,
+sans `Retry-After`) attend 10 s. Un statut `unknown` (session_id different) est tolere deux fois
+de suite puis declare `FAILED`. `POST /pin` a un `readTimeout` de 120 s (il est synchrone cote
+Radxa) ; ne jamais le rejouer.
 
 ---
 
 ## 10. Persistance post-pairing
 
-Apres un pairing reussi, `StoreDevicePairingResultUseCase` persiste dans `EncryptedDataStore` :
-
-| Cle EncryptedDataStore            | Contenu                              |
-|-----------------------------------|--------------------------------------|
-| `local_token_{deviceId}`          | Token hex 256 bits pour chiffrement LAN futur |
-| `device_wg_pubkey_{deviceId}`     | Cle publique Curve25519 du device    |
-| `device_local_ip_{deviceId}`      | IP LAN du device                     |
-
-Ces donnees sont conservees pour d'eventuelles communications LAN ulterieures
-au-dela du pairing initial. La maintenance locale a ete retiree de l'app
-mobile (admin web uniquement) — voir l'historique git si besoin.
+**Rien n'est persiste cote app apres un pairing reussi.** Le `local_token`, la cle publique et l'IP
+du device n'etaient jamais relus (la maintenance LAN a ete retiree de l'app mobile — admin web
+uniquement) : garder un secret inutile dans `EncryptedDataStore` n'avait aucun interet.
+Le `local_token` reste envoye a la Radxa dans le payload scelle de `/pin` (elle le conserve pour
+`/command` et `/unpair`). Les anciennes cles `local_token_*` disparaissent au prochain logout.
 
 ---
 
@@ -560,7 +540,6 @@ mobile (admin web uniquement) — voir l'historique git si besoin.
 | `domain/usecase/pairing/ScanDeviceQrUseCase.kt` | Parsing QR Radxa |
 | `domain/usecase/pairing/SendPinToDeviceUseCase.kt` | Envoi PIN via Repository |
 | `domain/usecase/pairing/ConfirmPairingUseCase.kt` | Polling confirmation avec timeout 120s |
-| `domain/usecase/pairing/StoreDevicePairingResultUseCase.kt` | Persistance EncryptedDataStore |
 | `domain/model/PairingSession.kt` | Modele session VPS (5 champs) |
 | `domain/model/DevicePairingInfo.kt` | Modele device Radxa (4 champs) |
 | `domain/model/PairingStatus.kt` | Enum PENDING/PAIRED/FAILED + mapping |

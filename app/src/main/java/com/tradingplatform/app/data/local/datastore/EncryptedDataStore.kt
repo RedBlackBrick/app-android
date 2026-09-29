@@ -20,7 +20,6 @@ import java.security.KeyStore
 // Clés de référence (CLAUDE.md §12)
 object DataStoreKeys {
     val ACCESS_TOKEN = stringPreferencesKey("auth_access_token")
-    val USER_ID = longPreferencesKey("auth_user_id")
     val IS_ADMIN = booleanPreferencesKey("auth_is_admin")
     val PORTFOLIO_ID = stringPreferencesKey("auth_portfolio_id")
     val WG_PRIVATE_KEY = stringPreferencesKey("wg_private_key")
@@ -44,12 +43,9 @@ object DataStoreKeys {
     // Timestamp (epoch ms) de la dernière interaction utilisateur — permet de re-verrouiller au
     // démarrage à froid si le process a été tué après > 5 min d'inactivité (BiometricLockManager).
     val LAST_INTERACTION_AT = longPreferencesKey("biometric_last_interaction_at")
-    // Symbole par défaut affiché par le Dashboard et utilisé pour le sync quote initial
-    // des widgets (fallback). Configurable par l'utilisateur via ProfileScreen. Non sensible
-    // stricto-sensu, mais stocké dans EncryptedDataStore pour homogénéité avec les autres
-    // préférences applicatives (évite un second SharedPreferences store à maintenir).
-    val DEFAULT_QUOTE_SYMBOL = stringPreferencesKey("default_quote_symbol")
     // Cookies : clé dynamique "cookie_${name}"
+    // (« default_quote_symbol » a été supprimée avec la fonctionnalité de symbole par défaut ;
+    // la clé orpheline des anciennes installations disparaît au prochain clearSession().)
 }
 
 private const val PREFS_NAME = "trading_secure_prefs"
@@ -202,7 +198,6 @@ class EncryptedDataStore internal constructor(
         DataStoreKeys.WG_DNS.name,
         DataStoreKeys.WG_ALLOWED_IPS.name,
         DataStoreKeys.SETUP_COMPLETED.name,
-        DataStoreKeys.DEFAULT_QUOTE_SYMBOL.name,
     )
 
     /**
@@ -364,37 +359,6 @@ class EncryptedDataStore internal constructor(
         }
     }
 
-    /**
-     * Persiste le local_token associé à un device (pour la roue de secours LAN).
-     * Le token n'est jamais loggé — [REDACTED].
-     * Clé : "local_token_{deviceId}"
-     * Commit synchrone : token critique utilisé pour le chiffrement LAN.
-     */
-    suspend fun writeLocalToken(deviceId: String, token: String) = withContext(Dispatchers.IO) {
-        val prefs = prefs() ?: return@withContext
-        prefs.edit(commit = true) { putString("local_token_$deviceId", token) }
-    }
-
-    /**
-     * Lit le local_token associé à un device.
-     * Retourne null si absent ou en cas d'erreur Keystore.
-     */
-    suspend fun readLocalToken(deviceId: String): String? = withContext(Dispatchers.IO) {
-        val prefs = prefs() ?: return@withContext null
-        try {
-            prefs.getString("local_token_$deviceId", null)
-        } catch (e: IOException) {
-            Timber.e(e, "EncryptedDataStore readLocalToken error — file corrupted")
-            null
-        } catch (e: GeneralSecurityException) {
-            Timber.e(e, "EncryptedDataStore readLocalToken — Keystore invalidated")
-            null
-        } catch (e: SecurityException) {
-            Timber.e(e, "EncryptedDataStore readLocalToken — decrypt failed (SecurityException)")
-            null
-        }
-    }
-
     suspend fun writeLong(key: Preferences.Key<Long>, value: Long) = withContext(Dispatchers.IO) {
         val prefs = prefs() ?: return@withContext
         val commit = key.name in criticalKeys
@@ -460,14 +424,14 @@ class EncryptedDataStore internal constructor(
 
     /**
      * Efface uniquement les données de session (tokens, cookies, user identity).
-     * Préserve les clés device-level (WG_*, SETUP_COMPLETED, DEFAULT_QUOTE_SYMBOL,
-     * local_token_*) — un logout ne doit pas forcer un re-scan du QR d'onboarding.
+     * Préserve les clés device-level (WG_*, SETUP_COMPLETED) — un logout ne doit pas forcer un
+     * re-scan du QR d'onboarding. Les anciennes clés `local_token_*` (plus écrites) disparaissent ici.
      */
     suspend fun clearSession() = withContext(Dispatchers.IO) {
         val prefs = prefs() ?: return@withContext
         val toRemove = try {
             prefs.all.keys.filter { key ->
-                key !in devicePersistentKeys && !key.startsWith("local_token_")
+                key !in devicePersistentKeys
             }
         } catch (e: Exception) {
             Timber.e(e, "clearSession: enumeration failed — falling back to clearAll")

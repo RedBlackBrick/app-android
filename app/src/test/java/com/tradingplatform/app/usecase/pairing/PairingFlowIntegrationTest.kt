@@ -1,7 +1,6 @@
 package com.tradingplatform.app.usecase.pairing
 
 import app.cash.turbine.test
-import com.tradingplatform.app.data.local.datastore.EncryptedDataStore
 import com.tradingplatform.app.domain.exception.PairingTimeoutException
 import com.tradingplatform.app.domain.model.DevicePairingInfo
 import com.tradingplatform.app.domain.model.PairingSession
@@ -11,7 +10,6 @@ import com.tradingplatform.app.domain.usecase.pairing.ConfirmPairingUseCase
 import com.tradingplatform.app.domain.usecase.pairing.ParseVpsQrUseCase
 import com.tradingplatform.app.domain.usecase.pairing.ScanDeviceQrUseCase
 import com.tradingplatform.app.domain.usecase.pairing.SendPinToDeviceUseCase
-import com.tradingplatform.app.domain.usecase.pairing.StoreDevicePairingResultUseCase
 import com.tradingplatform.app.ui.screens.pairing.PairingStep
 import com.tradingplatform.app.ui.screens.pairing.PairingViewModel
 import com.tradingplatform.app.util.MainDispatcherRule
@@ -50,11 +48,9 @@ class PairingFlowIntegrationTest {
 
     // ── Mocked components with repository dependency ──────────────────────────
     private val pairingRepository = mockk<PairingRepository>()
-    private val dataStore = mockk<EncryptedDataStore>(relaxed = true)
 
     private lateinit var sendPinToDeviceUseCase: SendPinToDeviceUseCase
     private lateinit var confirmPairingUseCase: ConfirmPairingUseCase
-    private lateinit var storeDevicePairingResultUseCase: StoreDevicePairingResultUseCase
     private lateinit var viewModel: PairingViewModel
 
     // ── Test fixtures ─────────────────────────────────────────────────────────
@@ -98,14 +94,12 @@ class PairingFlowIntegrationTest {
     fun setUp() {
         sendPinToDeviceUseCase = SendPinToDeviceUseCase(pairingRepository)
         confirmPairingUseCase = ConfirmPairingUseCase(pairingRepository)
-        storeDevicePairingResultUseCase = StoreDevicePairingResultUseCase(dataStore)
 
         viewModel = PairingViewModel(
             parseVpsQrUseCase = parseVpsQrUseCase,
             scanDeviceQrUseCase = scanDeviceQrUseCase,
             sendPinToDeviceUseCase = sendPinToDeviceUseCase,
             confirmPairingUseCase = confirmPairingUseCase,
-            storeDevicePairingResultUseCase = storeDevicePairingResultUseCase,
         )
     }
 
@@ -124,7 +118,7 @@ class PairingFlowIntegrationTest {
                 nonce = expectedSession.nonce,
                 radxaWgPubkey = expectedDevice.wgPubkey,
             )
-        } returns Result.success<String?>(null)
+        } returns Result.success(Unit)
 
         every {
             pairingRepository.pollStatus(
@@ -177,7 +171,7 @@ class PairingFlowIntegrationTest {
         // Arrange — pollStatus never emits a terminal status
         coEvery {
             pairingRepository.sendPin(any(), any(), any(), any(), any(), any(), any())
-        } returns Result.success<String?>(null)
+        } returns Result.success(Unit)
 
         every {
             pairingRepository.pollStatus(any(), any(), any())
@@ -235,7 +229,7 @@ class PairingFlowIntegrationTest {
         // Arrange
         coEvery {
             pairingRepository.sendPin(any(), any(), any(), any(), any(), any(), any())
-        } returns Result.success<String?>(null)
+        } returns Result.success(Unit)
 
         every {
             pairingRepository.pollStatus(any(), any(), any())
@@ -273,7 +267,7 @@ class PairingFlowIntegrationTest {
         // Arrange
         coEvery {
             pairingRepository.sendPin(any(), any(), any(), any(), any(), any(), any())
-        } returns Result.success<String?>(null)
+        } returns Result.success(Unit)
 
         every {
             pairingRepository.pollStatus(any(), any(), any())
@@ -312,7 +306,7 @@ class PairingFlowIntegrationTest {
         // Arrange — order of QR scans is reversed compared to the previous test
         coEvery {
             pairingRepository.sendPin(any(), any(), any(), any(), any(), any(), any())
-        } returns Result.success<String?>(null)
+        } returns Result.success(Unit)
 
         every {
             pairingRepository.pollStatus(any(), any(), any())
@@ -381,14 +375,13 @@ class PairingFlowIntegrationTest {
 
         coEvery {
             pairingRepository.sendPin(any(), any(), any(), any(), any(), any(), any())
-        } returns Result.success<String?>(null)
+        } returns Result.success(Unit)
 
         val timeoutViewModel = PairingViewModel(
             parseVpsQrUseCase = parseVpsQrUseCase,
             scanDeviceQrUseCase = scanDeviceQrUseCase,
             sendPinToDeviceUseCase = sendPinToDeviceUseCase,
             confirmPairingUseCase = mockedConfirmUseCase,
-            storeDevicePairingResultUseCase = storeDevicePairingResultUseCase,
         )
 
         timeoutViewModel.step.test {
@@ -418,7 +411,7 @@ class PairingFlowIntegrationTest {
         // Arrange — simulate user scanning wrong QR first, then correct one
         coEvery {
             pairingRepository.sendPin(any(), any(), any(), any(), any(), any(), any())
-        } returns Result.success<String?>(null)
+        } returns Result.success(Unit)
 
         every {
             pairingRepository.pollStatus(any(), any(), any())
@@ -472,7 +465,7 @@ class PairingFlowIntegrationTest {
             // arg(4) = localToken — same
             capturedNonce = arg(5)
             capturedWgPubkey = arg(6)
-            Result.success<String?>(null)
+            Result.success(Unit)
         }
 
         val session = parseVpsQrUseCase(validVpsQrRaw).getOrThrow()

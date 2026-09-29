@@ -11,7 +11,6 @@ import com.tradingplatform.app.security.sealLanBody
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
-import org.json.JSONException
 import org.json.JSONObject
 import timber.log.Timber
 import javax.inject.Inject
@@ -69,7 +68,7 @@ class PairingRepositoryImpl @Inject constructor(
         localToken: String,
         nonce: String,
         radxaWgPubkey: String,
-    ): Result<String?> = runCatchingCancellable {
+    ): Result<Unit> = runCatchingCancellable {
         Timber.tag(TAG).d("PairingRepository: sending encrypted PIN to $deviceIp:$devicePort sessionId=$sessionId pin=[REDACTED] token=[REDACTED] nonce=[REDACTED]")
 
         val payloadJson = JSONObject().apply {
@@ -90,20 +89,6 @@ class PairingRepositoryImpl @Inject constructor(
         if (!response.isSuccessful) {
             val errorBody = response.errorBody()?.string()?.takeIf { it.isNotBlank() } ?: ""
             throw PairingDeviceException(httpCode = response.code(), body = errorBody)
-        }
-        parseDeviceId(response.body()?.string())
-    }
-
-    /**
-     * `device_id` du 200 de `/pin` (`{"status":"paired","device_id":"radxa-<12hex>"}`), best-effort :
-     * un corps vide, non-JSON ou sans `device_id` donne null — jamais un échec, le pairing a réussi.
-     */
-    private fun parseDeviceId(body: String?): String? {
-        if (body.isNullOrBlank()) return null
-        return try {
-            JSONObject(body).optString("device_id").takeIf { it.isNotBlank() }
-        } catch (_: JSONException) {
-            null
         }
     }
 

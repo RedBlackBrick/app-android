@@ -117,7 +117,7 @@ class DevicesViewModel @Inject constructor(
 // ── DeviceDetailViewModel — détail ────────────────────────────────────────────
 
 /**
- * ViewModel pour [DeviceDetailScreen] et [EdgeDeviceDashboardScreen].
+ * ViewModel de l'écran [EdgeDeviceDashboardScreen] (détail d'un device).
  *
  * Charge l'état d'un device spécifique via [GetDeviceStatusUseCase].
  * Gère le désappairage via [UnpairDeviceUseCase].

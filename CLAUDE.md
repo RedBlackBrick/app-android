@@ -215,7 +215,6 @@ class WidgetUpdateWorker @AssistedInject constructor(
     private val getPositionsUseCase: GetPositionsUseCase,
     private val getPnlUseCase: GetPnlUseCase,
     private val getQuoteUseCase: GetQuoteUseCase,
-    private val getDefaultQuoteSymbolUseCase: GetDefaultQuoteSymbolUseCase,
     private val alertDao: AlertDao,
     private val quoteDao: QuoteDao,
     private val watchlistDao: WatchlistDao,
@@ -399,8 +398,8 @@ intercepteurs OkHttp pour un cas prévisible.
 
 ### Données de marché — stratégie
 
-- **Cours (Dashboard + MarketDataScreen)** : WebSocket public `wss://vps/ws/public` (symbole par défaut pour le Dashboard, chaque symbole de la watchlist pour MarketData), throttle `Flow.sample(250ms)`, via le helper partagé `ui/common/QuoteFallbackController` — ne jamais recopier une boucle « collect WS → catch → polling » dans un ViewModel
-- **Subscriptions WS ref-comptées** : `PublicWsClient` compte les collecteurs par symbole — frame `subscribe` seulement à 0→1, `unsubscribe` seulement à 1→0, resouscription de toutes les clés sur `onOpen`, fermeture quand plus aucun symbole. Dashboard et MarketData peuvent donc suivre le même symbole sans se couper mutuellement
+- **Cours (Dashboard + MarketDataScreen)** : WebSocket public `wss://vps/ws/public` (chaque symbole de la watchlist pour MarketData — le Dashboard n'affiche plus de cours), throttle `Flow.sample(250ms)`, via le helper partagé `ui/common/QuoteFallbackController` — ne jamais recopier une boucle « collect WS → catch → polling » dans un ViewModel
+- **Subscriptions WS ref-comptées** : `PublicWsClient` compte les collecteurs par symbole — frame `subscribe` seulement à 0→1, `unsubscribe` seulement à 1→0, resouscription de toutes les clés sur `onOpen`, fermeture quand plus aucun symbole. MarketData et un `QuoteWidget` peuvent donc suivre le même symbole sans se couper mutuellement
 - **Fallback REST piloté par l'état** : `PublicWsClient.connectionState` (`WsConnectionState` : `Connecting` à l'ouverture / pendant le backoff, `Connected` sur onOpen, `Disconnected` sur onFailure/onClosed/disconnect, `Degraded` à partir de 3 tentatives de reconnexion) est exposé via `PublicWsRepository` + `GetPublicWsConnectionStateUseCase` (qui expose aussi `isAppForeground()`). Le flux WS `quoteUpdates` **ne lève jamais** sur coupure — un `catch` autour de sa collecte est du code mort. `QuoteFallbackController` collecte le flux WS en permanence (jamais annulé → resouscription automatique après reconnexion) et, quand l'état n'est pas `Connected` depuis **2 s** (debounce ; `Connected` est propagé immédiatement), appelle `onStale` puis polle `GET /v1/market-data/quote/{symbol}` toutes les **30 secondes** — uniquement si l'app est au premier plan. Le polling s'arrête dès le retour à `Connected` (`collectLatest`). Dans `openWebSocket`, un `catch (e: Exception)` doit relancer `CancellationException`
 - **Portfolio (P&L, positions)** : mises à jour temps réel via `WsRepository` (WebSocket `wss://vps/v1/ws/private`) en complément du polling REST
 - **Dashboard NAV / PnL — `DataState<T>`** (`ui/common/DataState.kt` : `value`, `isRefreshing`, `error`, `syncedAt`) : la valeur n'est **jamais** remise à `null` après un premier succès — `loading()` et `failure()` la conservent (valeur périmée), seul `success(v, now)` la remplace. Chaque `portfolio_update` du WS privé applique `total_value` / `cash_balance` / `positions_value` **directement** à la NAV affichée (patch optimiste, `syncedAt = now` ; le backend n'envoie pas de P&L sur ce canal), passe NAV + PnL en `isRefreshing`, puis déclenche un refetch REST NAV + PnL **debouncé 750 ms** (une rafale = une paire de requêtes). Côté écran : skeletons uniquement si NAV **et** PnL sont `isInitialLoading` ; `isRefreshing` n'alimente que le `PullToRefreshBox` ; valeur + erreur → valeur périmée + `CacheTimestamp(syncedAt, CacheTtl.PNL_MS)` + snackbar ; pas de valeur + erreur → carte d'erreur inline. Un changement de période PnL réinitialise la seule section PnL (jamais la PnL d'une autre période sous la nouvelle puce)
@@ -411,9 +410,9 @@ intercepteurs OkHttp pour un cas prévisible.
 
 La table Room `quotes` persiste le dernier cours connu (TTL 10 min) pour le `QuoteWidget` et le `MarketDataScreen`.
 La table Room `watchlist` persiste les symboles suivis par l'utilisateur (pas de TTL).
-L'écran Dashboard ne persiste pas les cours — il affiche uniquement les données live ou rien.
+Le Dashboard n'affiche aucun cours : la carte « Cours » et la fonctionnalité « symbole par défaut » (préférence du profil, `GetDefaultQuoteSymbolUseCase`, clé `default_quote_symbol`) ont été supprimées — les cours vivent dans Marchés (watchlist) et dans le `QuoteWidget` (ticker configuré par widget).
 
-**Gestion des exceptions du fallback REST Dashboard** — trois cas distincts, traités dans le
+**Gestion des exceptions du fallback REST (MarketData)** — trois cas distincts, traités dans le
 callback `onFetchError` du `QuoteFallbackController` (le controller relance lui-même une
 `CancellationException` encapsulée dans un `Result`).
 
@@ -424,24 +423,18 @@ lancé dans `viewModelScope` ; la pause en arrière-plan passe par
 `collectAsStateWithLifecycle()` suspend en plus la collection quand l'app est en arrière-plan.
 
 ```kotlin
-// Dans DashboardViewModel — pattern correct
+// Dans MarketDataViewModel — pattern correct
 private val quoteFallback = QuoteFallbackController(
     scope = viewModelScope,
     connectionState = getPublicWsConnectionStateUseCase(),
     isForeground = getPublicWsConnectionStateUseCase.isAppForeground(),
-    stream = { getQuoteStreamUseCase(it) },
-    fetch = { getQuoteUseCase(it) },
-    onQuote = { _, q -> _uiState.update { it.copy(quote = QuoteUiState.Success(q)) } },
-    onStale = { markQuoteStale() },                          // Success → Stale(prev.data)
-    onFetchError = { _, e ->
-        when (e) {
-            is VpnNotConnectedException -> markQuoteStale()  // VPN coupé — pas d'erreur bloquante
-            is SocketTimeoutException, is IOException -> Unit // transitoire — état inchangé
-            else -> _uiState.update { it.copy(quote = QuoteUiState.Error(e.localizedMessage ?: "Erreur")) }
-        }
-    },
-)
-// quoteWatchJob = quoteFallback.watch(symbol) — annuler le Job = unsubscribe ref-compté + arrêt du polling
+    stream = { symbol -> getQuoteStreamUseCase(symbol) },
+    fetch = { symbol -> getQuoteUseCase(symbol) },
+    onQuote = ::onQuoteReceived,
+    onStale = ::markStale,                 // WS public non live → symboles « périmés » (staleSymbols)
+    onFetchError = ::onQuoteFetchError,    // VpnNotConnectedException → périmé, pas d'erreur bloquante
+)                                          // SocketTimeoutException / IOException → transitoire, état inchangé
+// job = quoteFallback.watch(symbol) — annuler le Job = unsubscribe ref-compté + arrêt du polling
 
 // Dans le Composable — collectAsStateWithLifecycle() gère le lifecycle
 val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -645,7 +638,7 @@ Tink en `RuntimeException`). Les chemins critiques utilisent `readStringSafe` / 
 dialog de corruption ; son bouton lance `RecoverFromKeystoreCorruptionUseCase` (WS privé + tunnel
 WG coupés, caches token/cookie/CSRF vidés, Room vidé, puis `EncryptedDataStore.resetCorruptedStore()`
 qui supprime `trading_secure_prefs` **et** l'alias MasterKey avant de recréer un store vide).
-**Rien ne survit** (tokens, cookies, clés/config WireGuard, `setup_completed`, `local_token_*`) :
+**Rien ne survit** (tokens, cookies, clés/config WireGuard, `setup_completed`) :
 l'app repart sur `SetupScreen` et l'utilisateur rescanne le QR de configuration. Si le store ne
 peut pas être recréé, le dialog réapparaît en variante « stockage indisponible » (réessayer).
 Ne jamais laisser l'app dans un état indéterminé avec des clés nulles.
@@ -915,9 +908,11 @@ App → poll GET https://radxa_ip:8099/status jusqu'à "paired"
   `/pin` est synchrone côté Radxa (≈ 55 s sur fb847ec, jusqu'à ≈ 113 s sur 93fdc58) : le `readTimeout`
   global de 10 s du client `@Named("lan")` faisait échouer l'app alors que la Radxa terminait, et un
   rejeu donne 409 (nonce déjà consommé). **Ne jamais rejouer `/pin`.**
-- Le 200 de `/pin` renvoie le `device_id` **définitif** (alloué par le VPS) ; l'id du QR Radxa
-  (`radxa-pending-…`) est provisoire. `PairingViewModel` stocke `local_token`, pubkey et IP sous l'id
-  définitif, avec repli sur celui du QR s'il est absent.
+- **Rien n'est persisté côté app après un pairing réussi** : le `local_token`, la clé publique et l'IP
+  du device n'étaient jamais relus (la maintenance LAN a été retirée) — ne pas garder un secret
+  inutile dans `EncryptedDataStore`. Le `local_token` reste envoyé à la Radxa dans le payload scellé
+  de `/pin` (elle le conserve pour `/command` et `/unpair`) ; les anciennes clés `local_token_*`
+  disparaissent au prochain `clearSession()`.
 
 **Validation des QR scannés :**
 - QR non reconnu (ni VPS ni Radxa) → `PairingStep.Error("QR non reconnu, réessayez", retryable=true)` + vibration
@@ -1462,7 +1457,6 @@ Les widgets Glance accèdent aux données via `WidgetUpdateWorker` (WorkManager 
 | Clé | Contenu |
 |-----|---------|
 | `auth_access_token` | JWT access token (Bearer) |
-| `auth_user_id` | `user.id` (Long) |
 | `auth_is_admin` | `user.is_admin` (Boolean) |
 | `auth_portfolio_id` | `portfolioId` (Int) |
 | `wg_private_key` | Clé privée WireGuard (base64) |
@@ -1473,5 +1467,4 @@ Les widgets Glance accèdent aux données via `WidgetUpdateWorker` (WorkManager 
 | `wg_dns` | DNS du tunnel |
 | `wg_allowed_ips` | Routes du peer VPS provisionnées (`allowed_ips` de `/register`, écrit par `ProvisionMobileVpnUseCase`) — relu par `WireGuardManager.reconnect()` ; absent (install antérieure) → full tunnel `WireGuardPeer.DEFAULT_ALLOWED_IPS` |
 | `setup_completed` | `true` après onboarding QR + premier login |
-| `local_token_{device_id}` | local_token par device Radxa (persisté après pairing) |
 | `cookie_*` | Cookies auth (refresh token httpOnly) |

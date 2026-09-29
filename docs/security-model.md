@@ -113,7 +113,6 @@ EncryptedSharedPreferences ("trading_secure_prefs")
     |-- auth_access_token (JWT)
     |-- wg_private_key (cle privee WireGuard)
     |-- cookie_refresh_token (httpOnly cookie)
-    |-- local_token_{device_id} (tokens LAN par device)
     |-- csrf_token (cache)
     |
     v
@@ -462,7 +461,6 @@ en cas de kill du process entre `apply()` et la persistance asynchrone :
 - `auth_access_token`
 - `wg_private_key`, `wg_config`, `wg_endpoint`, `wg_server_pubkey`, `wg_tunnel_ip`, `wg_dns`, `wg_allowed_ips`
 - `cookie_refresh_token` (via `saveCookie()`)
-- `local_token_{deviceId}` (via `writeLocalToken()`)
 
 ### Cles stockees
 
@@ -484,7 +482,6 @@ en cas de kill du process entre `apply()` et la persistance asynchrone :
 | `pending_fcm_token` | String | Token FCM en attente d'enregistrement |
 | `pending_fcm_fingerprint` | String | Fingerprint FCM pour retry |
 | `cookie_refresh_token` | String | Cookie httpOnly refresh_token |
-| `local_token_{deviceId}` | String | Token LAN par device Radxa |
 
 ---
 

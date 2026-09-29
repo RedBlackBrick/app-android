@@ -18,7 +18,6 @@ import com.tradingplatform.app.data.model.PositionDto
 import com.tradingplatform.app.data.repository.PortfolioRepositoryImpl
 import com.tradingplatform.app.domain.model.PnlPeriod
 import com.tradingplatform.app.domain.model.Quote
-import com.tradingplatform.app.domain.usecase.market.GetDefaultQuoteSymbolUseCase
 import com.tradingplatform.app.domain.usecase.market.GetQuoteUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPnlUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPositionsUseCase
@@ -74,7 +73,6 @@ class WidgetUpdateWorkerRoomTest {
     }
     private val dataStore = mockk<EncryptedDataStore>()
     private val getQuoteUseCase = mockk<GetQuoteUseCase>()
-    private val getDefaultQuoteSymbolUseCase = mockk<GetDefaultQuoteSymbolUseCase>()
     private val alertDao = mockk<AlertDao>(relaxed = true)
     private val quoteDao = mockk<QuoteDao>(relaxed = true)
 
@@ -136,7 +134,6 @@ class WidgetUpdateWorkerRoomTest {
         )
         coEvery { quoteDao.getAllSymbols() } returns listOf("AAPL")
         coEvery { getQuoteUseCase(any()) } returns Result.success(fakeQuote)
-        coEvery { getDefaultQuoteSymbolUseCase() } returns "AAPL"
     }
 
     @After
@@ -162,7 +159,6 @@ class WidgetUpdateWorkerRoomTest {
                     getPositionsUseCase = getPositionsUseCase,
                     getPnlUseCase = getPnlUseCase,
                     getQuoteUseCase = getQuoteUseCase,
-                    getDefaultQuoteSymbolUseCase = getDefaultQuoteSymbolUseCase,
                     alertDao = alertDao,
                     quoteDao = quoteDao,
                     watchlistDao = watchlistDao,

@@ -3,8 +3,6 @@ package com.tradingplatform.app.ui.screens.settings
 import app.cash.turbine.test
 import com.tradingplatform.app.domain.model.User
 import com.tradingplatform.app.domain.usecase.auth.GetUserProfileUseCase
-import com.tradingplatform.app.domain.usecase.market.GetDefaultQuoteSymbolUseCase
-import com.tradingplatform.app.domain.usecase.market.SetDefaultQuoteSymbolUseCase
 import com.tradingplatform.app.util.MainDispatcherRule
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -12,7 +10,6 @@ import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
-import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import kotlin.test.assertIs
@@ -33,8 +30,6 @@ class ProfileViewModelTest {
     val mainDispatcherRule = MainDispatcherRule()
 
     private val getUserProfileUseCase = mockk<GetUserProfileUseCase>()
-    private val getDefaultQuoteSymbolUseCase = mockk<GetDefaultQuoteSymbolUseCase>()
-    private val setDefaultQuoteSymbolUseCase = mockk<SetDefaultQuoteSymbolUseCase>()
 
     private val fakeUser = User(
         id = 1L,
@@ -45,15 +40,8 @@ class ProfileViewModelTest {
         totpEnabled = false,
     )
 
-    @Before
-    fun setUp() {
-        coEvery { getDefaultQuoteSymbolUseCase() } returns "AAPL"
-    }
-
     private fun createViewModel(): ProfileViewModel = ProfileViewModel(
         getUserProfileUseCase = getUserProfileUseCase,
-        getDefaultQuoteSymbolUseCase = getDefaultQuoteSymbolUseCase,
-        setDefaultQuoteSymbolUseCase = setDefaultQuoteSymbolUseCase,
     )
 
     // ── init / loadProfile ───────────────────────────────────────────────────
@@ -86,62 +74,15 @@ class ProfileViewModelTest {
         }
     }
 
-    @Test
-    fun `defaultQuoteSymbol is loaded from GetDefaultQuoteSymbolUseCase on init`() = runTest {
-        coEvery { getUserProfileUseCase() } returns Result.success(fakeUser)
-        coEvery { getDefaultQuoteSymbolUseCase() } returns "TSLA"
-
-        val viewModel = createViewModel()
-
-        viewModel.defaultQuoteSymbol.test {
-            assertEquals("TSLA", awaitItem())
-            cancelAndIgnoreRemainingEvents()
-        }
-    }
-
     // ── refresh ──────────────────────────────────────────────────────────────
 
     @Test
-    fun `refresh reloads profile and default quote symbol`() = runTest {
+    fun `refresh reloads the profile`() = runTest {
         coEvery { getUserProfileUseCase() } returns Result.success(fakeUser)
 
         val viewModel = createViewModel()
         viewModel.refresh()
 
         coVerify(exactly = 2) { getUserProfileUseCase() }
-        coVerify(exactly = 2) { getDefaultQuoteSymbolUseCase() }
-    }
-
-    // ── updateDefaultQuoteSymbol ─────────────────────────────────────────────
-
-    @Test
-    fun `updateDefaultQuoteSymbol persists and normalizes the symbol on success`() = runTest {
-        coEvery { getUserProfileUseCase() } returns Result.success(fakeUser)
-        coEvery { setDefaultQuoteSymbolUseCase("tsla") } returns Result.success(Unit)
-
-        val viewModel = createViewModel()
-        viewModel.updateDefaultQuoteSymbol("tsla")
-
-        viewModel.defaultQuoteSymbol.test {
-            assertEquals("TSLA", awaitItem())
-            cancelAndIgnoreRemainingEvents()
-        }
-    }
-
-    @Test
-    fun `updateDefaultQuoteSymbol does not update state when persistence fails`() = runTest {
-        coEvery { getUserProfileUseCase() } returns Result.success(fakeUser)
-        coEvery { getDefaultQuoteSymbolUseCase() } returns "AAPL"
-        coEvery { setDefaultQuoteSymbolUseCase("tsla") } returns
-            Result.failure(RuntimeException("write failed"))
-
-        val viewModel = createViewModel()
-        viewModel.updateDefaultQuoteSymbol("tsla")
-
-        viewModel.defaultQuoteSymbol.test {
-            // Unchanged — still the value loaded at init, the failed write was not applied locally
-            assertEquals("AAPL", awaitItem())
-            cancelAndIgnoreRemainingEvents()
-        }
     }
 }

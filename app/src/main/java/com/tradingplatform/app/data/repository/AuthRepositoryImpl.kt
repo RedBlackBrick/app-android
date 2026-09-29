@@ -80,7 +80,6 @@ class AuthRepositoryImpl @Inject constructor(
             // entre les deux, le fallback DataStore relira l'ancien token → nouveau 401 → refresh.
             tokenHolder.setToken(tokens.accessToken)
             dataStore.writeString(DataStoreKeys.ACCESS_TOKEN, tokens.accessToken)
-            dataStore.writeLong(DataStoreKeys.USER_ID, user.id)
             dataStore.writeBoolean(DataStoreKeys.IS_ADMIN, user.isAdmin)
             // Nouvelle session — émis APRÈS les écritures DataStore pour que les collecteurs
             // (AppNavViewModel.isLoggedIn/isAdmin, PrivateWsClient reconnexion immédiate avec
@@ -148,7 +147,6 @@ class AuthRepositoryImpl @Inject constructor(
             // Persist user data and tokens after successful 2FA (same as login)
             tokenHolder.setToken(tokens.accessToken)
             dataStore.writeString(DataStoreKeys.ACCESS_TOKEN, tokens.accessToken)
-            dataStore.writeLong(DataStoreKeys.USER_ID, user.id)
             dataStore.writeBoolean(DataStoreKeys.IS_ADMIN, user.isAdmin)
             // Nouvelle session — émis APRÈS les écritures DataStore pour que les collecteurs
             // (AppNavViewModel.isLoggedIn/isAdmin, PrivateWsClient reconnexion immédiate avec
@@ -220,18 +218,6 @@ class AuthRepositoryImpl @Inject constructor(
             // Parsing Moshi échoué — le corps n'est pas du JSON valide
             null
         }
-    }
-
-    override suspend fun refreshToken(): Result<AuthTokens> = runCatchingCancellable {
-        val response = authApi.refresh()
-        if (!response.isSuccessful) {
-            error("Token refresh failed: HTTP ${response.code()}")
-        }
-        val body = response.body() ?: error("Empty refresh response")
-        val tokens = body.toDomain()
-        tokenHolder.setToken(tokens.accessToken)
-        dataStore.writeString(DataStoreKeys.ACCESS_TOKEN, tokens.accessToken)
-        tokens
     }
 
     override suspend fun getWsToken(): Result<WsTokenInfo> = runCatchingCancellable {

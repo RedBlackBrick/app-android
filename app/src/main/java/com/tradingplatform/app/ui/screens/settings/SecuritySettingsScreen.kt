@@ -39,10 +39,9 @@ import com.tradingplatform.app.ui.theme.Spacing
 /**
  * Settings screen for displaying device security status.
  *
- * Three sections:
+ * Two sections:
  * 1. Biometrics — availability and inactivity lock description.
  * 2. Device integrity — root detection result with appropriate visual indicator.
- * 3. Theme — informational note about the fixed theme.
  *
  * Accessibility: status rows carry contentDescription for TalkBack.
  */
@@ -89,9 +88,6 @@ fun SecuritySettingsScreen(
 
             // ── Device integrity section ──────────────────────────────────────
             DeviceIntegritySection(isRooted = uiState.isRooted)
-
-            // ── Theme section ─────────────────────────────────────────────────
-            ThemeSection()
         }
     }
 }
@@ -224,29 +220,6 @@ private fun DeviceIntegritySection(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun ThemeSection(
-    modifier: Modifier = Modifier,
-) {
-    SettingsCard(
-        title = "Thème",
-        modifier = modifier,
-    ) {
-        Text(
-            text = "Thème fixe — DynamicColor désactivé pour cohérence avec l'interface web",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(
-            text = "L'application utilise un thème indigo fixe correspondant à la plateforme web de trading. " +
-                "Material You (couleurs dynamiques) est intentionnellement désactivé.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = Spacing.xs),
-        )
     }
 }
 

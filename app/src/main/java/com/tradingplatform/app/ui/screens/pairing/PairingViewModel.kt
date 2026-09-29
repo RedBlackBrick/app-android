@@ -10,7 +10,6 @@ import com.tradingplatform.app.domain.usecase.pairing.ConfirmPairingUseCase
 import com.tradingplatform.app.domain.usecase.pairing.ParseVpsQrUseCase
 import com.tradingplatform.app.domain.usecase.pairing.ScanDeviceQrUseCase
 import com.tradingplatform.app.domain.usecase.pairing.SendPinToDeviceUseCase
-import com.tradingplatform.app.domain.usecase.pairing.StoreDevicePairingResultUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -80,7 +79,6 @@ class PairingViewModel @Inject constructor(
     private val scanDeviceQrUseCase: ScanDeviceQrUseCase,
     private val sendPinToDeviceUseCase: SendPinToDeviceUseCase,
     private val confirmPairingUseCase: ConfirmPairingUseCase,
-    private val storeDevicePairingResultUseCase: StoreDevicePairingResultUseCase,
 ) : ViewModel() {
 
     private val _step = MutableStateFlow<PairingStep>(PairingStep.Idle)
@@ -229,12 +227,6 @@ class PairingViewModel @Inject constructor(
             try {
                 _step.value = PairingStep.SendingPin
 
-                // L'id lu dans le QR Radxa est provisoire (`radxa-pending-…`) : le VPS alloue
-                // l'id définitif (`radxa-<12hex>`) que la Radxa adopte et renvoie dans le 200 de
-                // /pin. Les clés locales (local_token, pubkey, IP) sont stockées sous celui-là ;
-                // repli sur l'id du QR si le device ne le fournit pas.
-                var deviceId = current.device.deviceId
-
                 // Step 1 — send encrypted PIN + nonce to Radxa device over LAN
                 sendPinToDeviceUseCase(
                     deviceIp = current.device.localIp,
@@ -244,9 +236,7 @@ class PairingViewModel @Inject constructor(
                     localToken = current.session.localToken,   // never logged ([REDACTED])
                     nonce = current.session.nonce,              // never logged ([REDACTED])
                     radxaWgPubkey = current.device.wgPubkey,
-                ).onSuccess { definitiveId ->
-                    definitiveId?.takeIf { it.isNotBlank() }?.let { deviceId = it }
-                }.onFailure { e ->
+                ).onFailure { e ->
                     Timber.d("PairingViewModel: SendPin failed — ${e.message}")
                     _step.value = PairingStep.Error(
                         message = e.localizedMessage ?: "Erreur lors de l'envoi du PIN",
@@ -265,20 +255,10 @@ class PairingViewModel @Inject constructor(
                 ).onSuccess { status ->
                     Timber.d("PairingViewModel: ConfirmPairing result — status=$status")
                     if (status == PairingStatus.PAIRED) {
-                        storeDevicePairingResultUseCase(
-                            deviceId = deviceId,
-                            localToken = current.session.localToken,
-                            wgPubkey = current.device.wgPubkey,
-                            localIp = current.device.localIp,
-                        ).onSuccess {
-                            _step.value = PairingStep.Success
-                        }.onFailure { e ->
-                            Timber.e(e, "PairingViewModel: StoreDevicePairingResult failed")
-                            _step.value = PairingStep.Error(
-                                message = "Échec de la sauvegarde des clés du device",
-                                retryable = false,
-                            )
-                        }
+                        // Rien à persister côté app : le local_token, la clé publique et l'IP du
+                        // device n'étaient jamais relus (maintenance LAN retirée) — ne pas garder
+                        // un secret inutile dans EncryptedDataStore.
+                        _step.value = PairingStep.Success
                     } else {
                         _step.value = PairingStep.Error(
                             message = "Le device n'a pas pu être appairé",

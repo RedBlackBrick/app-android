@@ -3,7 +3,6 @@ package com.tradingplatform.app.data.repository
 import com.tradingplatform.app.data.local.db.CacheTtl
 import com.tradingplatform.app.data.local.db.dao.AlertDao
 import com.tradingplatform.app.data.model.toDomain
-import com.tradingplatform.app.data.model.toEntity
 import com.tradingplatform.app.domain.model.Alert
 import com.tradingplatform.app.domain.model.AlertType
 import com.tradingplatform.app.domain.repository.AlertRepository
@@ -34,14 +33,6 @@ class AlertRepositoryImpl @Inject constructor(
 
     override suspend fun markRead(alertId: Long): Result<Unit> = runCatchingCancellable {
         alertDao.markRead(alertId)
-    }
-
-    /**
-     * Insère une alerte reçue par FCM dans Room.
-     * Appelé depuis TradingFirebaseMessagingService.
-     */
-    override suspend fun insertAlert(alert: Alert): Result<Unit> = runCatchingCancellable {
-        alertDao.insert(alert.toEntity())
     }
 
     /**

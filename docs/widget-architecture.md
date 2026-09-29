@@ -265,8 +265,9 @@ Chaque section est dans son propre `try/catch`. Un echec d'un bloc ne bloque pas
 
 1. **Sync positions** -- `getPositionsUseCase(portfolioId)` puis upsert+purge atomique via le Repository
 2. **Sync PnL** -- `getPnlUseCase(portfolioId, PnlPeriod.DAY)` puis upsert+purge atomique via le Repository
-3. **Sync quotes** -- boucle sur tous les symboles en cache (`quoteDao.getAllSymbols()`), ou le
-   symbole par defaut `AAPL` si la table est vide. Chaque symbole est synchronise independamment.
+3. **Sync quotes** -- union des tickers configures par un `QuoteWidget`, de la watchlist et des
+   symboles deja en cache (`quoteDao.getAllSymbols()`). Si l'union est vide, rien n'est synchronise :
+   aucun symbole n'est impose par defaut. Chaque symbole est synchronise independamment.
 4. **Purge alertes** -- suppression des alertes de plus de 30 jours et au-dela des 500
    dernieres (`alertDao.purgeExpired(cutoff)`). Les alertes ne sont pas synchronisees depuis le
    reseau -- elles proviennent de FCM uniquement.

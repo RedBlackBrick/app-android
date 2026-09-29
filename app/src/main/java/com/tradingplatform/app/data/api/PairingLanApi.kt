@@ -1,7 +1,6 @@
 package com.tradingplatform.app.data.api
 
 import okhttp3.RequestBody
-import okhttp3.ResponseBody
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.GET
@@ -18,16 +17,11 @@ import retrofit2.http.Url
  */
 interface PairingLanApi {
 
-    /**
-     * Le 200 porte `{"status":"paired","device_id":"<id alloué par le VPS>"}` sur les deux
-     * firmwares ; corps brut (pas de convertisseur JSON) pour qu'un corps vide ou inattendu ne
-     * fasse jamais échouer un pairing réussi — le repository l'exploite en best-effort.
-     */
     @POST
     suspend fun sendPin(
         @Url url: String,    // "https://{radxa_ip}:8099/pin"
         @Body body: RequestBody,   // application/octet-stream (bytes chiffrés libsodium)
-    ): Response<ResponseBody>
+    ): Response<Unit>
 
     @GET
     suspend fun getStatus(

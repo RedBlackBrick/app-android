@@ -323,15 +323,17 @@ Le `DashboardViewModel` derive egalement un `isWsLive: StateFlow<Boolean>` pour 
 
 ## 5. Fallback WS public -> polling REST
 
-Quand le WebSocket public echoue dans le `DashboardViewModel`, la strategie est la suivante :
+Le fallback est porte par le helper partage `ui/common/QuoteFallbackController` (aujourd'hui utilise
+par `MarketDataViewModel` ; le Dashboard n'affiche plus de cours) :
 
-1. Le `DashboardViewModel` collecte `GetQuoteStreamUseCase(symbol)` dans un `wsQuoteJob`
-2. Si une exception est levee (`VpnNotConnectedException`, `SocketTimeoutException`, `IOException`, ou autre) :
-   - L'etat quote transite en `QuoteUiState.Stale` (derniere valeur connue)
-   - `startPollingFallback(symbol)` demarre une boucle `while(isActive)` avec `delay(30_000)` qui appelle le REST `GetQuoteUseCase`
-3. Le polling REST gere ses propres erreurs (VPN coupe -> Stale, timeout -> etat inchange, autre -> Error)
-
-Il n'y a pas de mecanisme de retour automatique du polling vers le WS public : le fallback reste actif pour la duree de vie du ViewModel. Un `refresh()` (pull-to-refresh) ne relance pas le WS non plus — il force un fetch REST immediat si le polling est actif.
+1. Le controller collecte en permanence `GetQuoteStreamUseCase(symbol)` — le flux WS ne leve jamais
+   sur coupure et n'est jamais annule, donc la resouscription est automatique apres reconnexion.
+2. Quand `PublicWsClient.connectionState` n'est pas `Connected` depuis 2 s (debounce), le controller
+   appelle `onStale` (le dernier cours reste affiche, marque perime) puis polle
+   `GET /v1/market-data/quote/{symbol}` toutes les 30 s — uniquement si l'app est au premier plan.
+3. Le polling gere ses propres erreurs (`onFetchError`) : VPN coupe -> perime, timeout / IOException
+   -> etat inchange, autre -> erreur.
+4. Le polling s'arrete des le retour a `Connected`.
 
 ---
 

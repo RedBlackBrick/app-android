@@ -40,7 +40,6 @@ import com.tradingplatform.app.domain.model.NavSummary
 import com.tradingplatform.app.domain.model.PnlPeriod
 import com.tradingplatform.app.domain.model.PnlSummary
 import com.tradingplatform.app.domain.model.PortfolioCircuitBreakerStatus
-import com.tradingplatform.app.domain.model.Quote
 import com.tradingplatform.app.ui.common.DataState
 import com.tradingplatform.app.ui.components.AnimatedPnlText
 import com.tradingplatform.app.ui.components.CacheTimestamp
@@ -52,8 +51,6 @@ import com.tradingplatform.app.ui.components.SparklineChart
 import com.tradingplatform.app.ui.components.rememberHapticFeedback
 import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.Spacing
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -86,8 +83,7 @@ fun DashboardScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val navError = uiState.navSummary.staleError()
     val pnlError = uiState.pnlSummary.staleError()
-    val quoteError = (uiState.quote as? QuoteUiState.Error)?.message
-    val errorMessage = navError ?: pnlError ?: quoteError
+    val errorMessage = navError ?: pnlError
 
     LaunchedEffect(errorMessage) {
         if (errorMessage != null) {
@@ -178,9 +174,6 @@ fun DashboardScreen(
                         pnlState = uiState.pnlSummary,
                         onRetry = { viewModel.refresh() },
                     )
-
-                    // ── Quote ────────────────────────────────────────────────────
-                    QuoteSection(quoteState = uiState.quote)
 
                     // ── Activity feed ─────────────────────────────────────────
                     ActivityFeedCard(
@@ -617,120 +610,6 @@ private fun PnlSection(
                 }
             }
             DataStateFooter(state = pnlState, onRetry = onRetry)
-        }
-    }
-}
-
-@Composable
-private fun QuoteSection(
-    quoteState: QuoteUiState,
-    modifier: Modifier = Modifier,
-) {
-    val extendedColors = LocalExtendedColors.current
-
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = extendedColors.cardSurface,
-        ),
-    ) {
-        Column(
-            modifier = Modifier.padding(Spacing.lg),
-            verticalArrangement = Arrangement.spacedBy(Spacing.sm),
-        ) {
-            when (quoteState) {
-                is QuoteUiState.Loading -> {
-                    Text(
-                        text = "Cours — chargement…",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                is QuoteUiState.Success -> {
-                    QuoteContent(
-                        symbol = quoteState.data.symbol,
-                        quoteData = quoteState.data,
-                    )
-                }
-                is QuoteUiState.Stale -> {
-                    // Pass Quote directly — QuoteContent skips recomposition when
-                    // the underlying Quote data is structurally equal (data class),
-                    // even if the wrapper changed from Success to Stale.
-                    QuoteContent(
-                        symbol = quoteState.data.symbol,
-                        quoteData = quoteState.data,
-                    )
-                    // Stale indicator
-                    Text(
-                        text = "VPN inactif — cours non actualisé",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = extendedColors.warning,
-                    )
-                    val syncedAt = quoteState.data.timestamp.toEpochMilli()
-                    CacheTimestamp(syncedAt = syncedAt)
-                }
-                is QuoteUiState.Error -> {
-                    Text(
-                        text = "Cours indisponible",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-            }
-        }
-    }
-}
-
-/**
- * Displays quote price and change. Accepts [Quote] directly (not [QuoteUiState])
- * so that Compose structural equality on the data class parameters prevents
- * recomposition when the state wrapper changes (Success → Stale) but the
- * underlying data is identical.
- */
-@Composable
-private fun QuoteContent(
-    symbol: String,
-    quoteData: Quote,
-    modifier: Modifier = Modifier,
-) {
-    // Memoize the formatted timestamp — only recompute when the Instant changes.
-    // ZoneId.systemDefault() and DateTimeFormatter allocation are avoided on
-    // recompositions where only price/change changed (same timestamp).
-    val formattedTimestamp = remember(quoteData.timestamp) {
-        quoteData.timestamp
-            .atZone(ZoneId.systemDefault())
-            .let { DateTimeFormatter.ofPattern("HH:mm:ss").format(it) }
-    }
-
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column {
-            Text(
-                text = symbol,
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Text(
-                text = formattedTimestamp,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Column(horizontalAlignment = Alignment.End) {
-            MoneyText(
-                amount = quoteData.price,
-                decimals = 2,
-                style = MaterialTheme.typography.titleMedium,
-            )
-            if (quoteData.change != null) {
-                AnimatedPnlText(
-                    value = quoteData.change,
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
         }
     }
 }

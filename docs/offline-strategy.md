@@ -183,7 +183,6 @@ Utilise sur les ecrans suivants (verifie dans le code source) :
 - `PositionsScreen` — en en-tete de la liste des positions
 - `PositionDetailScreen`
 - `DeviceListScreen`
-- `DeviceDetailScreen`
 - `EdgeDeviceDashboardScreen`
 - `MyDevicesScreen`
 

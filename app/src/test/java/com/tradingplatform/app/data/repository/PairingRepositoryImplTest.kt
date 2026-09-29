@@ -14,10 +14,8 @@ import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runTest
-import okhttp3.ResponseBody
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -28,7 +26,7 @@ import retrofit2.Response
 /**
  * Polling `/status` et réponse de `/pin` face aux deux firmwares Radxa (fb847ec en service,
  * 93fdc58 à venir). Les deux : limite 10 req/60 s par IP (429 sans Retry-After), `unknown` =
- * session_id différent, `/pin` 200 → `{"status":"paired","device_id":"<id VPS>"}`.
+ * session_id différent, `/pin` synchrone.
  * Robolectric : `sealLanBody` utilise `android.util.Base64`.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -148,13 +146,13 @@ class PairingRepositoryImplTest {
         assertEquals(listOf(PairingStatus.PENDING, PairingStatus.PAIRED), poll())
     }
 
-    // ── /pin : device_id du 200 ───────────────────────────────────────────────
+    // ── /pin ──────────────────────────────────────────────────────────────────
 
-    private fun givenPinResponds(response: Response<ResponseBody>) {
+    private fun givenPinResponds(response: Response<Unit>) {
         coEvery { api.sendPin(any(), any()) } returns response
     }
 
-    private suspend fun sendPin(): Result<String?> = repository.sendPin(
+    private suspend fun sendPin(): Result<Unit> = repository.sendPin(
         deviceIp = ip,
         devicePort = 8099,
         sessionId = "session-1",
@@ -165,43 +163,14 @@ class PairingRepositoryImplTest {
     )
 
     @Test
-    fun `pin 200 returns the definitive device_id allocated by the VPS`() = runTest {
-        givenPinResponds(Response.success("""{"status":"paired","device_id":"radxa-3bdf9efaeefd"}""".toResponseBody(null)))
+    fun `pin 200 is a success`() = runTest {
+        givenPinResponds(Response.success(Unit))
 
-        assertEquals("radxa-3bdf9efaeefd", sendPin().getOrThrow())
+        assertTrue(sendPin().isSuccess)
     }
 
     @Test
-    fun `pin 200 with an empty body is still a success with no device_id`() = runTest {
-        givenPinResponds(Response.success("".toResponseBody(null)))
-
-        val result = sendPin()
-
-        assertTrue(result.isSuccess)
-        assertNull(result.getOrThrow())
-    }
-
-    @Test
-    fun `pin 200 with a non-JSON body is still a success with no device_id`() = runTest {
-        givenPinResponds(Response.success("OK".toResponseBody(null)))
-
-        val result = sendPin()
-
-        assertTrue(result.isSuccess)
-        assertNull(result.getOrThrow())
-    }
-
-    @Test
-    fun `pin 200 with a blank or missing device_id gives none`() = runTest {
-        givenPinResponds(Response.success("""{"status":"paired","device_id":""}""".toResponseBody(null)))
-        assertNull(sendPin().getOrThrow())
-
-        givenPinResponds(Response.success("""{"status":"paired"}""".toResponseBody(null)))
-        assertNull(sendPin().getOrThrow())
-    }
-
-    @Test
-    fun `pin 409 is still a PairingDeviceException carrying the body`() = runTest {
+    fun `pin 409 is a PairingDeviceException carrying the body`() = runTest {
         givenPinResponds(Response.error(409, """{"error":"Already paired"}""".toResponseBody(null)))
 
         val failure = sendPin().exceptionOrNull()

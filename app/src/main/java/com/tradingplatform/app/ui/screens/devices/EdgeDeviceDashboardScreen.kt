@@ -64,7 +64,7 @@ import com.tradingplatform.app.ui.theme.Spacing
 /**
  * Ecran dashboard riche pour un device Radxa (admin uniquement).
  *
- * Remplace [DeviceDetailScreen] sur la route `device/{deviceId}`.
+ * Écran de la route `device/{deviceId}` (l'ancien `DeviceDetailScreen` a été supprimé).
  *
  * Affiche :
  * - Header avec LED pulsante + nom + badge online/offline

@@ -53,7 +53,7 @@ class EncryptedDataStoreTest {
     // ── Round-trip ────────────────────────────────────────────────────────────
 
     @Test
-    fun `write then read round-trips string boolean and local token`() = runTest {
+    fun `write then read round-trips string and boolean`() = runTest {
         val ds = store()
 
         assertEquals(SecureReadResult.NotFound, ds.readStringSafe(DataStoreKeys.ACCESS_TOKEN))
@@ -61,17 +61,15 @@ class EncryptedDataStoreTest {
 
         ds.writeString(DataStoreKeys.ACCESS_TOKEN, "tok")
         ds.writeBoolean(DataStoreKeys.SETUP_COMPLETED, true)
-        ds.writeLocalToken("dev-1", "lt")
 
         assertEquals("tok", ds.readString(DataStoreKeys.ACCESS_TOKEN))
         assertEquals(SecureReadResult.Found("tok"), ds.readStringSafe(DataStoreKeys.ACCESS_TOKEN))
         assertEquals(SecureReadResult.Found(true), ds.readBooleanSafe(DataStoreKeys.SETUP_COMPLETED))
         assertEquals(true, ds.readBoolean(DataStoreKeys.SETUP_COMPLETED))
-        assertEquals("lt", ds.readLocalToken("dev-1"))
     }
 
     @Test
-    fun `clearSession removes session keys but preserves WG and setup keys`() = runTest {
+    fun `clearSession removes session keys and legacy local tokens but preserves WG and setup keys`() = runTest {
         val ds = store()
         ds.writeString(DataStoreKeys.ACCESS_TOKEN, "tok")
         ds.saveCookie("refresh_token", "rt")
@@ -79,7 +77,8 @@ class EncryptedDataStoreTest {
         ds.writeString(DataStoreKeys.WG_ENDPOINT, "vps:51820")
         ds.writeString(DataStoreKeys.WG_ALLOWED_IPS, "10.42.0.0/24")
         ds.writeBoolean(DataStoreKeys.SETUP_COMPLETED, true)
-        ds.writeLocalToken("dev-1", "lt")
+        // Ancienne installation : le local_token n'est plus écrit ni relu, il ne doit pas survivre.
+        ds.writeString("local_token_dev-1", "lt")
 
         ds.clearSession()
 
@@ -89,7 +88,7 @@ class EncryptedDataStoreTest {
         assertEquals("vps:51820", ds.readString(DataStoreKeys.WG_ENDPOINT))
         assertEquals("10.42.0.0/24", ds.readString(DataStoreKeys.WG_ALLOWED_IPS))
         assertEquals(SecureReadResult.Found(true), ds.readBooleanSafe(DataStoreKeys.SETUP_COMPLETED))
-        assertEquals("lt", ds.readLocalToken("dev-1"))
+        assertNull(ds.readString("local_token_dev-1"))
     }
 
     // ── removeIfEquals (compare-and-remove, PR 4.5 / audit #19) ────────────────
@@ -163,7 +162,6 @@ class EncryptedDataStoreTest {
         val ds = store { throw IllegalStateException("tink alpha") }
 
         assertNull(ds.readString(DataStoreKeys.ACCESS_TOKEN))
-        assertNull(ds.readLocalToken("dev-1"))
         assertTrue(ds.readStringSafe(DataStoreKeys.ACCESS_TOKEN) is SecureReadResult.Corrupted)
         assertTrue(ds.readBooleanSafe(DataStoreKeys.SETUP_COMPLETED) is SecureReadResult.Corrupted)
         // Les écritures sont silencieusement ignorées (pas de crash)
@@ -238,7 +236,6 @@ class EncryptedDataStoreTest {
         assertTrue(ds.readBooleanSafe(DataStoreKeys.SETUP_COMPLETED) is SecureReadResult.Corrupted)
         assertNull(ds.readString(DataStoreKeys.ACCESS_TOKEN))
         assertNull(ds.readString("device_wg_pubkey_1"))
-        assertNull(ds.readLocalToken("dev-1"))
         assertNull(ds.readBoolean(DataStoreKeys.SETUP_COMPLETED))
     }
 }
