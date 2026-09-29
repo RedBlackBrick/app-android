@@ -12,7 +12,6 @@ import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.provideContent
 import androidx.glance.background
-import androidx.glance.color.ColorProvider
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Column
 import androidx.glance.layout.Row
@@ -141,7 +140,7 @@ private fun PositionsWidgetContent(
                     text = syncLabel.text,
                     style = TextStyle(
                         color = syncLabelColor(syncLabel),
-                        fontSize = 10.sp,
+                        fontSize = 11.sp,
                     ),
                 )
             }
@@ -183,9 +182,9 @@ private fun PositionRow(position: PositionEntity) {
     val isNegative = unrealizedPnl != null && unrealizedPnl < BigDecimal.ZERO
 
     val pnlColor = when {
-        isPositive -> WidgetColors.PnlPositive
-        isNegative -> WidgetColors.PnlNegative
-        else       -> WidgetColors.PnlNeutral
+        isPositive -> WidgetColors.Positive
+        isNegative -> WidgetColors.Negative
+        else       -> WidgetColors.Neutral
     }
 
     val formattedPnl = if (unrealizedPnl != null) {
@@ -216,7 +215,7 @@ private fun PositionRow(position: PositionEntity) {
         Text(
             text = formattedPnl,
             style = TextStyle(
-                color = ColorProvider(day = pnlColor, night = pnlColor),
+                color = pnlColor.provider(),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
             ),

@@ -14,7 +14,6 @@ import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.provideContent
 import androidx.glance.background
-import androidx.glance.color.ColorProvider
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Column
 import androidx.glance.layout.fillMaxSize
@@ -158,7 +157,7 @@ private fun QuoteWidgetContent(
                 text = waitingLabel,
                 style = TextStyle(
                     color = GlanceTheme.colors.onSurfaceVariant,
-                    fontSize = 9.sp,
+                    fontSize = 10.sp,
                 ),
             )
             return@Column
@@ -169,9 +168,9 @@ private fun QuoteWidgetContent(
         val isNegative = quote.changePercent < 0
 
         val changeColor = when {
-            isPositive -> WidgetColors.PnlPositive
-            isNegative -> WidgetColors.PnlNegative
-            else       -> WidgetColors.PnlNeutral
+            isPositive -> WidgetColors.Positive
+            isNegative -> WidgetColors.Negative
+            else       -> WidgetColors.Neutral
         }
 
         // Prix
@@ -195,7 +194,7 @@ private fun QuoteWidgetContent(
         Text(
             text = pctText,
             style = TextStyle(
-                color = ColorProvider(day = changeColor, night = changeColor),
+                color = changeColor.provider(),
                 fontSize = 11.sp,
             ),
         )
@@ -206,7 +205,7 @@ private fun QuoteWidgetContent(
             text = syncLabel.text,
             style = TextStyle(
                 color = syncLabelColor(syncLabel),
-                fontSize = 9.sp,
+                fontSize = 10.sp,
             ),
         )
     }

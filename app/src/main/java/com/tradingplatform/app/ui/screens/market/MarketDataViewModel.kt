@@ -16,6 +16,7 @@ import com.tradingplatform.app.ui.common.QuoteFallbackController
 import com.tradingplatform.app.vpn.VpnNotConnectedException
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -227,15 +228,27 @@ class MarketDataViewModel @Inject constructor(
             }
     }
 
+    /** Un pull-to-refresh est en cours (les cours eux-mêmes se mettent à jour en continu). */
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
     fun refresh() {
         val currentState = _uiState.value
         val symbols = when (currentState) {
             is MarketDataUiState.Success -> currentState.watchlistSymbols
             else -> return
         }
+        // Garde : plusieurs swipes rapprochés = un seul rafraîchissement.
+        if (!_isRefreshing.compareAndSet(expect = false, update = true)) return
         viewModelScope.launch {
-            symbols.forEach { symbol ->
-                launch { fetchQuoteRest(symbol) }
+            try {
+                coroutineScope {
+                    symbols.forEach { symbol ->
+                        launch { fetchQuoteRest(symbol) }
+                    }
+                }
+            } finally {
+                _isRefreshing.value = false
             }
         }
     }

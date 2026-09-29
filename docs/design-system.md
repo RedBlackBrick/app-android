@@ -81,8 +81,14 @@ val LocalExtendedColors = staticCompositionLocalOf { lightExtendedColors }
 | `onInfo` | `#ffffff` | `#082f49` | white / sky-950 |
 | `infoContainer` | `#e0f2fe` | `#0c4a6e` | sky-100 / sky-900 |
 | `onInfoContainer` | `#0c4a6e` | `#e0f2fe` | sky-900 / sky-100 |
-| `pnlPositive` | `#059669` | `#34d399` | = success |
-| `pnlNegative` | `#e11d48` | `#fb7185` | = error |
+| `pnlPositive` | `#047857` | `#34d399` | emerald-700 en clair (5,5:1 sur blanc ; emerald-600 = 3,77:1 échouait AA) ; = success en sombre |
+| `pnlNegative` | `#be123c` | `#fb7185` | rose-700 en clair (6,1:1 sur `background` ; rose-600 = 4,49:1 échouait AA de justesse) |
+| `pnlPositiveFlash` | `#064e3b` | `#a7f3d0` | flash au changement de valeur : plus **foncé** en clair, plus clair en sombre (jamais < 4,5:1 sur la carte) |
+| `pnlNegativeFlash` | `#881337` | `#ffe4e6` | idem |
+
+Règle de contraste (verrouillée par `ExtendedColorsContrastTest`) : toute couleur de texte de P&L ou de flash
+doit tenir ≥ 4,5:1 (WCAG AA) sur `cardSurface` et sur `background`, en clair comme en sombre.
+Les widgets Glance ont deux tons par rôle (`WidgetColors.Positive/Negative/Neutral`, jour / nuit).
 
 ---
 

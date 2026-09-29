@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Thème sombre : sans cette variante la fenêtre restait blanche (parent Material.Light) le
+         temps du premier frame — flash blanc au lancement d'une app en mode sombre. -->
+    <style name="Theme.TradingPlatform" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/window_background</item>
+    </style>
+</resources>

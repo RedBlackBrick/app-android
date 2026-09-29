@@ -20,7 +20,17 @@ import javax.inject.Inject
 
 sealed interface PositionsUiState {
     data object Loading : PositionsUiState
-    data class Success(val positions: List<Position>, val syncedAt: Long) : PositionsUiState
+    /**
+     * [isRefreshing] : un rafraîchissement est en cours — la liste reste affichée (pas de retour au
+     * skeleton). [refreshError] : le dernier rafraîchissement a échoué ; la liste affichée est donc
+     * périmée (avec son `syncedAt` réel) et l'écran l'annonce sans la masquer.
+     */
+    data class Success(
+        val positions: List<Position>,
+        val syncedAt: Long,
+        val isRefreshing: Boolean = false,
+        val refreshError: String? = null,
+    ) : PositionsUiState
     data class Error(val message: String) : PositionsUiState
 }
 
@@ -138,7 +148,7 @@ class PositionsViewModel @Inject constructor(
 
     fun refresh() {
         loadJob?.cancel()
-        loadJob = viewModelScope.launch { loadPositions(_selectedFilter.value) }
+        loadJob = viewModelScope.launch { loadPositions(_selectedFilter.value, keepCurrent = true) }
     }
 
     /**
@@ -154,8 +164,17 @@ class PositionsViewModel @Inject constructor(
      * depending on coroutine cancellation timing.
      */
     @VisibleForTesting
-    internal suspend fun loadPositions(requestedFilter: StatusFilter) {
-        _uiState.update { PositionsUiState.Loading }
+    internal suspend fun loadPositions(requestedFilter: StatusFilter, keepCurrent: Boolean = false) {
+        // Rafraîchissement du MÊME filtre : la liste affichée reste à l'écran (indicateur du
+        // pull-to-refresh) au lieu de retomber sur un skeleton. Changement de filtre / premier
+        // chargement : la liste courante n'est pas celle demandée → skeleton.
+        _uiState.update { current ->
+            if (keepCurrent && current is PositionsUiState.Success) {
+                current.copy(isRefreshing = true, refreshError = null)
+            } else {
+                PositionsUiState.Loading
+            }
+        }
         val status = when (requestedFilter) {
             StatusFilter.OPEN -> PositionStatus.OPEN
             StatusFilter.CLOSED -> PositionStatus.CLOSED
@@ -173,8 +192,14 @@ class PositionsViewModel @Inject constructor(
             }
             .onFailure { e ->
                 if (_selectedFilter.value != requestedFilter) return@onFailure
-                _uiState.update {
-                    PositionsUiState.Error(e.localizedMessage ?: "Erreur")
+                val message = e.localizedMessage ?: "Erreur"
+                _uiState.update { current ->
+                    // Valeur périmée conservée + erreur annoncée, plutôt que d'effacer la liste.
+                    if (current is PositionsUiState.Success) {
+                        current.copy(isRefreshing = false, refreshError = message)
+                    } else {
+                        PositionsUiState.Error(message)
+                    }
                 }
             }
     }

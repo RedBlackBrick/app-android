@@ -63,10 +63,13 @@ data class ExtendedColors(
 // ── Valeurs light ─────────────────────────────────────────────────────────────
 // Sources : docs/design-system.md § Couleurs custom (hors M3 standard)
 val lightExtendedColors = ExtendedColors(
-    pnlPositive = Emerald600,           // #059669 (emerald-600) — = success
-    pnlNegative = Rose600,              // #e11d48 (rose-600)   — = error
-    pnlPositiveFlash = Emerald200,     // #a7f3d0 (emerald-200) — brighter flash on value change
-    pnlNegativeFlash = Rose100,        // #ffe4e6 (rose-100)   — brighter flash on value change
+    // Texte de P&L : emerald-600 ne faisait que 3,77:1 sur blanc (< 4,5:1 AA) → emerald-700 (5,5:1).
+    // Le flash est plus FONCÉ que la couleur de repos en thème clair : un flash « plus clair »
+    // (emerald-200 / rose-100, 1,2:1 sur blanc) faisait disparaître le chiffre à chaque tick.
+    pnlPositive = Emerald700,           // #047857 (emerald-700) — 5,5:1 sur blanc
+    pnlNegative = Rose700,              // #be123c (rose-700)   — 6,4:1 sur blanc, 6,1:1 sur slate-50 (rose-600 : 4,49:1)
+    pnlPositiveFlash = Emerald900,     // #064e3b (emerald-900) — flash plus marqué au changement de valeur
+    pnlNegativeFlash = Rose900,        // #881337 (rose-900)   — flash plus marqué au changement de valeur (1,5:1 vs repos)
 
     success = Emerald600,               // #059669 (emerald-600)
     onSuccess = White,                  // #ffffff

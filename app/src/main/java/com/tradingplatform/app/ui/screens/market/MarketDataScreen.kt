@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -152,7 +153,9 @@ fun MarketDataScreen(
             }
 
             is MarketDataUiState.Success -> {
-                val isRefreshing = false // Quotes update continuously via WS/polling
+                // Les cours arrivent en continu (WS / polling) ; l'indicateur ne couvre que le
+                // rafraîchissement REST explicite demandé par le swipe.
+                val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
 
                 PullToRefreshBox(
                     isRefreshing = isRefreshing,
@@ -350,15 +353,24 @@ private fun WatchlistCard(
 
                 // Right: price + change + source dot
                 if (quote != null) {
-                    Column(horizontalAlignment = Alignment.End) {
+                    // Toute la colonne prix + variation est la cible du tap (≥ 48 dp de haut) :
+                    // le point de 6 dp seul était quasi impossible à viser au doigt.
+                    val sourceTooltip = remember(quote.sourceName, quote.dataMode, quote.quality) {
+                        buildSourceTooltip(quote)
+                    }
+                    Column(
+                        horizontalAlignment = Alignment.End,
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .clickable(onClickLabel = "Voir la source des données") {
+                                onSourceTap(sourceTooltip)
+                            },
+                    ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
                         ) {
-                            SourceQualityDot(
-                                quote = quote,
-                                onTap = onSourceTap,
-                            )
+                            SourceQualityDot(quote = quote)
                             AnimatedPriceText(
                                 value = quote.price,
                                 style = TradingNumbers.titleMedium,
@@ -439,12 +451,11 @@ private fun WatchlistCard(
  * - Ambre : polling / différé (`"polling"`)
  * - Gris  : fin de journée ou inconnu
  *
- * Un tap affiche un snackbar avec le détail de la source et la qualité.
+ * Le tap (sur la colonne prix parente) affiche un snackbar avec le détail de la source.
  */
 @Composable
 private fun SourceQualityDot(
     quote: Quote,
-    onTap: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val extendedColors = LocalExtendedColors.current
@@ -458,12 +469,12 @@ private fun SourceQualityDot(
         buildSourceTooltip(quote)
     }
 
+    // Indicateur purement visuel : le tap est porté par la colonne parente (cible plus grande).
     Box(
         modifier = modifier
             .size(6.dp)
             .clip(CircleShape)
             .background(dotColor)
-            .clickable { onTap(tooltipMessage) }
             .semantics {
                 contentDescription = tooltipMessage
             },

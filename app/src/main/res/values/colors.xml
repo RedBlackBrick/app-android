@@ -8,4 +8,9 @@
          separate brand color. Pairs with the white foreground glyph in
          drawable/ic_launcher_foreground.xml. -->
     <color name="ic_launcher_background">#1E1B4B</color>
+
+    <!-- Fond de la fenêtre avant le premier frame Compose : identique au `background` du thème
+         (Slate50 en clair) pour éviter un flash au lancement. La variante sombre est dans
+         values-night/colors.xml (Slate950). -->
+    <color name="window_background">#F8FAFC</color>
 </resources>

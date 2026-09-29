@@ -196,6 +196,98 @@ class PositionsViewModelTest {
         )
     }
 
+    // ── Refresh : la liste reste affichée (pull-to-refresh) ────────────────────
+
+    /** Premier appel immédiat, appels suivants suspendus sur [gate] puis [then]. */
+    private fun givenFirstLoadThenGated(gate: CompletableDeferred<Unit>, then: Result<List<Position>>) {
+        var calls = 0
+        coEvery { getPositionsUseCase(any(), any()) } coAnswers {
+            if (calls++ == 0) {
+                Result.success(fakePositions)
+            } else {
+                gate.await()
+                then
+            }
+        }
+    }
+
+    @Test
+    fun `refresh keeps the list on screen and flags isRefreshing while the fetch is in flight`() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        givenFirstLoadThenGated(gate, Result.success(fakePositions))
+        viewModel = createViewModel()
+        assertTrue(viewModel.uiState.value is PositionsUiState.Success)
+
+        viewModel.refresh()
+
+        val during = viewModel.uiState.value
+        assertTrue("Expected Success while refreshing, got $during", during is PositionsUiState.Success)
+        during as PositionsUiState.Success
+        assertTrue(during.isRefreshing)
+        assertEquals(fakePositions, during.positions) // pas de retour au skeleton
+
+        gate.complete(Unit)
+
+        val after = viewModel.uiState.value as PositionsUiState.Success
+        assertEquals(false, after.isRefreshing)
+        assertEquals(null, after.refreshError)
+    }
+
+    @Test
+    fun `refresh failure keeps the stale list and reports the error instead of blanking the screen`() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        givenFirstLoadThenGated(gate, Result.failure(RuntimeException("VPS injoignable")))
+        viewModel = createViewModel()
+        val loaded = viewModel.uiState.value as PositionsUiState.Success
+
+        viewModel.refresh()
+        gate.complete(Unit)
+
+        val after = viewModel.uiState.value
+        assertTrue("Expected the stale list to stay, got $after", after is PositionsUiState.Success)
+        after as PositionsUiState.Success
+        assertEquals(fakePositions, after.positions)
+        assertEquals(loaded.syncedAt, after.syncedAt) // horodatage réel de la valeur périmée
+        assertEquals(false, after.isRefreshing)
+        assertEquals("VPS injoignable", after.refreshError)
+    }
+
+    @Test
+    fun `a later successful refresh clears the previous refresh error`() = runTest {
+        coEvery { getPositionsUseCase(any(), any()) } returnsMany listOf(
+            Result.success(fakePositions),
+            Result.failure(RuntimeException("boom")),
+            Result.success(fakePositions),
+        )
+        viewModel = createViewModel()
+        viewModel.refresh()
+        assertEquals("boom", (viewModel.uiState.value as PositionsUiState.Success).refreshError)
+
+        viewModel.refresh()
+
+        assertEquals(null, (viewModel.uiState.value as PositionsUiState.Success).refreshError)
+    }
+
+    @Test
+    fun `changing the filter shows the skeleton rather than the previous filter's list`() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        givenFirstLoadThenGated(gate, Result.success(listOf(fakeClosedTsla)))
+        viewModel = createViewModel()
+        assertTrue(viewModel.uiState.value is PositionsUiState.Success)
+
+        viewModel.selectFilter(StatusFilter.CLOSED)
+
+        assertTrue(
+            "The OPEN list must not be shown under the CLOSED filter, got ${viewModel.uiState.value}",
+            viewModel.uiState.value is PositionsUiState.Loading,
+        )
+        gate.complete(Unit)
+        assertEquals(
+            listOf(fakeClosedTsla),
+            (viewModel.uiState.value as PositionsUiState.Success).positions,
+        )
+    }
+
     // ── portfolioId ───────────────────────────────────────────────────────────
 
     @Test

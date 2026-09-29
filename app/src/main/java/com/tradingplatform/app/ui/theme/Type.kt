@@ -182,3 +182,15 @@ object TradingNumbers {
         fontFeatureSettings = "tnum",
     )
 }
+
+/**
+ * Impose la police mono (JetBrains Mono) et les chiffres tabulaires (`tnum`) à un style, en
+ * **conservant** la taille, le poids et l'interligne choisis par l'appelant.
+ *
+ * À utiliser pour tout composant affichant un montant : `style.merge(TradingNumbers.bodyLarge)`
+ * était un piège — dans `merge`, l'argument gagne, donc la taille/le poids de l'appelant étaient
+ * écrasés par ceux de `bodyLarge` ; et passer un `MaterialTheme.typography.*` (Inter) à un composant
+ * dont le défaut était mono supprimait la police mono.
+ */
+fun TextStyle.asNumeric(): TextStyle =
+    copy(fontFamily = jetBrainsMonoFamily, fontFeatureSettings = "tnum")

@@ -8,7 +8,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
-import com.tradingplatform.app.ui.theme.jetBrainsMonoFamily
+import com.tradingplatform.app.ui.theme.asNumeric
 import com.tradingplatform.app.ui.theme.pnlColor
 import java.math.BigDecimal
 import java.text.DecimalFormatSymbols
@@ -45,9 +45,7 @@ fun PnlText(
 
     Text(
         text = formatted,
-        style = style.copy(
-            fontFamily = jetBrainsMonoFamily,
-            fontFeatureSettings = "tnum",
+        style = style.asNumeric().copy(
             textAlign = TextAlign.End,
         ),
         color = color,

@@ -21,7 +21,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.Motion
-import com.tradingplatform.app.ui.theme.TradingNumbers
+import com.tradingplatform.app.ui.theme.asNumeric
 import com.tradingplatform.app.ui.theme.pnlColor
 import kotlinx.coroutines.delay
 import java.math.BigDecimal
@@ -57,7 +57,7 @@ fun AnimatedPnlText(
     if (!value.isDisplayable()) {
         Text(
             text = "—",
-            style = style.merge(TradingNumbers.bodyLarge).copy(
+            style = style.asNumeric().copy(
                 textAlign = TextAlign.End,
             ),
             color = MaterialTheme.colorScheme.onSurface,
@@ -122,7 +122,7 @@ fun AnimatedPnlText(
     ) { targetFormatted ->
         Text(
             text = targetFormatted,
-            style = style.merge(TradingNumbers.bodyLarge).copy(
+            style = style.asNumeric().copy(
                 textAlign = TextAlign.End,
             ),
             color = animatedColor,

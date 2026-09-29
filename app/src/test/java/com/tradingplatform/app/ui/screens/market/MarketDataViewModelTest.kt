@@ -18,6 +18,7 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -291,6 +292,58 @@ class MarketDataViewModelTest {
         advanceTimeBy(120_000L)
         coVerify(exactly = 0) { getQuoteUseCase(any()) }
 
+        viewModel.viewModelScope.cancel()
+    }
+
+    // ── Pull-to-refresh : un vrai indicateur, borné à la durée des fetch REST ──
+
+    @Test
+    fun `refresh exposes isRefreshing until every REST fetch has finished`() = runTest {
+        every { getWatchlistUseCase() } returns MutableStateFlow(listOf("AAPL"))
+        val gate = CompletableDeferred<Unit>()
+        coEvery { getQuoteUseCase("AAPL") } coAnswers {
+            gate.await()
+            Result.success(fakeQuote)
+        }
+        createViewModel()
+        assertFalse(viewModel.isRefreshing.value)
+
+        viewModel.refresh()
+        assertTrue("spinner expected while the REST fetch is in flight", viewModel.isRefreshing.value)
+
+        gate.complete(Unit)
+        assertFalse(viewModel.isRefreshing.value)
+        viewModel.viewModelScope.cancel()
+    }
+
+    @Test
+    fun `a refresh failure still clears isRefreshing`() = runTest {
+        every { getWatchlistUseCase() } returns MutableStateFlow(listOf("AAPL"))
+        coEvery { getQuoteUseCase("AAPL") } returns Result.failure(java.io.IOException("timeout"))
+        createViewModel()
+
+        viewModel.refresh()
+
+        assertFalse(viewModel.isRefreshing.value)
+        viewModel.viewModelScope.cancel()
+    }
+
+    @Test
+    fun `refresh while already refreshing is ignored`() = runTest {
+        every { getWatchlistUseCase() } returns MutableStateFlow(listOf("AAPL"))
+        val gate = CompletableDeferred<Unit>()
+        coEvery { getQuoteUseCase("AAPL") } coAnswers {
+            gate.await()
+            Result.success(fakeQuote)
+        }
+        createViewModel()
+
+        viewModel.refresh()
+        viewModel.refresh()
+        viewModel.refresh()
+        gate.complete(Unit)
+
+        coVerify(exactly = 1) { getQuoteUseCase("AAPL") }
         viewModel.viewModelScope.cancel()
     }
 }

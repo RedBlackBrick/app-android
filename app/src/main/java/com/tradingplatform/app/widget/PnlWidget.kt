@@ -14,7 +14,6 @@ import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.provideContent
 import androidx.glance.background
-import androidx.glance.color.ColorProvider
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Column
 import androidx.glance.layout.Row
@@ -186,7 +185,7 @@ private fun PnlWidgetContent(
                 text = waitingLabel,
                 style = TextStyle(
                     color = GlanceTheme.colors.onSurfaceVariant,
-                    fontSize = 10.sp,
+                    fontSize = 11.sp,
                 ),
             )
             return@Column
@@ -197,9 +196,9 @@ private fun PnlWidgetContent(
         val isNegative = totalReturn != null && totalReturn < BigDecimal.ZERO
 
         val pnlColor = when {
-            isPositive -> WidgetColors.PnlPositive
-            isNegative -> WidgetColors.PnlNegative
-            else -> WidgetColors.PnlNeutral
+            isPositive -> WidgetColors.Positive
+            isNegative -> WidgetColors.Negative
+            else -> WidgetColors.Neutral
         }
 
         val formattedReturn = if (totalReturn != null) {
@@ -212,7 +211,7 @@ private fun PnlWidgetContent(
         Text(
             text = formattedReturn,
             style = TextStyle(
-                color = ColorProvider(day = pnlColor, night = pnlColor),
+                color = pnlColor.provider(),
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
             ),
@@ -225,7 +224,7 @@ private fun PnlWidgetContent(
         Text(
             text = pctText,
             style = TextStyle(
-                color = ColorProvider(day = pnlColor, night = pnlColor),
+                color = pnlColor.provider(),
                 fontSize = 12.sp,
             ),
         )
@@ -236,7 +235,7 @@ private fun PnlWidgetContent(
             text = syncLabel.withSyncPrefix(),
             style = TextStyle(
                 color = syncLabelColor(syncLabel),
-                fontSize = 10.sp,
+                fontSize = 11.sp,
             ),
         )
     }

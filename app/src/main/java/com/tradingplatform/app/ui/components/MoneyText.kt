@@ -9,6 +9,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import com.tradingplatform.app.ui.theme.TradingNumbers
+import com.tradingplatform.app.ui.theme.asNumeric
 import java.math.BigDecimal
 import java.text.NumberFormat
 import java.util.Locale
@@ -45,7 +46,7 @@ fun MoneyText(
 
     Text(
         text = formatted,
-        style = style.copy(
+        style = style.asNumeric().copy(
             textAlign = TextAlign.End,
         ),
         color = MaterialTheme.colorScheme.onSurface,

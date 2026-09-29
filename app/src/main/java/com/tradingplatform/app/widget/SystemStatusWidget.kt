@@ -12,7 +12,6 @@ import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.provideContent
 import androidx.glance.background
-import androidx.glance.color.ColorProvider
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Column
 import androidx.glance.layout.Row
@@ -154,7 +153,7 @@ private fun SystemStatusWidgetContent(
                     text = syncLabel.text,
                     style = TextStyle(
                         color = syncLabelColor(syncLabel),
-                        fontSize = 10.sp,
+                        fontSize = 11.sp,
                     ),
                 )
             }
@@ -178,8 +177,8 @@ private fun SystemStatusWidgetContent(
         val offlineDevices = devices.size - onlineDevices
 
         // Couleurs status — cohérentes avec le design system (Emerald/Rose)
-        val onlineColor  = WidgetColors.PnlPositive
-        val offlineColor = WidgetColors.PnlNegative
+        val onlineColor  = WidgetColors.Positive
+        val offlineColor = WidgetColors.Negative
 
         Row(
             modifier = GlanceModifier.fillMaxWidth(),
@@ -189,7 +188,7 @@ private fun SystemStatusWidgetContent(
             Text(
                 text = "$onlineDevices",
                 style = TextStyle(
-                    color = ColorProvider(day = onlineColor, night = onlineColor),
+                    color = onlineColor.provider(),
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
                 ),
@@ -198,7 +197,7 @@ private fun SystemStatusWidgetContent(
             Text(
                 text = "Online",
                 style = TextStyle(
-                    color = ColorProvider(day = onlineColor, night = onlineColor),
+                    color = onlineColor.provider(),
                     fontSize = 11.sp,
                 ),
             )
@@ -209,7 +208,7 @@ private fun SystemStatusWidgetContent(
             Text(
                 text = "$offlineDevices",
                 style = TextStyle(
-                    color = ColorProvider(day = offlineColor, night = offlineColor),
+                    color = offlineColor.provider(),
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
                 ),
@@ -218,7 +217,7 @@ private fun SystemStatusWidgetContent(
             Text(
                 text = "Offline",
                 style = TextStyle(
-                    color = ColorProvider(day = offlineColor, night = offlineColor),
+                    color = offlineColor.provider(),
                     fontSize = 11.sp,
                 ),
             )

@@ -13,16 +13,26 @@ import java.util.Locale
 /**
  * Couleurs de trading partagées entre tous les widgets Glance.
  *
- * Identiques aux couleurs définies dans [com.tradingplatform.app.ui.theme.ExtendedColors]
+ * Alignées sur les couleurs de [com.tradingplatform.app.ui.theme.ExtendedColors]
  * (pnlPositive / pnlNegative / pnlNeutral / warning) mais sous forme de constantes, car les
  * composables Glance n'ont pas accès à MaterialTheme ni à LocalExtendedColors.
  *
  * À mettre à jour en parallèle de ExtendedColors si le design system évolue.
  */
 internal object WidgetColors {
-    val PnlPositive = Color(0xFF34D399)  // emerald-400 — gain / device online
-    val PnlNegative = Color(0xFFFB7185)  // rose-400    — perte / device offline
-    val PnlNeutral  = Color(0xFF94A3B8)  // slate-400   — neutre / pas de variation
+    /**
+     * Un rôle sémantique, deux tons : le widget s'affiche sur un fond clair OU sombre selon le
+     * thème du launcher, et un seul ton ne tient pas les deux (emerald-400 sur fond blanc :
+     * 1,9:1). Chaque ton vise ≥ 4,5:1 sur son fond.
+     */
+    class Tone(val day: Color, val night: Color) {
+        fun provider(): androidx.glance.unit.ColorProvider = ColorProvider(day = day, night = night)
+    }
+
+    val Positive = Tone(day = Color(0xFF047857), night = Color(0xFF34D399)) // emerald-700 / -400 — gain / online
+    val Negative = Tone(day = Color(0xFFBE123C), night = Color(0xFFFB7185)) // rose-700 / -400    — perte / offline
+    val Neutral  = Tone(day = Color(0xFF64748B), night = Color(0xFF94A3B8)) // slate-500 / -400   — neutre
+
     val StaleDay    = Color(0xFFD97706)  // amber-600   — donnée périmée (thème clair, = warning light)
     val StaleNight  = Color(0xFFFBBF24)  // amber-400   — donnée périmée (thème sombre, = warning dark)
 }

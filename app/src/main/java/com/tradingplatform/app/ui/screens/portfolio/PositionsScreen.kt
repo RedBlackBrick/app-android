@@ -63,11 +63,12 @@ fun PositionsScreen(
     val selectedFilter by viewModel.selectedFilter.collectAsStateWithLifecycle()
     val haptic = rememberHapticFeedback()
 
-    val isRefreshing = uiState is PositionsUiState.Loading
+    val isRefreshing = (uiState as? PositionsUiState.Success)?.isRefreshing == true
 
     // Snackbar for errors
     val snackbarHostState = remember { SnackbarHostState() }
     val errorMessage = (uiState as? PositionsUiState.Error)?.message
+        ?: (uiState as? PositionsUiState.Success)?.refreshError
 
     LaunchedEffect(errorMessage) {
         if (errorMessage != null) {
@@ -90,7 +91,7 @@ fun PositionsScreen(
         modifier = modifier,
     ) { innerPadding ->
         PullToRefreshBox(
-            isRefreshing = isRefreshing && uiState !is PositionsUiState.Loading,
+            isRefreshing = isRefreshing,
             onRefresh = { viewModel.refresh() },
             modifier = Modifier
                 .fillMaxSize()

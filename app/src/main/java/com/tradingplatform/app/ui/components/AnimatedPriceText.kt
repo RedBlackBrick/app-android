@@ -23,6 +23,7 @@ import androidx.compose.ui.text.style.TextAlign
 import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.Motion
 import com.tradingplatform.app.ui.theme.TradingNumbers
+import com.tradingplatform.app.ui.theme.asNumeric
 import kotlinx.coroutines.delay
 import java.math.BigDecimal
 
@@ -84,7 +85,7 @@ fun AnimatedPriceText(
     ) { targetFormatted ->
         Text(
             text = targetFormatted,
-            style = style.copy(
+            style = style.asNumeric().copy(
                 textAlign = TextAlign.End,
             ),
             color = animatedColor,

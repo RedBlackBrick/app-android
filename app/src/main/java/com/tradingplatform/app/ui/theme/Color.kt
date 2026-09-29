@@ -30,6 +30,7 @@ val Emerald100 = Color(0xFFD1FAE5)
 val Emerald200 = Color(0xFFA7F3D0)
 val Emerald400 = Color(0xFF34D399)
 val Emerald600 = Color(0xFF059669)
+val Emerald700 = Color(0xFF047857)
 val Emerald900 = Color(0xFF064E3B)
 val Emerald950 = Color(0xFF022C22)
 
@@ -37,7 +38,9 @@ val Emerald950 = Color(0xFF022C22)
 val Rose100 = Color(0xFFFFE4E6)
 val Rose400 = Color(0xFFFB7185)
 val Rose600 = Color(0xFFE11D48)
+val Rose700 = Color(0xFFBE123C)
 val Rose800 = Color(0xFF9F1239)
+val Rose900 = Color(0xFF881337)
 val Rose950 = Color(0xFF4C0519)
 
 // ── Amber (warning) ───────────────────────────────────────────────────────────

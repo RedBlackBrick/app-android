@@ -112,7 +112,7 @@ private fun AlertsWidgetContent(
                     text = "Sync ${formatAlertTime(lastSyncAttempt)}",
                     style = TextStyle(
                         color = GlanceTheme.colors.onSurfaceVariant,
-                        fontSize = 10.sp,
+                        fontSize = 11.sp,
                     ),
                 )
             }
@@ -145,7 +145,7 @@ private fun AlertsWidgetContent(
             text = formatAlertTime(latestAlert.receivedAt),
             style = TextStyle(
                 color = GlanceTheme.colors.onSurfaceVariant,
-                fontSize = 10.sp,
+                fontSize = 11.sp,
             ),
         )
     }
