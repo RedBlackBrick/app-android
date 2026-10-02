@@ -58,9 +58,17 @@ class BiometricLockManager internal constructor(
     )
 
     companion object {
-        const val INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000L  // 5 min
+        const val INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000L  // 5 min — valeur par défaut
         const val INACTIVITY_POLL_MS = 5_000L             // 5 s
+
+        /** Délais proposés dans Réglages → Sécurité. Pas de « jamais » : 15 min au plus. */
+        val ALLOWED_TIMEOUTS_MS: List<Long> = listOf(60_000L, INACTIVITY_TIMEOUT_MS, 15 * 60 * 1000L)
     }
+
+    private val _timeoutMs = MutableStateFlow(INACTIVITY_TIMEOUT_MS)
+
+    /** Délai d'inactivité courant avant le verrou (réglable, voir [setInactivityTimeout]). */
+    val timeoutMs: StateFlow<Long> = _timeoutMs.asStateFlow()
 
     /**
      * Timestamp de la dernière interaction tactile. Mis à jour sans allocation par
@@ -104,6 +112,22 @@ class BiometricLockManager internal constructor(
     }
 
     /**
+     * Change le délai d'inactivité (parmi [ALLOWED_TIMEOUTS_MS]) et le persiste. N'ouvre jamais
+     * un verrou déjà posé ; la nouvelle valeur s'applique au prochain contrôle (poll de 5 s).
+     */
+    suspend fun setInactivityTimeout(timeoutMs: Long) {
+        require(timeoutMs in ALLOWED_TIMEOUTS_MS) { "Délai de verrou non autorisé : $timeoutMs" }
+        _timeoutMs.value = timeoutMs
+        try {
+            dataStore.writeLong(DataStoreKeys.BIOMETRIC_LOCK_TIMEOUT_MS, timeoutMs)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w(e, "BiometricLockManager: failed to persist lock timeout")
+        }
+    }
+
+    /**
      * Restaure l'état persisté. Appelé par `TradingApplication` dans la même coroutine que la
      * lecture de l'access token, uniquement quand une session existe.
      *
@@ -133,6 +157,16 @@ class BiometricLockManager internal constructor(
         }
         val locked = persistedLocked ?: true
         val last = persistedLast ?: 0L
+
+        // Délai choisi par l'utilisateur ; toute valeur hors liste (corruption) → défaut 5 min.
+        val persistedTimeout = try {
+            dataStore.readLong(DataStoreKeys.BIOMETRIC_LOCK_TIMEOUT_MS)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        }
+        _timeoutMs.value = persistedTimeout?.takeIf { it in ALLOWED_TIMEOUTS_MS } ?: INACTIVITY_TIMEOUT_MS
 
         if (explicitTransition) {
             Timber.d("BiometricLockManager: restore skipped — explicit transition already happened")
@@ -175,7 +209,7 @@ class BiometricLockManager internal constructor(
         }
     }
 
-    private fun isExpired(last: Long): Boolean = clock() - last >= INACTIVITY_TIMEOUT_MS
+    private fun isExpired(last: Long): Boolean = clock() - last >= _timeoutMs.value
 
     private fun persist(locked: Boolean, lastInteraction: Long) {
         applicationScope.launch {

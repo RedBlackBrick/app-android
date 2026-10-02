@@ -193,6 +193,9 @@ fun VpnPeerDto.toDomain(): VpnPeer = VpnPeer(
     isActive = isActive,
     pairedAt = parseInstantLenient(pairedAt),
     lastHandshake = lastHandshake.parseInstantOrNull(),
+    deviceId = deviceId,
+    isOnline = isOnline,
+    lastSeenAt = lastSeenAt.parseInstantOrNull(),
 )
 
 // ── Entity → Domain ───────────────────────────────────────────────────────────

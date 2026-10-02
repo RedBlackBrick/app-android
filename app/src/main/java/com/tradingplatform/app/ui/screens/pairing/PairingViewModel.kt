@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import javax.inject.Inject
+import com.tradingplatform.app.ui.common.toUserMessage
 
 // ── PairingStep state machine ─────────────────────────────────────────────────
 
@@ -239,7 +240,7 @@ class PairingViewModel @Inject constructor(
                 ).onFailure { e ->
                     Timber.d("PairingViewModel: SendPin failed — ${e.message}")
                     _step.value = PairingStep.Error(
-                        message = e.localizedMessage ?: "Erreur lors de l'envoi du PIN",
+                        message = e.toUserMessage("Erreur lors de l'envoi du PIN"),
                         retryable = false,
                     )
                     return@launch
@@ -271,7 +272,7 @@ class PairingViewModel @Inject constructor(
                         is PairingTimeoutException ->
                             "Session expirée — relancez le pairing depuis le VPS"
                         else ->
-                            e.localizedMessage ?: "Erreur de confirmation"
+                            e.toUserMessage("Erreur de confirmation")
                     }
                     _step.value = PairingStep.Error(
                         message = message,

@@ -17,6 +17,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.IOException
 import javax.inject.Inject
+import com.tradingplatform.app.ui.common.toUserMessage
 
 private const val TOTP_VERIFY_TIMEOUT_MS = 30_000L
 
@@ -126,7 +127,7 @@ class TotpViewModel @Inject constructor(
                         }
                         else -> {
                             _uiState.value = TotpUiState.Error(
-                                error.localizedMessage ?: "Erreur de vérification"
+                                error.toUserMessage("Erreur de vérification")
                             )
                         }
                     }
@@ -159,7 +160,7 @@ class TotpViewModel @Inject constructor(
                     _uiState.value = TotpUiState.Error("Aucun portfolio trouvé")
                 } else {
                     _uiState.value = TotpUiState.Error(
-                        error.localizedMessage ?: "Impossible de charger le portfolio"
+                        error.toUserMessage("Impossible de charger le portfolio")
                     )
                 }
             }

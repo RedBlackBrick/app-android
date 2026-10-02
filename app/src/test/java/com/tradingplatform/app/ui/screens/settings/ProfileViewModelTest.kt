@@ -69,7 +69,7 @@ class ProfileViewModelTest {
         viewModel.uiState.test {
             val state = awaitItem()
             assertIs<ProfileUiState.Error>(state)
-            assertEquals("boom", state.message)
+            assertEquals("Erreur", state.message)
             cancelAndIgnoreRemainingEvents()
         }
     }

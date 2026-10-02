@@ -249,7 +249,7 @@ class AlertsViewModelTest {
             // Loading while the retries (virtual-time backoff) are pending
             assertEquals(AlertsUiState.Loading, awaitItem())
             val state = awaitItem() as AlertsUiState.Error
-            assertEquals("Room error", state.message)
+            assertEquals("Impossible de charger les alertes", state.message)
             cancelAndIgnoreRemainingEvents()
         }
         // 1 initial subscription + MAX_RETRIES re-subscriptions

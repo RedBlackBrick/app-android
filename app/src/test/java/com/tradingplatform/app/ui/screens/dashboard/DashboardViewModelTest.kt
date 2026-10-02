@@ -412,7 +412,7 @@ class DashboardViewModelTest {
         createViewModel()
         val state = viewModel.uiState.value.navSummary
         assertNull(state.value)
-        assertEquals("Network error", state.error)
+        assertEquals("Erreur", state.error)
         assertFalse(state.isRefreshing)
         assertFalse(state.isInitialLoading)
     }
@@ -434,7 +434,7 @@ class DashboardViewModelTest {
         createViewModel()
         val state = viewModel.uiState.value.pnlSummary
         assertNull(state.value)
-        assertEquals("PnL error", state.error)
+        assertEquals("Erreur", state.error)
         assertFalse(state.isInitialLoading)
     }
 
@@ -455,13 +455,13 @@ class DashboardViewModelTest {
 
         val nav = viewModel.uiState.value.navSummary
         assertEquals("NAV value must survive a failed refresh", fakeNav, nav.value)
-        assertEquals("NAV down", nav.error)
+        assertEquals("Erreur", nav.error)
         assertFalse(nav.isRefreshing)
         assertFalse(nav.isInitialLoading)
         assertEquals("syncedAt reflects the last successful sync", syncedAtBefore, nav.syncedAt)
         val pnl = viewModel.uiState.value.pnlSummary
         assertEquals("PnL value must survive a failed refresh", fakePnl, pnl.value)
-        assertEquals("PnL down", pnl.error)
+        assertEquals("Erreur", pnl.error)
     }
 
     // ── Courbe de NAV ─────────────────────────────────────────────────────────
@@ -711,11 +711,11 @@ class DashboardViewModelTest {
         val nav = viewModel.uiState.value.navSummary
         assertNotNull(nav.value)
         assertEquals(0, BigDecimal("101000").compareTo(nav.value!!.currentValue))
-        assertEquals("timeout", nav.error)
+        assertEquals("Serveur injoignable — vérifiez le VPN et votre connexion", nav.error)
         assertFalse(nav.isRefreshing)
         val pnl = viewModel.uiState.value.pnlSummary
         assertEquals(fakePnl, pnl.value)
-        assertEquals("timeout", pnl.error)
+        assertEquals("Serveur injoignable — vérifiez le VPN et votre connexion", pnl.error)
     }
 
     @Test
@@ -851,7 +851,7 @@ class DashboardViewModelTest {
 
         val pnl = viewModel.uiState.value.pnlSummary
         assertNull("the day pnl must not stay under the week chip", pnl.value)
-        assertEquals("week down", pnl.error)
+        assertEquals("Serveur injoignable — vérifiez le VPN et votre connexion", pnl.error)
     }
 
     // ── Mes portefeuilles ─────────────────────────────────────────────────────
@@ -936,7 +936,7 @@ class DashboardViewModelTest {
 
         val overview = viewModel.uiState.value.portfolioOverview
         assertNull(overview.value)
-        assertEquals("VPN down", overview.error)
+        assertEquals("Serveur injoignable — vérifiez le VPN et votre connexion", overview.error)
         assertFalse(
             shouldShowPortfolioOverview(
                 portfolioCount = viewModel.portfolios.value.size,

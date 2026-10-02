@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import com.tradingplatform.app.ui.common.toUserMessage
 
 // ── UiState ────────────────────────────────────────────────────────────────────
 
@@ -43,7 +44,7 @@ class MyDevicesViewModel @Inject constructor(
                         syncedAt = System.currentTimeMillis(),
                     )
                 }
-                .onFailure { _uiState.value = MyDevicesUiState.Error(it.localizedMessage ?: "Erreur") }
+                .onFailure { _uiState.value = MyDevicesUiState.Error(it.toUserMessage("Erreur")) }
         }
     }
 

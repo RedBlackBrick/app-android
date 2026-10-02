@@ -27,6 +27,7 @@ import java.io.IOException
 import java.math.BigDecimal
 import java.net.SocketTimeoutException
 import javax.inject.Inject
+import com.tradingplatform.app.ui.common.toUserMessage
 
 // ── UiState ──────────────────────────────────────────────────────────────────
 
@@ -41,6 +42,12 @@ sealed interface MarketDataUiState {
          * The cached quote is still displayed — this set lets the UI flag it as stale.
          */
         val staleSymbols: Set<String> = emptySet(),
+        /**
+         * Code devise de cotation par symbole (« EUR », « USD »…), lu dans le catalogue des symboles.
+         * Absent tant que inconnu : l'écran n'affiche alors AUCUN symbole monétaire plutôt qu'un
+         * « € » faux (la devise d'un cours est celle de sa place de cotation).
+         */
+        val currencies: Map<String, String> = emptyMap(),
     ) : MarketDataUiState
     data class Error(val message: String) : MarketDataUiState
 }
@@ -61,6 +68,7 @@ sealed interface SymbolPickerUiState {
 
 private const val SYMBOL_SEARCH_DEBOUNCE_MS = 300L
 private const val SYMBOLS_PAGE_SIZE = 50
+private const val CURRENCY_LOOKUP_LIMIT = 10
 private const val TAG = "MarketDataViewModel"
 
 @HiltViewModel
@@ -86,6 +94,9 @@ class MarketDataViewModel @Inject constructor(
 
     /** Sparkline history data per symbol (close prices). */
     private val sparklines = mutableMapOf<String, List<BigDecimal>>()
+
+    /** Devise de cotation par symbole, résolue une fois via le catalogue (`/market-data/symbols`). */
+    private val currencies = mutableMapOf<String, String>()
 
     /**
      * Active quote watch jobs per symbol (WS stream + state-driven REST fallback).
@@ -224,7 +235,7 @@ class MarketDataViewModel @Inject constructor(
             }
             .onFailure { e ->
                 _symbolPickerState.value =
-                    SymbolPickerUiState.Error(e.localizedMessage ?: "Erreur")
+                    SymbolPickerUiState.Error(e.toUserMessage("Erreur"))
             }
     }
 
@@ -269,6 +280,7 @@ class MarketDataViewModel @Inject constructor(
             watchJobs.remove(symbol)?.cancel()
             quotes.remove(symbol)
             sparklines.remove(symbol)
+            currencies.remove(symbol)
             staleSymbols.remove(symbol)
         }
 
@@ -276,6 +288,7 @@ class MarketDataViewModel @Inject constructor(
         (newSymbols - currentSymbols).forEach { symbol ->
             watchJobs[symbol] = quoteFallback.watch(symbol)
             fetchSparkline(symbol)
+            fetchCurrency(symbol)
         }
 
         // Emit the new state
@@ -284,6 +297,7 @@ class MarketDataViewModel @Inject constructor(
             watchlistSymbols = symbols,
             sparklines = sparklines.toMap(),
             staleSymbols = staleSymbols.toSet(),
+            currencies = currencies.toMap(),
         )
     }
 
@@ -331,6 +345,7 @@ class MarketDataViewModel @Inject constructor(
             watchlistSymbols = symbols,
             sparklines = sparklines.toMap(),
             staleSymbols = staleSymbols.toSet(),
+            currencies = currencies.toMap(),
         )
     }
 
@@ -347,6 +362,26 @@ class MarketDataViewModel @Inject constructor(
                 }
                 .onFailure { e ->
                     Timber.tag(TAG).w(e, "Sparkline fetch failed for $symbol")
+                }
+        }
+    }
+
+    /** Résout la devise de cotation d'un symbole (échec silencieux : pas de symbole monétaire). */
+    private fun fetchCurrency(symbol: String) {
+        viewModelScope.launch {
+            getAvailableSymbolsUseCase(search = symbol, limit = CURRENCY_LOOKUP_LIMIT, offset = 0)
+                .onSuccess { page ->
+                    val code = page.items
+                        .firstOrNull { it.ticker.equals(symbol, ignoreCase = true) }
+                        ?.currency
+                        ?.takeIf { it.isNotBlank() }
+                    if (code != null) {
+                        currencies[symbol] = code
+                        emitCurrentState()
+                    }
+                }
+                .onFailure { e ->
+                    Timber.tag(TAG).w(e, "Currency lookup failed for $symbol")
                 }
         }
     }

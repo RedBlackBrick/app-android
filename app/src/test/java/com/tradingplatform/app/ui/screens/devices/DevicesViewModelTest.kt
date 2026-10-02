@@ -112,7 +112,7 @@ class DevicesViewModelTest {
         viewModel.uiState.test {
             val state = awaitItem()
             assertIs<DevicesUiState.Error>(state)
-            assertEquals("Network error", (state as DevicesUiState.Error).message)
+            assertEquals("Erreur lors du chargement des devices", (state as DevicesUiState.Error).message)
             cancelAndIgnoreRemainingEvents()
         }
     }
@@ -294,7 +294,7 @@ class DeviceDetailViewModelTest {
         viewModel.uiState.test {
             val state = awaitItem()
             assertIs<DeviceDetailUiState.Error>(state)
-            assertEquals("Device not found", (state as DeviceDetailUiState.Error).message)
+            assertEquals("Erreur lors du chargement du device", (state as DeviceDetailUiState.Error).message)
             cancelAndIgnoreRemainingEvents()
         }
     }
@@ -430,7 +430,7 @@ class DeviceDetailViewModelTest {
 
         val state = viewModel.brokerState.value
         assertIs<BrokerUiState.Error>(state)
-        assertEquals("Broker service down", state.message)
+        assertEquals("Erreur lors du chargement des connexions broker", state.message)
     }
 
     @Test

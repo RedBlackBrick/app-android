@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import com.tradingplatform.app.ui.common.toUserMessage
 
 sealed interface ProfileUiState {
     data object Loading : ProfileUiState
@@ -43,7 +44,7 @@ class ProfileViewModel @Inject constructor(
                 }
                 .onFailure { e ->
                     _uiState.update {
-                        ProfileUiState.Error(e.localizedMessage ?: "Erreur")
+                        ProfileUiState.Error(e.toUserMessage("Erreur"))
                     }
                 }
         }

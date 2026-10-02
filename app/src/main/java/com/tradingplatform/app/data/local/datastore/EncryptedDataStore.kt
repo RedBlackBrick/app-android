@@ -43,6 +43,7 @@ object DataStoreKeys {
     // Timestamp (epoch ms) de la dernière interaction utilisateur — permet de re-verrouiller au
     // démarrage à froid si le process a été tué après > 5 min d'inactivité (BiometricLockManager).
     val LAST_INTERACTION_AT = longPreferencesKey("biometric_last_interaction_at")
+    val BIOMETRIC_LOCK_TIMEOUT_MS = longPreferencesKey("biometric_lock_timeout_ms")
     // Cookies : clé dynamique "cookie_${name}"
     // (« default_quote_symbol » a été supprimée avec la fonctionnalité de symbole par défaut ;
     // la clé orpheline des anciennes installations disparaît au prochain clearSession().)

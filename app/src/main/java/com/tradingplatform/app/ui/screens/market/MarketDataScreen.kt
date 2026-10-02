@@ -66,6 +66,7 @@ import com.tradingplatform.app.ui.components.SparklineChart
 import com.tradingplatform.app.ui.components.TradingCard
 import com.tradingplatform.app.ui.components.formatPnlAmount
 import com.tradingplatform.app.ui.components.rememberHapticFeedback
+import com.tradingplatform.app.ui.screens.dashboard.currencySymbolFor
 import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.Spacing
 import com.tradingplatform.app.ui.theme.TradingNumbers
@@ -208,6 +209,7 @@ fun MarketDataScreen(
                                     symbol = symbol,
                                     quote = state.quotes[symbol],
                                     sparklinePoints = state.sparklines[symbol],
+                                    currencySymbol = marketCurrencySymbol(state.currencies[symbol]),
                                     onDismiss = {
                                         haptic.reject()
                                         viewModel.removeSymbol(symbol)
@@ -277,6 +279,7 @@ private fun SwipeToDismissWatchlistCard(
     symbol: String,
     quote: Quote?,
     sparklinePoints: List<BigDecimal>?,
+    currencySymbol: String,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
     onSourceTap: (String) -> Unit = {},
@@ -325,6 +328,7 @@ private fun SwipeToDismissWatchlistCard(
             symbol = symbol,
             quote = quote,
             sparklinePoints = sparklinePoints,
+            currencySymbol = currencySymbol,
             onSourceTap = onSourceTap,
         )
     }
@@ -346,6 +350,7 @@ private fun WatchlistCard(
     quote: Quote?,
     modifier: Modifier = Modifier,
     sparklinePoints: List<BigDecimal>? = null,
+    currencySymbol: String = "",
     onSourceTap: (String) -> Unit = {},
 ) {
     var expanded by rememberSaveable { mutableStateOf(false) }
@@ -394,6 +399,7 @@ private fun WatchlistCard(
                         SourceQualityDot(quote = quote)
                         AnimatedPriceText(
                             value = quote.price,
+                            currencySymbol = currencySymbol,
                             style = TradingNumbers.titleMedium,
                         )
                     }
@@ -437,7 +443,7 @@ private fun WatchlistCard(
             // Détail dépliable
             AnimatedVisibility(visible = expanded && quote != null) {
                 if (quote != null) {
-                    QuoteDetails(quote = quote)
+                    QuoteDetails(quote = quote, currencySymbol = currencySymbol)
                 }
             }
         }
@@ -448,6 +454,7 @@ private fun WatchlistCard(
 @Composable
 private fun QuoteDetails(
     quote: Quote,
+    currencySymbol: String,
     modifier: Modifier = Modifier,
 ) {
     val bid = quote.bid
@@ -476,7 +483,7 @@ private fun QuoteDetails(
             DetailRow(
                 label = "Bid / Ask",
                 value = "${bid.toPlainString()} / ${ask.toPlainString()}",
-                description = "Bid : ${bid.toPlainString()} euros, Ask : ${ask.toPlainString()} euros",
+                description = "Bid : ${bid.toPlainString()}, Ask : ${ask.toPlainString()}",
             )
         }
         if (volume > 0) {
@@ -487,7 +494,7 @@ private fun QuoteDetails(
             )
         }
         if (change != null) {
-            val changeFormatted = formatPnlAmount(change, "€")
+            val changeFormatted = formatPnlAmount(change, currencySymbol)
             DetailRow(
                 label = "Variation",
                 value = changeFormatted,
@@ -664,3 +671,7 @@ private fun ChangePercentText(
         },
     )
 }
+
+/** Symbole de la devise de cotation ; vide (aucun symbole affiché) tant qu'elle est inconnue. */
+internal fun marketCurrencySymbol(code: String?): String =
+    if (code.isNullOrBlank()) "" else currencySymbolFor(code)

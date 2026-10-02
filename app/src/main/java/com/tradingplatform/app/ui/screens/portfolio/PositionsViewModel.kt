@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import com.tradingplatform.app.ui.common.toUserMessage
 
 sealed interface PositionsUiState {
     data object Loading : PositionsUiState
@@ -227,7 +228,7 @@ class PositionsViewModel @Inject constructor(
                 if (_selectedFilter.value != requestedFilter || portfolioId != requestedPortfolioId) {
                     return@onFailure
                 }
-                val message = e.localizedMessage ?: "Erreur"
+                val message = e.toUserMessage("Erreur")
                 _uiState.update { current ->
                     // Valeur périmée conservée + erreur annoncée, plutôt que d'effacer la liste.
                     if (current is PositionsUiState.Success) {

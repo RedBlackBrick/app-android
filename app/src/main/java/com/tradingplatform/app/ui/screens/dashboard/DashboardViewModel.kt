@@ -53,6 +53,7 @@ import kotlinx.coroutines.launch
 import timber.log.Timber
 import java.math.BigDecimal
 import javax.inject.Inject
+import com.tradingplatform.app.ui.common.toUserMessage
 
 // ── UiState definitions ──────────────────────────────────────────────────────
 
@@ -588,7 +589,7 @@ class DashboardViewModel @Inject constructor(
             }
             .onFailure { e ->
                 updateFor(portfolioId) {
-                    it.copy(navSummary = it.navSummary.failure(e.localizedMessage ?: "Erreur"))
+                    it.copy(navSummary = it.navSummary.failure(e.toUserMessage("Erreur")))
                 }
             }
     }
@@ -612,7 +613,7 @@ class DashboardViewModel @Inject constructor(
             .onFailure { e ->
                 updateFor(portfolioId) {
                     if (it.selectedPeriod != period) it
-                    else it.copy(pnlSummary = it.pnlSummary.failure(e.localizedMessage ?: "Erreur"))
+                    else it.copy(pnlSummary = it.pnlSummary.failure(e.toUserMessage("Erreur")))
                 }
             }
     }
@@ -638,7 +639,7 @@ class DashboardViewModel @Inject constructor(
                 Timber.tag(TAG).w(e, "DashboardViewModel: NAV curve fetch failed")
                 updateFor(portfolioId) {
                     if (it.selectedPeriod != period) it
-                    else it.copy(navCurve = it.navCurve.failure(e.localizedMessage ?: "Erreur"))
+                    else it.copy(navCurve = it.navCurve.failure(e.toUserMessage("Erreur")))
                 }
             }
     }
@@ -738,7 +739,7 @@ class DashboardViewModel @Inject constructor(
                     _uiState.update {
                         if (it.selectedPeriod != period) it
                         else it.copy(
-                            portfolioOverview = it.portfolioOverview.failure(e.localizedMessage ?: "Erreur"),
+                            portfolioOverview = it.portfolioOverview.failure(e.toUserMessage("Erreur")),
                         )
                     }
                 }

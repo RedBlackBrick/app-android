@@ -144,7 +144,7 @@ class PositionsViewModelTest {
 
         val state = viewModel.uiState.value as? PositionsUiState.Error
         assertNotNull("Expected Error state", state)
-        assertEquals("Connexion refusée", state!!.message)
+        assertEquals("Erreur", state!!.message)
     }
 
     // ── Refresh ───────────────────────────────────────────────────────────────
@@ -254,7 +254,7 @@ class PositionsViewModelTest {
         assertEquals(fakePositions, after.positions)
         assertEquals(loaded.syncedAt, after.syncedAt) // horodatage réel de la valeur périmée
         assertEquals(false, after.isRefreshing)
-        assertEquals("VPS injoignable", after.refreshError)
+        assertEquals("Erreur", after.refreshError)
     }
 
     @Test
@@ -266,7 +266,7 @@ class PositionsViewModelTest {
         )
         viewModel = createViewModel()
         viewModel.refresh()
-        assertEquals("boom", (viewModel.uiState.value as PositionsUiState.Success).refreshError)
+        assertEquals("Erreur", (viewModel.uiState.value as PositionsUiState.Success).refreshError)
 
         viewModel.refresh()
 

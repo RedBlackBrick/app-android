@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import com.tradingplatform.app.ui.common.toUserMessage
 
 // ── DevicesUiState — liste des devices ────────────────────────────────────────
 
@@ -82,7 +83,7 @@ class DevicesViewModel @Inject constructor(
                     }
                     .onFailure { e ->
                         _uiState.value = DevicesUiState.Error(
-                            e.localizedMessage ?: "Erreur lors du chargement des devices"
+                            e.toUserMessage("Erreur lors du chargement des devices")
                         )
                     }
             } finally {
@@ -142,7 +143,7 @@ class DeviceDetailViewModel @Inject constructor(
                     }
                     .onFailure { e ->
                         _uiState.value = DeviceDetailUiState.Error(
-                            e.localizedMessage ?: "Erreur lors du chargement du device"
+                            e.toUserMessage("Erreur lors du chargement du device")
                         )
                     }
             } finally {
@@ -168,7 +169,7 @@ class DeviceDetailViewModel @Inject constructor(
                 }
                 .onFailure { e ->
                     _brokerState.value = BrokerUiState.Error(
-                        e.localizedMessage ?: "Erreur lors du chargement des connexions broker"
+                        e.toUserMessage("Erreur lors du chargement des connexions broker")
                     )
                 }
         }

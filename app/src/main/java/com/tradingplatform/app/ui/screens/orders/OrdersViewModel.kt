@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import com.tradingplatform.app.ui.common.toUserMessage
 
 /**
  * UiState for [OrdersScreen].
@@ -287,7 +288,7 @@ class OrdersViewModel @Inject constructor(
             return orders
         }
         if (!silent) {
-            val message = result.exceptionOrNull()?.localizedMessage ?: "Erreur"
+            val message = (result.exceptionOrNull() ?: IllegalStateException()).toUserMessage("Erreur")
             _uiState.update { it.copy(active = OrdersTabState.Error(message)) }
         }
         return null
@@ -334,7 +335,7 @@ class OrdersViewModel @Inject constructor(
             .onFailure { e ->
                 if (isStale(portfolioId)) return@onFailure
                 _uiState.update {
-                    it.copy(history = OrdersTabState.Error(e.localizedMessage ?: "Erreur"))
+                    it.copy(history = OrdersTabState.Error(e.toUserMessage("Erreur")))
                 }
             }
     }

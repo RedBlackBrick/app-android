@@ -1,5 +1,14 @@
 package com.tradingplatform.app.ui.screens.dashboard
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -128,6 +137,8 @@ fun DashboardScreen(
         isLoading = overview.isInitialLoading,
     )
 
+    var showDetails by rememberSaveable { mutableStateOf(false) }
+
     // Callbacks mémoïsés : haptic et viewModel sont des références stables, donc `remember {}` sans
     // clé est sûr et évite de recomposer le sélecteur à chaque mise à jour du flux WS.
     val onPeriodSelect = remember<(PnlPeriod) -> Unit> {
@@ -200,30 +211,49 @@ fun DashboardScreen(
                         currencySymbol = currencySymbol,
                     )
 
-                    // ── KPI (liquidités, latent, win rate, drawdown) → écran Performance ──
-                    DashboardKpiRow(
-                        kpis = kpis,
-                        onClick = onNavigateToPerformance,
-                    )
-
-                    // ── Mes portefeuilles : uniquement pour un compte à ≥ 2 portefeuilles ──
-                    if (showOverview) {
-                        DashboardPortfoliosCard(
-                            model = overviewModel,
-                            caption = dashboardPeriodCaption(uiState.selectedPeriod),
-                            onSelect = onPortfolioSelect,
-                            placeholderRows = minOf(portfolios.size, OVERVIEW_PLACEHOLDER_MAX_ROWS),
-                            staleSyncedAt = if (overview.error != null && overview.value != null) {
-                                overview.syncedAt
-                            } else {
-                                null
-                            },
+                    // ── Détails repliables : KPI, portefeuilles, stratégies. Replié par défaut : l'Accueil
+                    //    reste un coup d'œil (NAV, P&L, risque, activité) ; le reste est à un tap. ──
+                    TextButton(
+                        onClick = { showDetails = !showDetails },
+                        modifier = Modifier.semantics {
+                            stateDescription = if (showDetails) "Détails affichés" else "Détails masqués"
+                        },
+                    ) {
+                        Text(if (showDetails) "Moins de détails" else "Plus de détails")
+                        Icon(
+                            imageVector = if (showDetails) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                            contentDescription = null,
                         )
                     }
+                    AnimatedVisibility(visible = showDetails) {
+                        Column(verticalArrangement = Arrangement.spacedBy(Spacing.lg)) {
+                        // ── KPI (liquidités, latent, win rate, drawdown) → écran Performance ──
+                        DashboardKpiRow(
+                            kpis = kpis,
+                            onClick = onNavigateToPerformance,
+                        )
 
-                    // ── Stratégies : « N actives » → écran Stratégies ─────────────────
-                    if (strategiesEntry != null) {
-                        DashboardStrategiesRow(model = strategiesEntry, onClick = onOpenStrategies)
+                        // ── Mes portefeuilles : uniquement pour un compte à ≥ 2 portefeuilles ──
+                        if (showOverview) {
+                            DashboardPortfoliosCard(
+                                model = overviewModel,
+                                caption = dashboardPeriodCaption(uiState.selectedPeriod),
+                                onSelect = onPortfolioSelect,
+                                placeholderRows = minOf(portfolios.size, OVERVIEW_PLACEHOLDER_MAX_ROWS),
+                                staleSyncedAt = if (overview.error != null && overview.value != null) {
+                                    overview.syncedAt
+                                } else {
+                                    null
+                                },
+                            )
+                        }
+
+                        // ── Stratégies : « N actives » → écran Stratégies ─────────────────
+                        if (strategiesEntry != null) {
+                            DashboardStrategiesRow(model = strategiesEntry, onClick = onOpenStrategies)
+                        }
+
+                        }
                     }
 
                     // ── Activité : 3 derniers événements + « Tout voir » ───────────

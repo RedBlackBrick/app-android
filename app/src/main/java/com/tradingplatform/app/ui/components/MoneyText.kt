@@ -75,5 +75,5 @@ internal fun formatMoneyAmount(
         minimumFractionDigits = decimals
         maximumFractionDigits = decimals
     }
-    return "${format.format(amount)} $currencySymbol"
+    return "${format.format(amount)} $currencySymbol".trimEnd()
 }

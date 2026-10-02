@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
+import com.tradingplatform.app.ui.common.toUserMessage
 
 private const val LOGIN_TIMEOUT_MS = 30_000L
 
@@ -216,8 +217,7 @@ class LoginViewModel @Inject constructor(
                         else -> {
                             _uiState.value = LoginUiState.Error(
                                 loginNetworkErrorMessage(error, vpnState.value)
-                                    ?: error.localizedMessage
-                                    ?: "Erreur de connexion"
+                                    ?: error.toUserMessage("Erreur de connexion")
                             )
                         }
                     }
@@ -250,7 +250,7 @@ class LoginViewModel @Inject constructor(
                     _uiState.value = LoginUiState.Error("Aucun portfolio trouvé")
                 } else {
                     _uiState.value = LoginUiState.Error(
-                        error.localizedMessage ?: "Impossible de charger le portfolio"
+                        error.toUserMessage("Impossible de charger le portfolio")
                     )
                 }
             }

@@ -34,6 +34,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import javax.inject.Inject
+import com.tradingplatform.app.ui.common.toUserMessage
 
 // ── UiState ───────────────────────────────────────────────────────────────────
 
@@ -210,7 +211,7 @@ class AlertsViewModel @Inject constructor(
                 }
             }
             .catch { e ->
-                emit(AlertsUiState.Error(e.localizedMessage ?: "Impossible de charger les alertes"))
+                emit(AlertsUiState.Error(e.toUserMessage("Impossible de charger les alertes")))
             }
 
     /**

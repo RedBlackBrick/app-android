@@ -1,10 +1,13 @@
 package com.tradingplatform.app.ui.screens.settings
 
+import com.tradingplatform.app.security.BiometricLockManager
 import com.tradingplatform.app.security.BiometricManager
 import com.tradingplatform.app.security.RootDetector
 import com.tradingplatform.app.util.MainDispatcherRule
 import io.mockk.every
+import io.mockk.coVerify
 import io.mockk.mockk
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertFalse
@@ -23,17 +26,20 @@ class SecuritySettingsViewModelTest {
     // and cannot be instantiated in a JVM unit test.
     private val biometricManager = mockk<BiometricManager>()
     private val rootDetector = mockk<RootDetector>()
+    private val lockManager = mockk<BiometricLockManager>(relaxed = true)
 
     @Before
     fun setUp() {
         // Default safe values — individual tests override as needed
         every { biometricManager.isAvailable() } returns false
         every { rootDetector.isRooted() } returns false
+        every { lockManager.timeoutMs } returns MutableStateFlow(BiometricLockManager.INACTIVITY_TIMEOUT_MS)
     }
 
     private fun createViewModel(): SecuritySettingsViewModel = SecuritySettingsViewModel(
         biometricManager = biometricManager,
         rootDetector = rootDetector,
+        lockManager = lockManager,
     )
 
     // ── isRooted ──────────────────────────────────────────────────────────────
@@ -126,5 +132,28 @@ class SecuritySettingsViewModelTest {
         assertFalse("Expected isRooted=false", state.isRooted)
         assertTrue("Expected isBiometricAvailable=true", state.isBiometricAvailable)
         assertFalse("Expected isLoading=false", state.isLoading)
+    }
+
+    // ── Délai de verrou ───────────────────────────────────────────────────────
+
+    @Test
+    fun `lock timeout defaults to 5 minutes and follows the manager`() = runTest {
+        val flow = MutableStateFlow(BiometricLockManager.INACTIVITY_TIMEOUT_MS)
+        every { lockManager.timeoutMs } returns flow
+
+        val viewModel = createViewModel()
+        assertTrue(viewModel.uiState.value.lockTimeoutMs == 300_000L)
+
+        flow.value = 900_000L
+        assertTrue(viewModel.uiState.value.lockTimeoutMs == 900_000L)
+    }
+
+    @Test
+    fun `selecting a timeout delegates to the lock manager`() = runTest {
+        val viewModel = createViewModel()
+
+        viewModel.onLockTimeoutSelected(60_000L)
+
+        coVerify { lockManager.setInactivityTimeout(60_000L) }
     }
 }

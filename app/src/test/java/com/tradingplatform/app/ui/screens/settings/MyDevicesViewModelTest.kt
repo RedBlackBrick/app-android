@@ -74,14 +74,14 @@ class MyDevicesViewModelTest {
 
     @Test
     fun `uiState emits Error when GetMyDevicesUseCase fails`() = runTest {
-        coEvery { getMyDevicesUseCase() } returns Result.failure(RuntimeException("VPN down"))
+        coEvery { getMyDevicesUseCase() } returns Result.failure(IllegalStateException("Get my peers failed: HTTP 500"))
 
         val viewModel = createViewModel()
 
         viewModel.uiState.test {
             val state = awaitItem()
             assertIs<MyDevicesUiState.Error>(state)
-            assertEquals("VPN down", state.message)
+            assertEquals("Le serveur rencontre un problème — réessayez dans un instant", state.message)
             cancelAndIgnoreRemainingEvents()
         }
     }

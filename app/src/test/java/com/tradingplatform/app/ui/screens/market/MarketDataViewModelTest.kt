@@ -79,6 +79,9 @@ class MarketDataViewModelTest {
         every { getWatchlistUseCase() } returns emptyFlow()
         every { getQuoteStreamUseCase(any()) } returns emptyFlow()
         coEvery { getSymbolHistoryUseCase(any(), any()) } returns Result.success(emptyList())
+        // Résolution de la devise de cotation (catalogue) : vide par défaut ; les tests picker surchargent.
+        coEvery { getAvailableSymbolsUseCase(any(), any(), any()) } returns
+            Result.success(SymbolPage(items = emptyList(), hasMore = false, nextOffset = 0))
         every { getPublicWsConnectionStateUseCase() } returns publicWsState
         every { getPublicWsConnectionStateUseCase.isAppForeground() } returns appForeground
     }
@@ -231,6 +234,36 @@ class MarketDataViewModelTest {
         advanceTimeBy(120_000L)
         coVerify(exactly = 1) { getQuoteUseCase("AAPL") }
 
+        viewModel.viewModelScope.cancel()
+    }
+
+    @Test
+    fun `quotation currency is resolved from the symbol catalogue`() = runTest {
+        every { getWatchlistUseCase() } returns MutableStateFlow(listOf("AAPL", "MC.PA"))
+        coEvery { getAvailableSymbolsUseCase(search = "AAPL", limit = any(), offset = 0) } returns
+            Result.success(SymbolPage(listOf(SymbolInfo("AAPL", "Apple", "NASDAQ", "USD")), false, 1))
+        coEvery { getAvailableSymbolsUseCase(search = "MC.PA", limit = any(), offset = 0) } returns
+            Result.success(SymbolPage(listOf(SymbolInfo("MC.PA", "LVMH", "EPA", "EUR")), false, 1))
+
+        createViewModel()
+
+        val state = viewModel.uiState.value as MarketDataUiState.Success
+        assertEquals(mapOf("AAPL" to "USD", "MC.PA" to "EUR"), state.currencies)
+        viewModel.viewModelScope.cancel()
+    }
+
+    @Test
+    fun `unknown currency stays absent instead of defaulting to euro`() = runTest {
+        every { getWatchlistUseCase() } returns MutableStateFlow(listOf("AAPL"))
+        // setUp : le catalogue ne renvoie rien pour ce symbole.
+
+        createViewModel()
+
+        val state = viewModel.uiState.value as MarketDataUiState.Success
+        assertTrue(state.currencies.isEmpty())
+        assertEquals("", marketCurrencySymbol(state.currencies["AAPL"]))
+        assertEquals("\$", marketCurrencySymbol("USD"))
+        assertEquals("€", marketCurrencySymbol("EUR"))
         viewModel.viewModelScope.cancel()
     }
 

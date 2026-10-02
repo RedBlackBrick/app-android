@@ -30,11 +30,15 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
@@ -45,9 +49,9 @@ import com.tradingplatform.app.domain.model.VpnPeer
 import com.tradingplatform.app.domain.model.VpnPeerType
 import com.tradingplatform.app.ui.components.CacheTimestamp
 import com.tradingplatform.app.ui.components.DeviceLinkDiagram
+import com.tradingplatform.app.ui.components.ErrorBanner
+import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.Spacing
-import java.time.Duration
-import java.time.Instant
 
 /**
  * Screen listing the current user's own VPN peers (all device types).
@@ -157,6 +161,8 @@ fun MyDevicesScreen(
                             }
                         }
                     } else {
+                        val groups = remember(state.peers) { groupPeers(state.peers) }
+                        var showRevoked by rememberSaveable { mutableStateOf(false) }
                         LazyColumn(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -171,10 +177,31 @@ fun MyDevicesScreen(
                                 )
                             }
                             items(
-                                items = state.peers,
+                                items = groups.active,
                                 key = { it.id },
                             ) { peer ->
                                 VpnPeerCard(peer = peer)
+                            }
+                            if (groups.revoked.isNotEmpty()) {
+                                item(key = "revoked-header") {
+                                    TextButton(onClick = { showRevoked = !showRevoked }) {
+                                        Text(
+                                            text = if (showRevoked) {
+                                                "Masquer les appareils révoqués (${groups.revoked.size})"
+                                            } else {
+                                                "Appareils révoqués (${groups.revoked.size})"
+                                            },
+                                        )
+                                    }
+                                }
+                                if (showRevoked) {
+                                    items(
+                                        items = groups.revoked,
+                                        key = { it.id },
+                                    ) { peer ->
+                                        VpnPeerCard(peer = peer)
+                                    }
+                                }
                             }
                         }
                     }
@@ -182,19 +209,15 @@ fun MyDevicesScreen(
 
                 is MyDevicesUiState.Error -> {
                     Box(
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = Spacing.lg),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(Spacing.sm),
-                        ) {
-                            Text(
-                                text = state.message,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.error,
-                            )
-                        }
+                        ErrorBanner(
+                            message = state.message,
+                            onRetry = { viewModel.refresh() },
+                        )
                     }
                 }
             }
@@ -207,37 +230,29 @@ private fun VpnPeerCard(
     peer: VpnPeer,
     modifier: Modifier = Modifier,
 ) {
-    val typeLabel = when (peer.peerType) {
-        VpnPeerType.WEB_CLIENT -> "Web"
-        VpnPeerType.ANDROID_APP -> "Android"
-        VpnPeerType.RADXA_BOARD -> "Radxa"
-    }
+    val typeLabel = peer.peerType.roleLabel()
     val typeIcon = when (peer.peerType) {
         VpnPeerType.WEB_CLIENT -> Icons.Default.Computer
         VpnPeerType.ANDROID_APP -> Icons.Default.PhoneAndroid
         VpnPeerType.RADXA_BOARD -> Icons.Default.DeveloperBoard
     }
-    val statusLabel = if (peer.isActive) "Actif" else "Révoqué"
-    val statusColor = if (peer.isActive) {
-        MaterialTheme.colorScheme.primary
-    } else {
-        MaterialTheme.colorScheme.error
+    val status = peer.status()
+    val statusLabel = status.label
+    val statusColor = when (status) {
+        PeerStatus.ONLINE -> LocalExtendedColors.current.statusOnline
+        PeerStatus.OFFLINE -> MaterialTheme.colorScheme.onSurfaceVariant
+        PeerStatus.REVOKED -> MaterialTheme.colorScheme.error
     }
-
-    val handshakeText = formatHandshake(peer.lastHandshake)
-    val recentHandshake = isRecentHandshake(peer.lastHandshake)
-    val handshakeDotColor = if (recentHandshake) {
-        MaterialTheme.colorScheme.primary
-    } else {
-        MaterialTheme.colorScheme.outlineVariant
-    }
+    val handshakeText = formatLastSeen(peer.lastActivity)
+    val online = status == PeerStatus.ONLINE
+    val handshakeDotColor = if (online) statusColor else MaterialTheme.colorScheme.outlineVariant
 
     Card(
         modifier = modifier
             .fillMaxWidth()
             .semantics {
                 contentDescription =
-                    "${peer.label} — $typeLabel — $statusLabel — Dernier handshake : $handshakeText"
+                    "${peer.label} — $typeLabel — $statusLabel — $handshakeText"
             },
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant,
@@ -321,30 +336,13 @@ private fun VpnPeerCard(
                 )
             }
 
-            // Liaison Radxa ↔ serveur (WireGuard) : en ligne = appairé actif ET handshake récent.
+            // Liaison Radxa ↔ serveur : en ligne = actif ET heartbeat (ou handshake) récent.
             if (peer.peerType == VpnPeerType.RADXA_BOARD) {
                 DeviceLinkDiagram(
-                    online = peer.isActive && recentHandshake,
+                    online = online,
                     compact = true,
                 )
             }
         }
     }
-}
-
-private fun formatHandshake(lastHandshake: Instant?): String {
-    if (lastHandshake == null) return "Jamais"
-    val now = Instant.now()
-    val diff = Duration.between(lastHandshake, now)
-    return when {
-        diff.toMinutes() < 1 -> "A l'instant"
-        diff.toMinutes() < 60 -> "Il y a ${diff.toMinutes()} min"
-        diff.toHours() < 24 -> "Il y a ${diff.toHours()}h"
-        else -> "Il y a ${diff.toDays()}j"
-    }
-}
-
-private fun isRecentHandshake(lastHandshake: Instant?): Boolean {
-    if (lastHandshake == null) return false
-    return Duration.between(lastHandshake, Instant.now()).toMinutes() < 3
 }

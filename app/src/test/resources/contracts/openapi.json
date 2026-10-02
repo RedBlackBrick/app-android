@@ -4536,6 +4536,17 @@
       "VpnPeerDetailResponse": {
         "description": "Full VPN peer record as stored in identity.vpn_peers.",
         "properties": {
+          "device_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
           "id": {
             "title": "Id",
             "type": "string"
@@ -4543,6 +4554,17 @@
           "is_active": {
             "title": "Is Active",
             "type": "boolean"
+          },
+          "is_online": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Online"
           },
           "label": {
             "title": "Label",
@@ -4559,6 +4581,18 @@
               }
             ],
             "title": "Last Handshake"
+          },
+          "last_seen_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Seen At"
           },
           "paired_at": {
             "format": "date-time",

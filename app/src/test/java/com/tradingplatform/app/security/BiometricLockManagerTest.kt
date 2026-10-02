@@ -267,4 +267,46 @@ class BiometricLockManagerTest {
 
         assertFalse(manager.isLocked.value)
     }
+
+    // ── Délai réglable ─────────────────────────────────────────────────────────
+
+    @Test
+    fun `a shorter timeout locks earlier`() = runTest(UnconfinedTestDispatcher()) {
+        val manager = newManager()
+        manager.unlock()
+        manager.setInactivityTimeout(60_000L)
+        manager.onStart(owner)
+
+        manager.isLocked.test {
+            assertFalse(awaitItem())
+            advance(60_000L - 1)
+            expectNoEvents()
+            advance(INACTIVITY_POLL_MS)
+            assertTrue(awaitItem())
+            cancelAndIgnoreRemainingEvents()
+        }
+        coVerify { dataStore.writeLong(DataStoreKeys.BIOMETRIC_LOCK_TIMEOUT_MS, 60_000L) }
+    }
+
+    @Test
+    fun `a timeout outside the allowed list is rejected`() = runTest(UnconfinedTestDispatcher()) {
+        val manager = newManager()
+        val failure = runCatching { manager.setInactivityTimeout(24 * 60 * 60 * 1000L) }.exceptionOrNull()
+        assertTrue(failure is IllegalArgumentException)
+        assertTrue(manager.timeoutMs.value == INACTIVITY_TIMEOUT_MS)
+    }
+
+    @Test
+    fun `restore reads the persisted timeout and ignores corrupted values`() = runTest(UnconfinedTestDispatcher()) {
+        givenPersisted(locked = false, lastInteractionAt = 0L)
+        coEvery { dataStore.readLong(DataStoreKeys.BIOMETRIC_LOCK_TIMEOUT_MS) } returns 900_000L
+        val manager = newManager()
+        manager.restorePersistedState()
+        assertTrue(manager.timeoutMs.value == 900_000L)
+
+        coEvery { dataStore.readLong(DataStoreKeys.BIOMETRIC_LOCK_TIMEOUT_MS) } returns 1L
+        val corrupted = newManager()
+        corrupted.restorePersistedState()
+        assertTrue(corrupted.timeoutMs.value == INACTIVITY_TIMEOUT_MS)
+    }
 }

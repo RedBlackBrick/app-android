@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import com.tradingplatform.app.ui.common.toUserMessage
 
 sealed interface TransactionHistoryUiState {
     data object Loading : TransactionHistoryUiState
@@ -116,7 +117,7 @@ class TransactionHistoryViewModel @Inject constructor(
             .onFailure { e ->
                 if (portfolioId != requestedPortfolioId) return@onFailure
                 _uiState.update {
-                    TransactionHistoryUiState.Error(e.localizedMessage ?: "Erreur")
+                    TransactionHistoryUiState.Error(e.toUserMessage("Erreur"))
                 }
             }
     }

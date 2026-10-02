@@ -90,7 +90,7 @@ class PerformanceViewModelTest {
         viewModel.uiState.test {
             val state = awaitItem()
             assertIs<PerformanceUiState.Error>(state)
-            assertEquals("VPN down", state.message)
+            assertEquals("Erreur lors du chargement des performances", state.message)
             cancelAndIgnoreRemainingEvents()
         }
     }

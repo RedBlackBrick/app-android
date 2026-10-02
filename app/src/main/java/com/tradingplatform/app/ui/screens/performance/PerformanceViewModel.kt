@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import com.tradingplatform.app.ui.common.toUserMessage
 
 // ── UiState ─────────────────────────────────────────────────────────────────────
 
@@ -72,7 +73,7 @@ class PerformanceViewModel @Inject constructor(
             .onFailure { e ->
                 if (portfolioId != requestedPortfolioId) return@onFailure
                 _uiState.value = PerformanceUiState.Error(
-                    e.localizedMessage ?: "Erreur lors du chargement des performances",
+                    e.toUserMessage("Erreur lors du chargement des performances"),
                 )
             }
     }

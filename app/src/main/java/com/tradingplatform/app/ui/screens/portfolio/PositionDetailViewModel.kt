@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import com.tradingplatform.app.ui.common.toUserMessage
 
 sealed interface PositionDetailUiState {
     data object Loading : PositionDetailUiState
@@ -62,7 +63,7 @@ class PositionDetailViewModel @Inject constructor(
 
         val cached = positionResult.getOrNull()
         if (cached == null) {
-            val errorMsg = positionResult.exceptionOrNull()?.localizedMessage
+            val errorMsg = positionResult.exceptionOrNull()?.toUserMessage("Position introuvable")
                 ?: "Position introuvable"
             _uiState.update { PositionDetailUiState.Error(errorMsg) }
             return

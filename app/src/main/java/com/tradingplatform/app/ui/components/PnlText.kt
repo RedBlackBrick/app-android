@@ -72,7 +72,7 @@ internal fun formatPnlAmount(value: BigDecimal, currencySymbol: String): String 
         value > BigDecimal.ZERO -> "+"
         else -> ""
     }
-    return "$prefix${format.format(value)} $currencySymbol"
+    return "$prefix${format.format(value)} $currencySymbol".trimEnd()
 }
 
 /**

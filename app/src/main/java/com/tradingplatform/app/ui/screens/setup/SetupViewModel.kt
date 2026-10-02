@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import javax.inject.Inject
+import com.tradingplatform.app.ui.common.toUserMessage
 
 /**
  * UiState for [SetupScreen].
@@ -94,7 +95,7 @@ class SetupViewModel @Inject constructor(
             val setupData = parseResult.getOrElse { error ->
                 Timber.w("SetupViewModel: QR parse failed — ${error.message}")
                 _uiState.value = SetupUiState.Error(
-                    error.localizedMessage ?: "QR code non reconnu"
+                    error.toUserMessage("QR code non reconnu")
                 )
                 return@launch
             }
@@ -107,7 +108,7 @@ class SetupViewModel @Inject constructor(
             provisionResult.onFailure { error ->
                 Timber.w("SetupViewModel: provisioning failed — ${error.message}")
                 _uiState.value = SetupUiState.Error(
-                    error.localizedMessage ?: "Échec du provisioning"
+                    error.toUserMessage("Échec du provisioning")
                 )
                 return@launch
             }

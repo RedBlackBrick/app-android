@@ -14,4 +14,8 @@ data class VpnPeerDto(
     @Json(name = "is_active") val isActive: Boolean,
     @Json(name = "paired_at") val pairedAt: String,
     @Json(name = "last_handshake") val lastHandshake: String?,
+    // Vivacité de la carte appairée (heartbeats edge_devices) — absents avant le backend 1716750c.
+    @Json(name = "device_id") val deviceId: String? = null,
+    @Json(name = "is_online") val isOnline: Boolean? = null,
+    @Json(name = "last_seen_at") val lastSeenAt: String? = null,
 )

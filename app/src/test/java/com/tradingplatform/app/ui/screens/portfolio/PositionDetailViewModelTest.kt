@@ -161,7 +161,7 @@ class PositionDetailViewModelTest {
         val state = viewModel.uiState.value
         assertTrue("Expected Error, got $state", state is PositionDetailUiState.Error)
         val error = state as PositionDetailUiState.Error
-        assertEquals("Network error", error.message)
+        assertEquals("Position introuvable", error.message)
     }
 
     // ── Transactions failure — still shows position ──────────────────────────

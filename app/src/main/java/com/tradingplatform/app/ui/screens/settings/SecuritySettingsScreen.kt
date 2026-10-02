@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -32,6 +33,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.tradingplatform.app.security.BiometricLockManager
 import com.tradingplatform.app.ui.components.LoadingOverlay
 import com.tradingplatform.app.ui.theme.LocalExtendedColors
 import com.tradingplatform.app.ui.theme.Spacing
@@ -84,7 +86,11 @@ fun SecuritySettingsScreen(
             verticalArrangement = Arrangement.spacedBy(Spacing.lg),
         ) {
             // ── Biometrics section ────────────────────────────────────────────
-            BiometricsSection(isBiometricAvailable = uiState.isBiometricAvailable)
+            BiometricsSection(
+                isBiometricAvailable = uiState.isBiometricAvailable,
+                lockTimeoutMs = uiState.lockTimeoutMs,
+                onLockTimeoutSelected = viewModel::onLockTimeoutSelected,
+            )
 
             // ── Device integrity section ──────────────────────────────────────
             DeviceIntegritySection(isRooted = uiState.isRooted)
@@ -97,6 +103,8 @@ fun SecuritySettingsScreen(
 @Composable
 private fun BiometricsSection(
     isBiometricAvailable: Boolean,
+    lockTimeoutMs: Long,
+    onLockTimeoutSelected: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val extendedColors = LocalExtendedColors.current
@@ -142,7 +150,7 @@ private fun BiometricsSection(
                 )
                 if (isBiometricAvailable) {
                     Text(
-                        text = "Verrou automatique après 5 minutes d'inactivité",
+                        text = "Verrou automatique après ${lockTimeoutLabel(lockTimeoutMs)} d'inactivité",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -155,7 +163,29 @@ private fun BiometricsSection(
                 }
             }
         }
+        if (isBiometricAvailable) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = Spacing.md),
+                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+            ) {
+                BiometricLockManager.ALLOWED_TIMEOUTS_MS.forEach { option ->
+                    FilterChip(
+                        selected = option == lockTimeoutMs,
+                        onClick = { onLockTimeoutSelected(option) },
+                        label = { Text(lockTimeoutLabel(option)) },
+                    )
+                }
+            }
+        }
     }
+}
+
+/** « 1 minute », « 5 minutes », « 15 minutes ». */
+internal fun lockTimeoutLabel(timeoutMs: Long): String {
+    val minutes = timeoutMs / 60_000L
+    return if (minutes == 1L) "1 minute" else "$minutes minutes"
 }
 
 @Composable

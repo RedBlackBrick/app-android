@@ -2,6 +2,7 @@ package com.tradingplatform.app.ui.screens.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.tradingplatform.app.security.BiometricLockManager
 import com.tradingplatform.app.security.BiometricManager
 import com.tradingplatform.app.security.RootDetector
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -26,6 +27,7 @@ import javax.inject.Inject
 class SecuritySettingsViewModel @Inject constructor(
     private val biometricManager: BiometricManager,
     private val rootDetector: RootDetector,
+    private val lockManager: BiometricLockManager,
 ) : ViewModel() {
 
     /**
@@ -39,6 +41,7 @@ class SecuritySettingsViewModel @Inject constructor(
         val isBiometricAvailable: Boolean = false,
         val isRooted: Boolean = false,
         val isLoading: Boolean = true,
+        val lockTimeoutMs: Long = BiometricLockManager.INACTIVITY_TIMEOUT_MS,
     )
 
     private val _uiState = MutableStateFlow(SecurityUiState())
@@ -46,17 +49,26 @@ class SecuritySettingsViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
+            lockManager.timeoutMs.collect { timeout ->
+                _uiState.value = _uiState.value.copy(lockTimeoutMs = timeout)
+            }
+        }
+        viewModelScope.launch {
             // BiometricManager.isAvailable() is a synchronous call (no suspend).
             // RootDetector.isRooted() is also synchronous.
             // Both are dispatched on the coroutine's default dispatcher (Main in viewModelScope),
             // which is acceptable since neither performs I/O — they query system APIs only.
             val biometricAvailable = biometricManager.isAvailable()
             val rooted = rootDetector.isRooted()
-            _uiState.value = SecurityUiState(
+            _uiState.value = _uiState.value.copy(
                 isBiometricAvailable = biometricAvailable,
                 isRooted = rooted,
                 isLoading = false,
             )
         }
+    }
+
+    fun onLockTimeoutSelected(timeoutMs: Long) {
+        viewModelScope.launch { lockManager.setInactivityTimeout(timeoutMs) }
     }
 }
