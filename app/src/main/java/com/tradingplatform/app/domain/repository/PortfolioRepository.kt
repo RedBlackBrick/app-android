@@ -29,14 +29,15 @@ interface PortfolioRepository {
      * Seul chemin PnL. En cas de succès, persiste aussi la ligne `pnl_snapshots` de la période
      * (lue par `PnlWidget`).
      *
-     * Sémantique par période — `GET /pnl?period=` est un P&L « depuis la création » que `period`
-     * ne filtre pas (contrat backend §8.1) :
+     * Sémantique par période — `GET /pnl?period=ytd|all` : montants réels de la période, nets des
+     * dépôts/retraits (`realized`/`unrealized` `null` hors `all`) ; DAY / WEEK / MONTH via `batch/pnl` :
      * - DAY / WEEK / MONTH : montant et pourcentage (`totalReturn`, `totalReturnPct` en FRACTION)
      *   viennent de `POST /v1/portfolios/batch/pnl` (ids = [portfolioId]) ; ni ratios, ni compteurs
      *   de trades ;
      * - ALL / YEAR : `GET /pnl` (P&L depuis la création ; `total_pnl_percent` en pourcentage → /100).
      *
-     * `winRate` vaut toujours `null` : `winning_trades` du backend n'est pas un taux de réussite.
+     * `winRate` reste `null` (le `win_rate` de `/pnl` n'est pas lu par l'app) ; `winning_trades` /
+     * `losing_trades` comptent désormais les positions clôturées de la période.
      */
     suspend fun getPnlSummary(portfolioId: String, period: PnlPeriod): Result<PnlSummary>
 
@@ -44,7 +45,7 @@ interface PortfolioRepository {
      * Valeur courante et P&L de la période de TOUS les portefeuilles connus
      * (`PortfolioSelectionRepository.portfolios`, dans l'ordre de la liste ; refresh d'abord si vide).
      * DAY / WEEK / MONTH : `POST /v1/portfolios/batch/pnl`. ALL / YEAR : `GET /v1/dashboard/overview`
-     * (P&L = valeur courante − capital initial, depuis la création). `periodPnlPct` est une FRACTION.
+     * (P&L net = valeur courante − capital initial − `net_flows`, depuis la création). `periodPnlPct` est une FRACTION.
      */
     suspend fun getPortfoliosOverview(period: PnlPeriod): Result<List<PortfolioOverviewItem>>
 

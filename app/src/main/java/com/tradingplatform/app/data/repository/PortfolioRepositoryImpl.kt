@@ -121,7 +121,8 @@ class PortfolioRepositoryImpl internal constructor(
      * par `GetPnlUseCase` → ici. Une ligne par période (upsert REPLACE sur `period`).
      *
      * Sémantique par période (contrat backend §8.1 / §9) : `/pnl?period=` est un P&L « depuis la
-     * création » que `period` ne filtre pas — seul `batch/pnl` donne un vrai P&L jour/semaine/mois.
+     * création » pour `all` et la variation depuis le 1er janvier pour `ytd` ; `batch/pnl` donne le P&L
+     * jour/semaine/mois.
      * DAY / WEEK / MONTH → [getPeriodPnlSummary] (`batch/pnl`) ; ALL / YEAR → [getLifetimePnlSummary].
      */
     override suspend fun getPnlSummary(portfolioId: String, period: PnlPeriod): Result<PnlSummary> =

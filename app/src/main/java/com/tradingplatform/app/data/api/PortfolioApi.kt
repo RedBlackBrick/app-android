@@ -35,8 +35,8 @@ interface PortfolioApi {
     ): Response<PortfolioDetailDto>
 
     /**
-     * P&L « depuis la création » : `period` ne filtre que les compteurs de trades (montants et
-     * pourcentage de vie entière, contrat §8.1). Pour un P&L jour/semaine/mois → [getBatchPnl].
+     * `period=all` : P&L depuis la création ; `ytd` : variation depuis le 1er janvier, nette des
+     * dépôts/retraits, `realized`/`unrealized` `null`. Pour un P&L jour/semaine/mois → [getBatchPnl].
      */
     @GET("v1/portfolios/{portfolio_id}/pnl")
     suspend fun getPnl(

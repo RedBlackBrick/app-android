@@ -183,7 +183,12 @@ mais retombe silencieusement sur `all`).
 **Unités :** `total_pnl_percent` est un **pourcentage** (1.75 = 1,75 %) ; l'app le convertit en
 **fraction** (0.0175) dans les mappers (`PnlResponseDto.toPnlSummary()` / `toEntity()`) — le domaine
 et la table `pnl_snapshots` ne manipulent que des fractions. Les montants P&L sont cumulés sur la
-vie du portefeuille ; `period` ne borne que `trades_count` / `winning_trades` / `losing_trades`.
+vie du portefeuille pour `period=all` ; pour `ytd` (et day/week/month) `total_pnl` est la variation
+de la période nette des dépôts/retraits et `realized_pnl` / `unrealized_pnl` sont `null` (l'app les
+lit nullables). `winning_trades` / `losing_trades` comptent les positions clôturées de la période ;
+champs récents non lus : `period_start`, `net_flows`, `closed_trades_count`, `win_rate`.
+`batch/pnl` : `has_baseline=false` = aucun snapshot avant la période, `pnl_amount`/`pnl_pct` valent 0
+par construction (affichés « — »). `dashboard/overview.net_flows` se retranche du P&L ALL.
 
 **Cache :** seul chemin PnL de l'app. `PortfolioRepositoryImpl.getPnlSummary` (Dashboard et
 `WidgetUpdateWorker` via `GetPnlUseCase`) upsert une ligne `pnl_snapshots` par période
