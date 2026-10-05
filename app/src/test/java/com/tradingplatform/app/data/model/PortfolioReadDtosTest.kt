@@ -95,6 +95,24 @@ class PortfolioReadDtosTest {
     }
 
     @Test
+    fun `batch pnl has_baseline false is read, absent means measured`() {
+        val json = """
+            {"data": {
+              "a": {"portfolio_id": "a", "pnl_amount": "0", "pnl_pct": 0, "previous_value": "500", "current_value": "500",
+                    "net_flows": "0", "has_baseline": false, "period_start": null, "currency_code": "EUR"},
+              "b": {"portfolio_id": "b", "pnl_amount": "5", "pnl_pct": 0.01, "previous_value": "500", "current_value": "505",
+                    "currency_code": "EUR"}
+            }}
+        """.trimIndent()
+
+        val dto = moshi.adapter(BatchPnlResponseDto::class.java).fromJson(json)!!
+
+        assertEquals(false, dto.data.getValue("a").hasMeasuredBaseline())
+        assertEquals(true, dto.data.getValue("b").hasMeasuredBaseline())
+        assertNull(dto.data.getValue("a").toEntity(com.tradingplatform.app.domain.model.PnlPeriod.WEEK, 0L))
+    }
+
+    @Test
     fun `pnlFraction never divides the batch fraction by 100 and derives it only when absent`() {
         val given = BatchPnlItemDto(pnlAmount = "1", pnlPct = 0.045, previousValue = "100", currentValue = "101")
         assertEquals(0.045, given.pnlFraction()!!, 1e-12)

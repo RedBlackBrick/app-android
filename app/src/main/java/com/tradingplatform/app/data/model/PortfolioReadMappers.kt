@@ -33,6 +33,13 @@ internal fun BatchPnlItemDto.pnlFraction(): Double? {
 }
 
 /**
+ * `false` seulement quand le backend dit explicitement `has_baseline = false` (aucun snapshot avant
+ * le début de la période) : le montant « 0 » est alors un défaut de construction, pas un P&L mesuré.
+ * Champ absent (ancien backend) = mesuré.
+ */
+internal fun BatchPnlItemDto.hasMeasuredBaseline(): Boolean = hasBaseline != false
+
+/**
  * Élément `batch/pnl` → ligne de « Mes portefeuilles ». Nom et devise viennent de la liste des
  * portefeuilles ([portfolio]). `null` si l'id était inconnu du backend (`currency_code` null,
  * montants à « 0 » sans signification) ou si la valeur courante est illisible.
@@ -40,26 +47,29 @@ internal fun BatchPnlItemDto.pnlFraction(): Double? {
 internal fun BatchPnlItemDto.toOverviewItem(portfolio: Portfolio): PortfolioOverviewItem? {
     if (currencyCode == null) return null
     val current = parseDecimal(currentValue) ?: return null
+    val measured = hasMeasuredBaseline()
     return PortfolioOverviewItem(
         portfolioId = portfolio.id,
         name = portfolio.name,
         currency = portfolio.currency,
         currentValue = current,
-        periodPnl = parseDecimal(pnlAmount),
-        periodPnlPct = pnlFraction(),
+        periodPnl = if (measured) parseDecimal(pnlAmount) else null,
+        periodPnlPct = if (measured) pnlFraction() else null,
     )
 }
 
 /**
  * Élément `batch/pnl` → [PnlSummary] de la période. Ni ratios de risque ni win rate
  * (`winning_trades` de `/pnl` n'est pas un taux de réussite, contrat §9) ni compteurs de trades :
- * `batch/pnl` ne les fournit pas. `null` si le montant est absent ou illisible.
+ * `batch/pnl` ne les fournit pas. `null` si le montant est absent ou illisible ; sans base de
+ * comparaison (`has_baseline = false`) le résumé porte un montant et un pourcentage `null` (« — »).
  */
 internal fun BatchPnlItemDto.toPnlSummary(): PnlSummary? {
-    val amount = parseDecimal(pnlAmount) ?: return null
+    val measured = hasMeasuredBaseline()
+    val amount = if (measured) parseDecimal(pnlAmount) ?: return null else null
     return PnlSummary(
         totalReturn = amount,
-        totalReturnPct = pnlFraction(),
+        totalReturnPct = if (measured) pnlFraction() else null,
         sharpeRatio = null,
         sortinoRatio = null,
         maxDrawdown = null,
@@ -76,9 +86,10 @@ internal fun BatchPnlItemDto.toPnlSummary(): PnlSummary? {
  * `totalPnlPercent` uniquement). Le schéma Room impose des colonnes non nulles que `batch/pnl` ne
  * fournit pas (P&L réalisé/latent, compteurs de trades) : elles sont écrites à « 0 » — une valeur
  * de vie entière de `/pnl` n'aurait aucun sens dans une ligne de période. `null` si le montant est
- * absent ou illisible.
+ * absent ou illisible, ou sans base de comparaison (rien de mesuré à mettre en cache).
  */
 internal fun BatchPnlItemDto.toEntity(period: PnlPeriod, syncedAt: Long): PnlSnapshotEntity? {
+    if (!hasMeasuredBaseline()) return null
     val amount = parseDecimal(pnlAmount) ?: return null
     return PnlSnapshotEntity(
         period = period.toApiString(),

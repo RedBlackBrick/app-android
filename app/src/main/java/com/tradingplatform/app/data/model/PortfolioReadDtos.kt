@@ -30,6 +30,9 @@ data class BatchPnlResponseDto(
  * P&L d'un portefeuille sur la période. `pnl_pct` = FRACTION (`-0.00826` = -0,826 %).
  * `currency_code` vaut `null` pour un id demandé mais introuvable (montants alors à « 0 »).
  * `previous_value` peut être égal à `current_value` (pas de snapshot antérieur → P&L 0).
+ * `has_baseline = false` : aucun snapshot avant le début de la période (portefeuille plus jeune) —
+ * `pnl_amount`/`pnl_pct` valent 0 par construction, ce n'est PAS un P&L mesuré (cf. [hasMeasuredBaseline]).
+ * `net_flows` (dépôts − retraits de la période) est déjà retranché de `pnl_amount` côté backend.
  */
 @JsonClass(generateAdapter = true)
 data class BatchPnlItemDto(
@@ -39,6 +42,7 @@ data class BatchPnlItemDto(
     @Json(name = "previous_value") val previousValue: String? = null,
     @Json(name = "current_value") val currentValue: String? = null,
     @Json(name = "currency_code") val currencyCode: String? = null,
+    @Json(name = "has_baseline") val hasBaseline: Boolean? = null,
 )
 
 /** `GET /v1/dashboard/overview` — seules les valeurs par portefeuille sont lues. */

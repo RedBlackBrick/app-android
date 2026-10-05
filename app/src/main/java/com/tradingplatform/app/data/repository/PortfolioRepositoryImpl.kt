@@ -6,6 +6,7 @@ import com.tradingplatform.app.data.local.db.dao.PnlDao
 import com.tradingplatform.app.data.local.db.dao.PositionDao
 import com.tradingplatform.app.data.model.BatchPnlItemDto
 import com.tradingplatform.app.data.model.BatchPnlRequestDto
+import com.tradingplatform.app.data.model.hasMeasuredBaseline
 import com.tradingplatform.app.data.model.toDomain
 import com.tradingplatform.app.data.model.toEntity
 import com.tradingplatform.app.data.model.toNavPointOrNull
@@ -141,9 +142,12 @@ class PortfolioRepositoryImpl internal constructor(
 
         // Purge Room APRÈS sync réussie — transaction atomique (upsert + purge), cutoff = rétention
         // 24 h (CacheTtl.PNL_RETENTION_MS), pas la fraîcheur 5 min : une ligne par période.
-        val now = System.currentTimeMillis()
-        val entity = item.toEntity(period, syncedAt = now) ?: error("Batch PnL amount missing")
-        pnlDao.upsertAndPurge(entity, cutoffMillis = now - CacheTtl.PNL_RETENTION_MS)
+        // Sans base de comparaison (`has_baseline = false`) il n'y a rien de mesuré à mettre en cache.
+        if (item.hasMeasuredBaseline()) {
+            val now = System.currentTimeMillis()
+            val entity = item.toEntity(period, syncedAt = now) ?: error("Batch PnL amount missing")
+            pnlDao.upsertAndPurge(entity, cutoffMillis = now - CacheTtl.PNL_RETENTION_MS)
+        }
         return summary
     }
 

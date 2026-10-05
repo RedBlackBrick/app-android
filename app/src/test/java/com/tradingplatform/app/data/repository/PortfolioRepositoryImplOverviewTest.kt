@@ -250,6 +250,38 @@ class PortfolioRepositoryImplOverviewTest {
     }
 
     @Test
+    fun `getPnlSummary WEEK without a baseline is not a measured zero and is never cached`() = runTest {
+        // Portefeuille plus jeune que la période : pnl_amount « 0 » par construction (has_baseline=false).
+        coEvery { portfolioApi.getBatchPnl(any()) } returns batchResponse(
+            batchItem("p1", amount = "0", pct = 0.0, previous = "500.00", current = "500.00")
+                .copy(hasBaseline = false),
+        )
+
+        val summary = repo().getPnlSummary("p1", PnlPeriod.WEEK).getOrThrow()
+
+        assertNull(summary.totalReturn)
+        assertNull(summary.totalReturnPct)
+        coVerify(exactly = 0) { pnlDao.upsertAndPurge(any(), any()) }
+    }
+
+    @Test
+    fun `overview WEEK without a baseline leaves the period pnl null instead of zero`() = runTest {
+        coEvery { portfolioApi.getBatchPnl(any()) } returns batchResponse(
+            batchItem("p1", amount = "0", pct = 0.0, previous = "500.00", current = "500.00")
+                .copy(hasBaseline = false),
+            batchItem("p2", amount = "5.00", pct = 0.01, previous = "500.00", current = "505.00", currency = "USD")
+                .copy(hasBaseline = true),
+        )
+
+        val items = repo().getPortfoliosOverview(PnlPeriod.WEEK).getOrThrow()
+
+        assertEquals(BigDecimal("500.00"), items[0].currentValue)
+        assertNull(items[0].periodPnl)
+        assertNull(items[0].periodPnlPct)
+        assertEquals(BigDecimal("5.00"), items[1].periodPnl)
+    }
+
+    @Test
     fun `getPnlSummary MONTH sends the month period`() = runTest {
         coEvery { portfolioApi.getBatchPnl(any()) } returns batchResponse(
             batchItem("p1", amount = "250.00", pct = 0.025, previous = "10000.00", current = "10250.00"),
