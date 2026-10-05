@@ -226,6 +226,23 @@ class PortfolioRepositoryImplOverviewTest {
         assertNull(items[1].periodPnlPct)
     }
 
+    @Test
+    fun `overview ALL nets deposits and withdrawals out of the pnl and its base`() = runTest {
+        coEvery { portfolioApi.getDashboardOverview() } returns dashboardResponse(
+            // 10 000 + 5 000 déposés : valeur 15 074 = +74 de P&L, pas +5 074.
+            DashboardPortfolioDto(id = "p1", currentValue = "15074.00", initialCapital = "10000.00", netFlows = "5000.00"),
+            // Retrait de 100 : 400 = initial 500 - 100 retiré, P&L 0.
+            DashboardPortfolioDto(id = "p2", currentValue = "400.00", initialCapital = "500.00", netFlows = "-100.00"),
+        )
+
+        val items = repo().getPortfoliosOverview(PnlPeriod.ALL).getOrThrow()
+
+        assertEquals(BigDecimal("74.00"), items[0].periodPnl)
+        assertEquals(74.0 / 15000.0, items[0].periodPnlPct!!, 1e-9)
+        assertEquals(0, BigDecimal("0.00").compareTo(items[1].periodPnl))
+        assertEquals(0.0, items[1].periodPnlPct!!, 1e-9)
+    }
+
     // ── getPnlSummary — DAY / WEEK / MONTH via batch/pnl ─────────────────────────
 
     @Test

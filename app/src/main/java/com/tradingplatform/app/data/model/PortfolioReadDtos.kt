@@ -59,6 +59,8 @@ data class DashboardPortfolioDto(
     @Json(name = "currency_code") val currencyCode: String? = null,
     @Json(name = "current_value") val currentValue: String? = null,
     @Json(name = "initial_capital") val initialCapital: String? = null,
+    /** Dépôts − retraits depuis la création (financement initial exclu) ; absent = 0. */
+    @Json(name = "net_flows") val netFlows: String? = null,
 )
 
 /**

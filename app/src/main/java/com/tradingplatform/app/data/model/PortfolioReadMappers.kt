@@ -105,17 +105,21 @@ internal fun BatchPnlItemDto.toEntity(period: PnlPeriod, syncedAt: Long): PnlSna
 }
 
 /**
- * Portefeuille de `dashboard/overview` → ligne pour les périodes ALL/YEAR : P&L = valeur courante
- * − capital initial ; pourcentage (FRACTION) = P&L / capital initial, `null` si le capital initial
- * est absent ou nul. Nom et devise viennent de la liste ([portfolio]). `null` si la valeur
- * courante est illisible. (`today_pnl_pct` n'est pas utilisé : c'est un pourcentage 24 h glissantes.)
+ * Portefeuille de `dashboard/overview` → ligne pour les périodes ALL/YEAR : P&L net = valeur
+ * courante − capital initial − `net_flows` (un dépôt n'est pas un gain, formule du backend) ;
+ * pourcentage (FRACTION) = P&L / (capital initial + `net_flows`), `null` si cette base n'est pas
+ * positive ou si le capital initial est absent. `net_flows` absent ou illisible = 0. Nom et devise
+ * viennent de la liste ([portfolio]). `null` si la valeur courante est illisible.
+ * (`today_pnl_pct` n'est pas utilisé : c'est un pourcentage 24 h glissantes.)
  */
 internal fun DashboardPortfolioDto.toOverviewItem(portfolio: Portfolio): PortfolioOverviewItem? {
     val current = parseDecimal(currentValue) ?: return null
     val initial = parseDecimal(initialCapital)
-    val pnl = initial?.let { current.subtract(it) }
-    val fraction = if (initial != null && pnl != null && initial.signum() != 0) {
-        pnl.divide(initial, MathContext.DECIMAL64).toDouble()
+    val flows = parseDecimal(netFlows) ?: BigDecimal.ZERO
+    val pnl = initial?.let { current.subtract(it).subtract(flows) }
+    val contributed = initial?.add(flows)
+    val fraction = if (pnl != null && contributed != null && contributed.signum() > 0) {
+        pnl.divide(contributed, MathContext.DECIMAL64).toDouble()
     } else {
         null
     }
