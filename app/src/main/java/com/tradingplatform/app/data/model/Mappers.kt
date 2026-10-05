@@ -102,7 +102,7 @@ fun PerformanceResponseDto.toPerformanceMetrics(): PerformanceMetrics = Performa
  */
 fun PnlResponseDto.toPnlSummary(): PnlSummary = PnlSummary(
     totalReturn = totalPnl,
-    totalReturnPct = totalPnlPercent / 100.0,
+    totalReturnPct = totalPnlPercent?.div(100.0),
     sharpeRatio = null,
     sortinoRatio = null,
     maxDrawdown = null,
@@ -308,17 +308,23 @@ fun Position.toEntity(syncedAt: Long = System.currentTimeMillis()): PositionEnti
  * la période demandée — celle que `PnlWidget` relit).
  * `total_pnl_percent` (pourcentage backend) est stocké en **fraction**.
  */
-fun PnlResponseDto.toEntity(period: PnlPeriod, syncedAt: Long = System.currentTimeMillis()): PnlSnapshotEntity = PnlSnapshotEntity(
-    period = period.toApiString(),
-    realizedPnl = realizedPnl.toPlainString(),
-    unrealizedPnl = unrealizedPnl.toPlainString(),
-    totalPnl = totalPnl.toPlainString(),
-    totalPnlPercent = totalPnlPercent / 100.0,
-    tradesCount = tradesCount,
-    winningTrades = winningTrades,
-    losingTrades = losingTrades,
-    syncedAt = syncedAt,
-)
+fun PnlResponseDto.toEntity(period: PnlPeriod, syncedAt: Long = System.currentTimeMillis()): PnlSnapshotEntity? {
+    // Pas de montant total ⇒ rien à mettre en cache (jamais un « 0 » fabriqué). Réalisé/latent
+    // `null` (période ≠ ALL) : le schéma Room impose des colonnes non nulles, écrites à « 0 » comme
+    // pour `batch/pnl` — `PnlWidget` ne lit que `totalPnl` et `totalPnlPercent`.
+    val total = totalPnl ?: return null
+    return PnlSnapshotEntity(
+        period = period.toApiString(),
+        realizedPnl = (realizedPnl ?: BigDecimal.ZERO).toPlainString(),
+        unrealizedPnl = (unrealizedPnl ?: BigDecimal.ZERO).toPlainString(),
+        totalPnl = total.toPlainString(),
+        totalPnlPercent = (totalPnlPercent ?: 0.0) / 100.0,
+        tradesCount = tradesCount,
+        winningTrades = winningTrades,
+        losingTrades = losingTrades,
+        syncedAt = syncedAt,
+    )
+}
 
 fun Alert.toEntity(syncedAt: Long = System.currentTimeMillis()): AlertEntity = AlertEntity(
     id = id,

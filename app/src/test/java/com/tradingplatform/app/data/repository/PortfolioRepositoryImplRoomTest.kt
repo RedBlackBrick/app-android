@@ -187,14 +187,14 @@ class PortfolioRepositoryImplRoomTest {
             pnlDto("month", totalPnlPercent = 1.0).toEntity(
                 period = PnlPeriod.MONTH,
                 syncedAt = now - (CacheTtl.PNL_RETENTION_MS + 60_000L),
-            )
+            )!!
         )
         // And a YEAR row still within the 24h retention window.
         pnlDao.upsert(
             pnlDto("ytd", totalPnlPercent = 2.0).toEntity(
                 period = PnlPeriod.YEAR,
                 syncedAt = now - (CacheTtl.PNL_RETENTION_MS - 60_000L),
-            )
+            )!!
         )
 
         coEvery { portfolioApi.getBatchPnl(any()) } returns batchPnl()

@@ -66,7 +66,7 @@ class MappersTest {
 
     @Test
     fun `pnl dto to entity stores total_pnl_percent as a fraction keyed on the requested period`() {
-        val entity = pnlDto.toEntity(PnlPeriod.WEEK, syncedAt = 1_000L)
+        val entity = pnlDto.toEntity(PnlPeriod.WEEK, syncedAt = 1_000L)!!
 
         assertEquals("week", entity.period)
         assertEquals("120.50", entity.realizedPnl)
@@ -81,14 +81,37 @@ class MappersTest {
 
     @Test
     fun `pnl YEAR entity is keyed on ytd`() {
-        assertEquals("ytd", pnlDto.toEntity(PnlPeriod.YEAR, syncedAt = 0L).period)
+        assertEquals("ytd", pnlDto.toEntity(PnlPeriod.YEAR, syncedAt = 0L)!!.period)
+    }
+
+    // Audit F9 P-02/P-03 : le backend sert `null` (pas 0) quand une grandeur n'est pas calculable.
+    @Test
+    fun `pnl with null split and percent keeps null in the summary and zeroes only the unused cache columns`() {
+        val dto = pnlDto.copy(realizedPnl = null, unrealizedPnl = null, totalPnlPercent = null)
+
+        val summary = dto.toPnlSummary()
+        assertEquals(BigDecimal("100.25"), summary.totalReturn)
+        assertNull(summary.totalReturnPct)
+
+        val entity = dto.toEntity(PnlPeriod.YEAR, syncedAt = 0L)!!
+        assertEquals("0", entity.realizedPnl)
+        assertEquals("0", entity.unrealizedPnl)
+        assertEquals("100.25", entity.totalPnl)
+    }
+
+    @Test
+    fun `pnl without a total amount is never cached as a zero`() {
+        val dto = pnlDto.copy(totalPnl = null)
+
+        assertNull(dto.toEntity(PnlPeriod.YEAR, syncedAt = 0L))
+        assertNull(dto.toPnlSummary().totalReturn)
     }
 
     // ── Room → domain ───────────────────────────────────────────────────────────
 
     @Test
     fun `pnl entity to domain keeps the fraction and never derives a winRate`() {
-        val summary = pnlDto.toEntity(PnlPeriod.DAY, syncedAt = 0L).toDomain()
+        val summary = pnlDto.toEntity(PnlPeriod.DAY, syncedAt = 0L)!!.toDomain()
 
         assertEquals(BigDecimal("100.25"), summary.totalReturn)
         assertEquals(0.0175, summary.totalReturnPct!!, 1e-9)
@@ -121,7 +144,7 @@ class MappersTest {
     @Test
     fun `pnl dto summary and cached summary agree`() {
         val live = pnlDto.toPnlSummary()
-        val cached = pnlDto.toEntity(PnlPeriod.DAY, syncedAt = 0L).toDomain()
+        val cached = pnlDto.toEntity(PnlPeriod.DAY, syncedAt = 0L)!!.toDomain()
 
         assertEquals(live.totalReturn, cached.totalReturn)
         assertEquals(live.totalReturnPct!!, cached.totalReturnPct!!, 1e-12)

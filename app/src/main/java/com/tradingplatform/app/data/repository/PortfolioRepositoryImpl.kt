@@ -159,10 +159,10 @@ class PortfolioRepositoryImpl internal constructor(
         // Cutoff = rétention 24 h, PAS la fraîcheur 5 min : une ligne par période, une
         // purge à 5 min supprimerait les lignes des autres périodes (CacheTtl.PNL_RETENTION_MS).
         val now = System.currentTimeMillis()
-        pnlDao.upsertAndPurge(
-            dto.toEntity(period, syncedAt = now),
-            cutoffMillis = now - CacheTtl.PNL_RETENTION_MS,
-        )
+        // `total_pnl` absent : rien à mettre en cache (le résumé rendu porte alors un montant null).
+        dto.toEntity(period, syncedAt = now)?.let {
+            pnlDao.upsertAndPurge(it, cutoffMillis = now - CacheTtl.PNL_RETENTION_MS)
+        }
 
         return dto.toPnlSummary()
     }
