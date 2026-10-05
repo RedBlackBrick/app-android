@@ -1,6 +1,6 @@
 {
   "_generated_by": "scripts/extract_openapi_contracts.py",
-  "_source": "/home/thomas/Codes/trading-platform2/audit/front/openapi.json",
+  "_source": "/tmp/claude-1000/-home-thomas-Codes-trading-platform2/d99d130f-0d48-427f-b5de-d510bbe204c6/scratchpad/openapi_graph.json",
   "components": {
     "schemas": {
       "ActiveOrdersResponse": {
@@ -36,7 +36,7 @@
         "type": "string"
       },
       "BatchPnlRequest": {
-        "description": "Request body for batch P&L retrieval (dashboard widget).\n\n``period`` mirrors the single-endpoint contract:\n  * ``day``  — previous calendar day vs current value\n  * ``week`` — 7 calendar days back\n  * ``month`` — 30 calendar days back",
+        "description": "Request body for batch P&L retrieval (dashboard widget).\n\n``period`` mirrors the single-endpoint contract:\n  * ``day``  — previous calendar day vs current value\n  * ``week`` — 7 calendar days back\n  * ``month`` — 30 calendar days back\n  * ``ytd`` — since 1 January (portfolio timezone)",
         "properties": {
           "period": {
             "default": "day",
@@ -44,7 +44,8 @@
             "enum": [
               "day",
               "week",
-              "month"
+              "month",
+              "ytd"
             ],
             "title": "Period",
             "type": "string"
@@ -99,6 +100,29 @@
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Current Value",
             "type": "string"
+          },
+          "has_baseline": {
+            "default": true,
+            "title": "Has Baseline",
+            "type": "boolean"
+          },
+          "net_flows": {
+            "default": "0",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Net Flows",
+            "type": "string"
+          },
+          "period_start": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period Start"
           },
           "pnl_amount": {
             "default": "0",
@@ -580,6 +604,12 @@
             "title": "Total Initial Capital",
             "type": "string"
           },
+          "total_net_flows": {
+            "default": "0",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Total Net Flows",
+            "type": "string"
+          },
           "total_value": {
             "default": "0",
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
@@ -621,6 +651,12 @@
           },
           "name": {
             "title": "Name",
+            "type": "string"
+          },
+          "net_flows": {
+            "default": "0",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Net Flows",
             "type": "string"
           },
           "today_pnl": {
@@ -1481,6 +1517,33 @@
         "title": "NavResponse",
         "type": "object"
       },
+      "NetSeriesPoint": {
+        "description": "One daily point of the flow-free equity curve (see ``PerformanceMetrics``).",
+        "properties": {
+          "cumulative_return": {
+            "description": "Time-weighted return since the window start, as a fraction (0.05 = +5 %).",
+            "title": "Cumulative Return",
+            "type": "number"
+          },
+          "date": {
+            "description": "ISO date (YYYY-MM-DD) of the daily close snapshot.",
+            "title": "Date",
+            "type": "string"
+          },
+          "drawdown_pct": {
+            "description": "Depth below the running historical peak of the net curve, in percent (>= 0, same sign/scale as ``max_drawdown``).",
+            "title": "Drawdown Pct",
+            "type": "number"
+          }
+        },
+        "required": [
+          "date",
+          "cumulative_return",
+          "drawdown_pct"
+        ],
+        "title": "NetSeriesPoint",
+        "type": "object"
+      },
       "NotificationResponse": {
         "description": "Single notification returned from the API.\n\n``type`` and ``priority`` are kept as plain ``str`` (not their enum\ncounterparts) for backward compatibility: the consumer and DB may store\nvalues that predate the current enum members, and strict validation\nwould reject legitimate historical rows.\n\n``is_digested``, ``digest_parent_id`` and ``duplicate_count`` are\nPhase M (Sprint 2) fields. Defaults preserve the legacy contract: a\nrow not yet touched by the digest worker / dedup path looks\nidentical to the pre-migration shape.",
         "properties": {
@@ -1731,6 +1794,17 @@
             "title": "Symbol",
             "type": "string"
           },
+          "symbol_currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Symbol Currency"
+          },
           "updated_at": {
             "anyOf": [
               {
@@ -1816,7 +1890,7 @@
         "type": "object"
       },
       "PerformanceMetrics": {
-        "description": "Portfolio performance metrics over a given period.",
+        "description": "Portfolio performance metrics over a given period.\n\nEvery return / drawdown / volatility figure is computed on the equity curve\nNET of external cash flows (deposits and withdrawals are not performance —\naudit F9 P-01), over the window ``window_start``..``window_end`` actually\ncovered by the daily snapshots (which can be shorter than ``period``).",
         "properties": {
           "avg_trade_return": {
             "anyOf": [
@@ -1839,7 +1913,14 @@
                 "type": "null"
               }
             ],
+            "description": "Annualised growth; null while the history is under one year.",
             "title": "Cagr"
+          },
+          "data_points": {
+            "default": 0,
+            "description": "Number of daily snapshots in the window.",
+            "title": "Data Points",
+            "type": "integer"
           },
           "max_drawdown": {
             "anyOf": [
@@ -1850,7 +1931,29 @@
                 "type": "null"
               }
             ],
+            "description": "Deepest drawdown of the window in PERCENT (positive, 14.8 = -14.8 %), net of cash flows, measured from the historical peak. The one drawdown definition.",
             "title": "Max Drawdown"
+          },
+          "net_flows": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Deposits minus withdrawals recorded inside the window (portfolio currency); 0 when there were none.",
+            "title": "Net Flows"
+          },
+          "net_series": {
+            "description": "Daily net-of-flows return and drawdown over the window (chart source).",
+            "items": {
+              "$ref": "#/components/schemas/NetSeriesPoint"
+            },
+            "title": "Net Series",
+            "type": "array"
           },
           "period": {
             "default": "all",
@@ -1878,6 +1981,7 @@
                 "type": "null"
               }
             ],
+            "description": "Annualised; null under 30 daily returns (sample too small).",
             "title": "Sharpe Ratio"
           },
           "sortino_ratio": {
@@ -1889,6 +1993,7 @@
                 "type": "null"
               }
             ],
+            "description": "Annualised; null under 30 daily returns (sample too small).",
             "title": "Sortino Ratio"
           },
           "total_fees": {
@@ -1901,6 +2006,7 @@
                 "type": "null"
               }
             ],
+            "description": "Fees paid inside the window (ledger), portfolio currency.",
             "title": "Total Fees"
           },
           "total_return": {
@@ -1913,6 +2019,7 @@
                 "type": "null"
               }
             ],
+            "description": "Net P&L of the window in the portfolio currency: value change minus the deposits/withdrawals made inside it.",
             "title": "Total Return"
           },
           "total_return_pct": {
@@ -1924,6 +2031,7 @@
                 "type": "null"
               }
             ],
+            "description": "Time-weighted return of the window as a fraction (0.05 = +5 %), net of cash flows. Null with fewer than 2 daily points.",
             "title": "Total Return Pct"
           },
           "volatility": {
@@ -1935,6 +2043,7 @@
                 "type": "null"
               }
             ],
+            "description": "Annualised volatility of the window's daily net returns (fraction). Request ``period=30d`` for a 30-day volatility.",
             "title": "Volatility"
           },
           "win_rate": {
@@ -1947,39 +2056,115 @@
               }
             ],
             "title": "Win Rate"
+          },
+          "window_end": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Date of the last daily snapshot the figures cover.",
+            "title": "Window End"
+          },
+          "window_start": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Date of the first daily snapshot the figures cover.",
+            "title": "Window Start"
           }
         },
         "title": "PerformanceMetrics",
         "type": "object"
       },
       "PnlResponse": {
-        "description": "PNL summary for a portfolio over a given period.\n\nMatches the Android PnlResponseDto contract.\n\nUnit: every amount is denominated in the **portfolio's** currency. The\nunderlying ``portfolio.positions`` columns are stored in the SYMBOL's\ncurrency, so the aggregation converts (see\n``app.portfolio.calculators.realized_pnl``). Do not re-derive these sums\nfrom the per-position figures in :class:`PositionResponse` — those are\nunconverted.",
+        "description": "PNL summary for a portfolio over a given period.\n\nMatches the Android PnlResponseDto contract.\n\nUnit: every amount is denominated in the **portfolio's** currency. The\nunderlying ``portfolio.positions`` columns are stored in the SYMBOL's\ncurrency, so the aggregation converts (see\n``app.portfolio.calculators.realized_pnl``). Do not re-derive these sums\nfrom the per-position figures in :class:`PositionResponse` — those are\nunconverted.\n\nScope (audit F9 P-02/P-03): for ``period != \"all\"`` the amounts really\ncover ``period_start``..now — ``total_pnl`` is the value change NET of the\ndeposits/withdrawals of the period, and ``realized_pnl`` /\n``unrealized_pnl`` are ``null`` (the positions columns are lifetime\naccumulators; a per-period split is not computable). The winners / losers\nare counted on the positions CLOSED inside the period, from their\n``realized_pnl`` — the same source as ``PerformanceMetrics.win_rate``.",
         "properties": {
+          "closed_trades_count": {
+            "default": 0,
+            "title": "Closed Trades Count",
+            "type": "integer"
+          },
           "losing_trades": {
             "default": 0,
             "title": "Losing Trades",
             "type": "integer"
           },
+          "net_flows": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Net Flows"
+          },
           "period": {
             "title": "Period",
             "type": "string"
           },
+          "period_start": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period Start"
+          },
           "realized_pnl": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": "0.0",
-            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
-            "title": "Realized Pnl",
-            "type": "string"
+            "title": "Realized Pnl"
           },
           "total_pnl": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": "0.0",
-            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
-            "title": "Total Pnl",
-            "type": "string"
+            "title": "Total Pnl"
           },
           "total_pnl_percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": 0.0,
-            "title": "Total Pnl Percent",
-            "type": "number"
+            "title": "Total Pnl Percent"
           },
           "trades_count": {
             "default": 0,
@@ -1987,10 +2172,28 @@
             "type": "integer"
           },
           "unrealized_pnl": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": "0.0",
-            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
-            "title": "Unrealized Pnl",
-            "type": "string"
+            "title": "Unrealized Pnl"
+          },
+          "win_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Win Rate"
           },
           "winning_trades": {
             "default": 0,
@@ -2075,6 +2278,34 @@
             },
             "title": "Asset Type Allocation",
             "type": "object"
+          },
+          "cash_pct_of_equity": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cash Pct Of Equity"
+          },
+          "gross_exposure": {
+            "default": "0.0",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Gross Exposure",
+            "type": "string"
+          },
+          "leverage": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Leverage"
           },
           "portfolio": {
             "$ref": "#/components/schemas/PortfolioResponse"
@@ -2195,6 +2426,21 @@
       "PortfolioResponse": {
         "description": "Full portfolio detail returned from the API.\n\n``allocation_mode`` was removed on 2026-05-17 (Wave 3): the DB column\nsurvives for legacy seeds but the strategy engine reads the runtime\nsizing mode from ``trading.composite_strategies.allocation_mode``\n(``app/strategy/consumer/base.py:1352``). The frontend used to badge\nthe value on PortfolioCard / PortfolioHeader / settings, which was\nmisleading — the badge now reads the per-strategy allocation_mode\ninstead.",
         "properties": {
+          "account_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "cash",
+                  "margin"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Type"
+          },
           "benchmark_sid": {
             "anyOf": [
               {
@@ -2287,6 +2533,18 @@
             "title": "Is Paper",
             "type": "boolean"
           },
+          "max_leverage": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Leverage"
+          },
           "min_commission": {
             "anyOf": [
               {
@@ -2302,6 +2560,18 @@
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "net_flows": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Net Flows"
           },
           "owner_id": {
             "title": "Owner Id",
@@ -3470,7 +3740,7 @@
             "type": "number"
           },
           "contribution_pct": {
-            "description": "Proxy contribution to the portfolio's VaR (0..1)",
+            "description": "V1 proxy: equal to ``allocation_pct`` (0..1, NOT normalised to sum to 1 and NOT a VaR contribution) — label it as an allocation.",
             "title": "Contribution Pct",
             "type": "number"
           },
@@ -3534,6 +3804,17 @@
           "allocation_mode": {
             "$ref": "#/components/schemas/AllocationMode",
             "default": "equal"
+          },
+          "benchmark_sid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Benchmark Sid"
           },
           "created_at": {
             "anyOf": [
@@ -6019,7 +6300,7 @@
     },
     "/v1/portfolios/{portfolio_id}/pnl": {
       "get": {
-        "description": "Get PNL summary for a portfolio over a given period.\n\nP&L numerics (realized / unrealized / total) reflect the **lifetime\ncumulative** state of the portfolio, sourced directly from\n``portfolio.positions``:\n\n* ``realized_pnl`` — Σ ``realized_pnl`` across every position ever\n  opened (active + closed). The column is updated atomically by\n  ``PositionRepository.update_position_fifo`` SELL path with the\n  true FIFO P&L per close event.\n* ``unrealized_pnl`` — Σ ``unrealized_pnl`` across currently-active\n  positions only. Recomputed live by\n  ``update_position_price_atomic`` from ``last_price``.\n* ``total_pnl`` — sum of the two; matches\n  ``current_value - initial_capital`` to within rounding.\n\nBoth columns are stored in the **symbol's** currency, so both sums are\nFX-converted into the portfolio's currency via\n``app.portfolio.calculators.realized_pnl`` — the same factor\n``current_value`` itself is built with. Until 2026-07-26 this endpoint\nsummed them raw and labelled the result with the portfolio currency: on\nthe production ``test`` book (EUR, 30 USD positions) that reported\n-627.33 € for an actual -551.40 €, a 75.93 € overstatement of the loss.\n\nThe previous implementation summed raw BUY costs vs SELL proceeds in\nthe period without FIFO matching, treating every fresh entry as a\n\"loss\" (no cost-basis offset). That produced phantom losses equal to\nthe period's BUY total for any portfolio actively opening positions\n— e.g. a -5870.55 € display for an actually -141.96 € portfolio.\n\nThe ``period`` parameter still scopes ``trades_count`` /\n``winning_trades`` / ``losing_trades`` to recent activity. The P&L\nnumerics are period-independent because reconstructing per-period\nrealized P&L correctly requires either FIFO replay or a snapshot\ndiff path (the latter is a follow-up once\n``portfolio.portfolio_value_history.daily_pnl`` is populated).",
+        "description": "Get PNL summary for a portfolio over a given period.\n\n``period=\"all\"``: lifetime ``realized_pnl`` / ``unrealized_pnl`` / ``total_pnl``\nsourced from ``portfolio.positions`` (FIFO-correct, converted from the symbol's\nto the portfolio's currency by ``app.portfolio.calculators.realized_pnl`` — the\nsame factor ``current_value`` is built with).\n\n``day`` / ``week`` / ``month`` / ``ytd``: the amounts really cover the period\n(audit F9 P-02) — ``total_pnl`` is the value change since the period start net of\ndeposits/withdrawals (same source as ``POST /batch/pnl``), the realized/unrealized\nsplit is ``null`` (lifetime accumulators). Winners / losers / ``win_rate`` are\ncounted on the positions closed in the period from their ``realized_pnl``\n(P-03). See ``ValuationService.get_pnl_summary``.",
         "operationId": "get_portfolio_pnl_v1_portfolios__portfolio_id__pnl_get",
         "parameters": [
           {
