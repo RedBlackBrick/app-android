@@ -14,6 +14,7 @@ import com.tradingplatform.app.data.api.RiskWriteApi
 import com.tradingplatform.app.data.api.StrategiesWriteApi
 import com.tradingplatform.app.data.api.StrategyListItemDto
 import com.tradingplatform.app.data.api.StrategyListResponseDto
+import com.tradingplatform.app.data.api.VigieApi
 import com.tradingplatform.app.data.model.BatchPnlItemDto
 import com.tradingplatform.app.data.model.BatchPnlRequestDto
 import com.tradingplatform.app.data.model.BatchPnlResponseDto
@@ -64,6 +65,7 @@ import com.tradingplatform.app.data.model.TokenResponseDto
 import com.tradingplatform.app.data.model.TotpVerifyRequestDto
 import com.tradingplatform.app.data.model.TotpVerifyResponseDto
 import com.tradingplatform.app.data.model.UserDto
+import com.tradingplatform.app.data.model.VigieDto
 import com.tradingplatform.app.data.model.VpnPeerDto
 import com.tradingplatform.app.data.model.VpnPeerListResponseDto
 import com.tradingplatform.app.data.model.WsTokenResponseDto
@@ -256,6 +258,15 @@ class DtoContractTest {
         Triple(Risk360KillSwitchDto::class, "Risk360KillSwitch", emptySet()),
         Triple(RiskViolationDto::class, "ViolationResponse", emptySet()),
         Triple(PortfolioKillSwitchActivateRequestDto::class, "PortfolioKillSwitchActivate", emptySet()),
+        // ── Vigie « Refuge » (GET /v1/vigie, contrat audit/vigie/API.md) ───────────────────────
+        // Seul le DTO racine est épinglé : les sous-objets (familles, indicateurs, régime, refuge,
+        // courbe) reprennent les `to_dict()` de `app/vigie/scoring.py` et n'ont de schéma OpenAPI
+        // QUE si le backend les type en modèles Pydantic. Une fois `openapi.json` regénéré, ajouter
+        // ici une entrée par sous-schéma réellement publié (VigieFamilyDto, VigieIndicatorDto,
+        // VigieRegimeDto, VigieRegimeIndicatorDto, VigieRefugeDto, VigieRefugeLegDto,
+        // VigieSparklinePointDto, VigieMostStressedFamilyDto, VigieCutoffsDto) — un nom de schéma
+        // deviné ferait échouer le test pour une mauvaise raison.
+        Triple(VigieDto::class, "VigieCurrentResponse", emptySet()),
     )
 
     @Test
@@ -344,6 +355,8 @@ class DtoContractTest {
         RiskWriteApi::class,
         PreferencesApi::class,
         PreferencesWriteApi::class,
+        // Vigie « Refuge » : `GET /v1/vigie` (présent dans openapi.json après regénération — voir docs/api-contracts.md).
+        VigieApi::class,
     )
 
     private fun normalizePath(path: String) = if (path.startsWith("/")) path else "/$path"

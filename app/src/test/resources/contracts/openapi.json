@@ -1,6 +1,7 @@
 {
   "_generated_by": "scripts/extract_openapi_contracts.py",
   "_source": "/tmp/claude-1000/-home-thomas-Codes-trading-platform2/d99d130f-0d48-427f-b5de-d510bbe204c6/scratchpad/openapi_graph.json",
+  "_vigie_merged_from": "trading-platform2/audit/vigie/openapi.json (entrees /v1/vigie + schemas Vigie* seulement ; le reste du contrat est inchange car le backend main courant diverge de la branche graphiques d origine)",
   "components": {
     "schemas": {
       "ActiveOrdersResponse": {
@@ -4659,6 +4660,641 @@
         "title": "VerifyTwoFAResponse",
         "type": "object"
       },
+      "VigieCurrentResponse": {
+        "description": "``GET /v1/vigie`` : l'état courant en UN appel (mobile : VPN + cache Room).\n\n``available = False`` (table vide, avant le premier calcul) : tous les autres\nchamps sont ``None`` ou des listes vides, ``is_stale = True`` ; ce n'est jamais\nprésenté comme un niveau « normal ».",
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "computed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Computed At"
+          },
+          "coverage": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Coverage"
+          },
+          "cutoffs": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VigieCutoffs"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "expected_families": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Families"
+          },
+          "expected_indicators": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Indicators"
+          },
+          "families": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/VigieFamily"
+            },
+            "title": "Families",
+            "type": "array"
+          },
+          "indicators": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/VigieIndicator"
+            },
+            "title": "Indicators",
+            "type": "array"
+          },
+          "is_stale": {
+            "default": true,
+            "title": "Is Stale",
+            "type": "boolean"
+          },
+          "level": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Level"
+          },
+          "level_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Level Label"
+          },
+          "level_raw": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Level Raw"
+          },
+          "live_families": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Live Families"
+          },
+          "live_indicators": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Live Indicators"
+          },
+          "methodology_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Methodology Version"
+          },
+          "most_stressed_family": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VigieMostStressedFamily"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "refuge": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VigieRefuge"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "regime": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VigieRegime"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score"
+          },
+          "sparkline": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/VigieSparklinePoint"
+            },
+            "title": "Sparkline",
+            "type": "array"
+          }
+        },
+        "required": [
+          "available"
+        ],
+        "title": "VigieCurrentResponse",
+        "type": "object"
+      },
+      "VigieCutoffs": {
+        "properties": {
+          "alerte": {
+            "title": "Alerte",
+            "type": "number"
+          },
+          "crise": {
+            "title": "Crise",
+            "type": "number"
+          },
+          "vigilance": {
+            "title": "Vigilance",
+            "type": "number"
+          }
+        },
+        "required": [
+          "vigilance",
+          "alerte",
+          "crise"
+        ],
+        "title": "VigieCutoffs",
+        "type": "object"
+      },
+      "VigieFamily": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "coverage": {
+            "title": "Coverage",
+            "type": "number"
+          },
+          "expected": {
+            "title": "Expected",
+            "type": "integer"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "live": {
+            "title": "Live",
+            "type": "integer"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score"
+          }
+        },
+        "required": [
+          "code",
+          "label",
+          "score",
+          "live",
+          "expected",
+          "coverage"
+        ],
+        "title": "VigieFamily",
+        "type": "object"
+      },
+      "VigieIndicator": {
+        "properties": {
+          "age_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Age Days"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "family": {
+            "title": "Family",
+            "type": "string"
+          },
+          "higher_is_worse": {
+            "title": "Higher Is Worse",
+            "type": "boolean"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "orange": {
+            "title": "Orange",
+            "type": "number"
+          },
+          "red": {
+            "title": "Red",
+            "type": "number"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "code",
+          "family",
+          "label",
+          "unit",
+          "value",
+          "score",
+          "status",
+          "age_days",
+          "orange",
+          "red",
+          "higher_is_worse",
+          "detail"
+        ],
+        "title": "VigieIndicator",
+        "type": "object"
+      },
+      "VigieMostStressedFamily": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "score": {
+            "title": "Score",
+            "type": "number"
+          }
+        },
+        "required": [
+          "code",
+          "label",
+          "score"
+        ],
+        "title": "VigieMostStressedFamily",
+        "type": "object"
+      },
+      "VigieRefuge": {
+        "properties": {
+          "as_of": {
+            "format": "date",
+            "title": "As Of",
+            "type": "string"
+          },
+          "legs": {
+            "items": {
+              "$ref": "#/components/schemas/VigieRefugeLeg"
+            },
+            "title": "Legs",
+            "type": "array"
+          },
+          "legs_met": {
+            "title": "Legs Met",
+            "type": "integer"
+          },
+          "legs_unknown": {
+            "title": "Legs Unknown",
+            "type": "integer"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "as_of",
+          "state",
+          "legs",
+          "legs_met",
+          "legs_unknown"
+        ],
+        "title": "VigieRefuge",
+        "type": "object"
+      },
+      "VigieRefugeLeg": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "met": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Met"
+          },
+          "sigma": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sigma"
+          },
+          "threshold": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Threshold"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "code",
+          "label",
+          "met",
+          "value",
+          "sigma",
+          "threshold",
+          "detail"
+        ],
+        "title": "VigieRefugeLeg",
+        "type": "object"
+      },
+      "VigieRegime": {
+        "properties": {
+          "as_of": {
+            "format": "date",
+            "title": "As Of",
+            "type": "string"
+          },
+          "baa10y": {
+            "$ref": "#/components/schemas/VigieRegimeIndicator"
+          },
+          "sahm": {
+            "$ref": "#/components/schemas/VigieRegimeIndicator"
+          },
+          "spy_tlt_corr_change": {
+            "$ref": "#/components/schemas/VigieRegimeIndicator"
+          },
+          "t10y3m": {
+            "$ref": "#/components/schemas/VigieRegimeIndicator"
+          }
+        },
+        "required": [
+          "as_of",
+          "sahm",
+          "t10y3m",
+          "spy_tlt_corr_change",
+          "baa10y"
+        ],
+        "title": "VigieRegime",
+        "type": "object"
+      },
+      "VigieRegimeIndicator": {
+        "properties": {
+          "age_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Age Days"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "flag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flag"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "code",
+          "label",
+          "unit",
+          "value",
+          "status",
+          "age_days",
+          "flag",
+          "detail"
+        ],
+        "title": "VigieRegimeIndicator",
+        "type": "object"
+      },
+      "VigieSparklinePoint": {
+        "properties": {
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "level": {
+            "title": "Level",
+            "type": "string"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score"
+          }
+        },
+        "required": [
+          "date",
+          "score",
+          "level"
+        ],
+        "title": "VigieSparklinePoint",
+        "type": "object"
+      },
       "ViolationResponse": {
         "description": "Response model for a risk violation record.\n\nMatches risk.violations columns: id, portfolio_id, violation_type,\nseverity, description, current_value, threshold_value, is_resolved,\nresolved_at, resolved_by, resolution_note, metadata, created_at.",
         "properties": {
@@ -7171,6 +7807,28 @@
         "tags": [
           "strategies",
           "strategies"
+        ]
+      }
+    },
+    "/v1/vigie": {
+      "get": {
+        "description": "Dernier snapshot (score, niveau confirmé, familles, indicateurs, régime, refuge,\ncouverture) et les 90 derniers scores. ``available = false`` avant le premier calcul.",
+        "operationId": "get_vigie_current_v1_vigie_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VigieCurrentResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Vigie Refuge : état courant (veille coïncidente, pas une prévision)",
+        "tags": [
+          "vigie"
         ]
       }
     }
