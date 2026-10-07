@@ -77,6 +77,12 @@ sealed class Screen(val route: String) {
     /** État du risque du portefeuille actif + kill switch (activation seule) — écran poussé depuis l'Accueil. */
     data object Risk : Screen("risk")
 
+    /**
+     * Vigie « Refuge » (veille coïncidente de la tension de marché) — écran poussé depuis la carte de
+     * l'Accueil (si `showVigie`) ou depuis le widget Vigie ; ne dépend pas du réglage de compte.
+     */
+    data object Vigie : Screen("vigie")
+
     /** Préférences push par catégorie (lecture/écriture de `ui.notifications`) — entrée des Réglages. */
     data object NotificationPrefs : Screen("settings/notifications")
 }

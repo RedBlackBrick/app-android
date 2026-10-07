@@ -31,6 +31,15 @@ object CacheTtl {
     /** `devices` — fraîcheur et cutoff de purge. */
     const val DEVICES_MS: Long = 60 * 1000L
 
+    /**
+     * `vigie_snapshot` — fraîcheur et cutoff de purge. La Vigie est une donnée QUOTIDIENNE
+     * (une ligne `analytics` par jour ouvré côté serveur) : 6 h évitent de re-télécharger à chaque
+     * ouverture sans jamais servir une valeur de la veille comme fraîche. Le badge « périmé » du
+     * widget garde le plancher [WIDGET_STALE_GRACE_MS] (`widgetStaleThreshold`) : ici il se déclenche
+     * donc au-delà de 6 h, pas de 20 min.
+     */
+    const val VIGIE_MS: Long = 6 * 60 * 60 * 1000L
+
     /** `alerts` — rétention 30 jours (et [ALERTS_MAX_ROWS] lignes max, cf. `AlertDao`). */
     const val ALERTS_RETENTION_MS: Long = 30L * 24 * 60 * 60 * 1000L
 

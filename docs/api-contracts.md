@@ -654,6 +654,40 @@ Response 200:
 
 ---
 
+## Vigie « Refuge » — GET /v1/vigie
+
+Contrat imposé : `trading-platform2/audit/vigie/API.md` (DTO `data/model/VigieDto.kt`, API
+`data/api/VigieApi.kt`, lecture seule, tout utilisateur authentifié, Retrofit normal). Un seul appel
+porte tout (l'app Android passe par le VPN et le cache Room) ; `/v1/vigie/history` n'est pas consommé.
+
+```
+GET /v1/vigie
+Response 200: { "available": true, "as_of": "2026-10-06", "computed_at": "…+00:00", "is_stale": false,
+  "methodology_version": "1", "score": 1.25, "level": "normal", "level_label": "Normal",
+  "level_raw": "normal", "coverage": 1.0, "live_indicators": 14, "expected_indicators": 14,
+  "live_families": 5, "expected_families": 5,
+  "most_stressed_family": {"code": "F1", "label": "…", "score": 1.25},
+  "cutoffs": {"vigilance": 2.4, "alerte": 3.75, "crise": 5.85},
+  "families": [{"code","label","score","live","expected","coverage"}, …],
+  "indicators": [{"code","family","label","unit","value","score","status","age_days","orange","red","higher_is_worse","detail"}, …],
+  "regime": {"as_of", "sahm":{…}, "t10y3m":{…}, "spy_tlt_corr_change":{…}, "baa10y":{…}},
+  "refuge": {"as_of", "state": "none|partial|full|unknown", "legs":[{"code","label","met","value","sigma","threshold","detail"}], "legs_met", "legs_unknown"},
+  "sparkline": [{"date","score","level"}, …] }
+```
+
+- `available = false` (table vide) : HTTP 200, tous les autres champs `null` / listes vides → « Données
+  insuffisantes », jamais « Normal » ; rien n'est persisté. `score` est `null` quand `level = unknown`.
+- Niveaux `normal|vigilance|alerte|crise|unknown`, refuge `none|partial|full|unknown`, statuts
+  `ok|stale|missing`, drapeaux `ok|orange|red` : toute valeur inconnue → `UNKNOWN` (jamais vert).
+- Dates `as_of` / `date` = `YYYY-MM-DD` ; `computed_at` = instant ISO (offset numérique, `parseInstantOrNull`).
+- Réglage de compte lu sur `GET /v1/auth/preferences` : `ui.appearance.showVigie` (booléen, absent ⇒ `false`),
+  lecture seule côté app (pilote la seule carte Accueil).
+- `DtoContractTest` : `VigieApi` est dans `BACKEND_API_INTERFACES` et `VigieDto` ↔ `VigieCurrentResponse` dans
+  `DTO_SCHEMA_TABLE` ; `openapi.json` doit être **regénéré** (`python3 scripts/extract_openapi_contracts.py`) une fois la
+  route présente dans l'export backend — sans quoi ces deux contrôles échouent (attendu).
+
+---
+
 ## Garde de drift de contrats
 
 Audit `PLAN.md` Phase 0 §3 / PR 5c — conception détaillée : `audit/plan-ui-tests-ci.md` PART 2

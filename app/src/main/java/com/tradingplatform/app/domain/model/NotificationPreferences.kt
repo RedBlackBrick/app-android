@@ -31,7 +31,8 @@ data class RiskAlertThresholds(
 )
 
 /**
- * Préférences de notification du compte (`GET /v1/auth/preferences`, clé `ui.notifications`).
+ * Préférences du compte lues sur `GET /v1/auth/preferences` : notifications (`ui.notifications`) et
+ * le seul réglage d'apparence que le mobile consomme ([showVigie]).
  *
  * [categories] contient toujours les 3 [NotifCategory] (défaut « tout activé » quand le compte n'a
  * jamais enregistré de préférences). Le JSON brut n'est PAS porté par ce modèle : c'est le
@@ -42,6 +43,12 @@ data class NotificationPreferences(
     val categories: Map<NotifCategory, ChannelPreferences>,
     val quietHours: QuietHours = QuietHours(),
     val riskAlertThresholds: RiskAlertThresholds = RiskAlertThresholds(),
+    /**
+     * Réglage de compte `ui.appearance.showVigie` : afficher la carte Vigie sur l'Accueil. Absent ou
+     * non booléen → `false`. LECTURE SEULE sur mobile (le compte fait foi, la bascule se fait sur
+     * le web) ; le widget et l'écran détail ne dépendent pas de ce réglage.
+     */
+    val showVigie: Boolean = false,
 ) {
     fun channelsFor(category: NotifCategory): ChannelPreferences =
         categories[category] ?: ChannelPreferences()

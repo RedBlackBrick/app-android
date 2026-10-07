@@ -255,4 +255,40 @@ class NotificationPreferencesRepositoryImplTest {
         assertFalse(prefs.quietHours.enabled)
         assertEquals(RiskAlertThresholds(), prefs.riskAlertThresholds)
     }
+
+    // ── showVigie (ui.appearance.showVigie, lecture seule) ─────────────────
+
+    @Test
+    fun `get reads ui appearance showVigie true`() = runTest {
+        enqueueGet("""{"ui":{"appearance":{"timezone":"UTC","showVigie":true}},"trading":{}}""")
+
+        assertTrue(repository.get().getOrThrow().showVigie)
+    }
+
+    @Test
+    fun `get defaults showVigie to false when absent, null or not a boolean`() = runTest {
+        enqueueGet(fullPreferencesJson) // appearance sans showVigie
+        assertFalse(repository.get().getOrThrow().showVigie)
+
+        enqueueGet("""{"ui":{},"trading":{}}""")
+        assertFalse(repository.get().getOrThrow().showVigie)
+
+        enqueueGet("""{"ui":{"appearance":{"showVigie":"true"}},"trading":{}}""")
+        assertFalse(repository.get().getOrThrow().showVigie)
+
+        enqueueGet("""{"ui":{"appearance":{"showVigie":null}},"trading":{}}""")
+        assertFalse(repository.get().getOrThrow().showVigie)
+    }
+
+    @Test
+    fun `a push write keeps ui appearance showVigie untouched (the mobile never writes it)`() = runTest {
+        enqueueGet("""{"ui":{"appearance":{"timezone":"UTC","showVigie":true},"notifications":{"notifTypes":[]}},"trading":{}}""")
+        enqueuePatch()
+
+        repository.setPushEnabled(NotifCategory.SYSTEM, false).getOrThrow()
+
+        server.takeRequest() // GET
+        val body = server.takeRequest().body.readUtf8()
+        assertTrue(body, body.contains(""""appearance":{"timezone":"UTC","showVigie":true}"""))
+    }
 }

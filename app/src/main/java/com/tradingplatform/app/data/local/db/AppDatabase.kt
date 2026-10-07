@@ -2,17 +2,21 @@ package com.tradingplatform.app.data.local.db
 
 import androidx.room.Database
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.tradingplatform.app.data.local.db.dao.AlertDao
 import com.tradingplatform.app.data.local.db.dao.DeviceDao
 import com.tradingplatform.app.data.local.db.dao.PnlDao
 import com.tradingplatform.app.data.local.db.dao.PositionDao
 import com.tradingplatform.app.data.local.db.dao.QuoteDao
+import com.tradingplatform.app.data.local.db.dao.VigieDao
 import com.tradingplatform.app.data.local.db.dao.WatchlistDao
 import com.tradingplatform.app.data.local.db.entity.AlertEntity
 import com.tradingplatform.app.data.local.db.entity.DeviceEntity
 import com.tradingplatform.app.data.local.db.entity.PnlSnapshotEntity
 import com.tradingplatform.app.data.local.db.entity.PositionEntity
 import com.tradingplatform.app.data.local.db.entity.QuoteEntity
+import com.tradingplatform.app.data.local.db.entity.VigieSnapshotEntity
 import com.tradingplatform.app.data.local.db.entity.WatchlistEntity
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -48,7 +52,46 @@ import com.tradingplatform.app.data.local.db.entity.WatchlistEntity
 // 5. Écrire une étape de test Room dans MigrationTest (androidTest) qui exerce le
 //    chemin 7→8, et mettre à jour SchemaBaselineTest si nécessaire
 //
+// v8 = ajout de la table `vigie_snapshot` (Vigie « Refuge », ligne unique) — PREMIÈRE migration
+// explicite (MIGRATION_7_8 ci-dessous, enregistrée dans DatabaseModule.kt). Les builds release
+// n'ont PAS de fallbackToDestructiveMigration : un oubli de migration = crash explicite au boot.
+//
 // ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * v7 → v8 : crée `vigie_snapshot` (cache de la Vigie, une ligne `id = 1`) et son index
+ * `synced_at`. Purement additive — aucune table existante n'est touchée, donc aucune donnée
+ * (alertes locales notamment) n'est perdue. Le SQL doit rester IDENTIQUE à ce que Room attend de
+ * [VigieSnapshotEntity] (validé par `MigrationTest.migrate_7_to_8` contre `8.json`).
+ */
+val MIGRATION_7_8: Migration = object : Migration(7, 8) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `vigie_snapshot` (" +
+                "`id` INTEGER NOT NULL, " +
+                "`as_of` TEXT NOT NULL, " +
+                "`computed_at` INTEGER, " +
+                "`score` REAL, " +
+                "`level` TEXT NOT NULL, " +
+                "`level_raw` TEXT NOT NULL, " +
+                "`refuge_state` TEXT NOT NULL, " +
+                "`coverage` REAL, " +
+                "`live_indicators` INTEGER NOT NULL, " +
+                "`expected_indicators` INTEGER NOT NULL, " +
+                "`most_stressed_family_code` TEXT, " +
+                "`most_stressed_family_label` TEXT, " +
+                "`most_stressed_family_score` REAL, " +
+                "`is_stale` INTEGER NOT NULL, " +
+                "`payload_json` TEXT NOT NULL, " +
+                "`synced_at` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`id`))",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_vigie_snapshot_synced_at` " +
+                "ON `vigie_snapshot` (`synced_at`)",
+        )
+    }
+}
 
 @Database(
     entities = [
@@ -58,9 +101,10 @@ import com.tradingplatform.app.data.local.db.entity.WatchlistEntity
         DeviceEntity::class,
         QuoteEntity::class,
         WatchlistEntity::class,
+        VigieSnapshotEntity::class,
     ],
-    // PnlSnapshotEntity reshaped on /pnl (period = PK) is part of the v7 baseline — no bump (audit PR 2.2).
-    version = 7,
+    // v7 = baseline (PnlSnapshotEntity reshaped on /pnl y est incluse — audit PR 2.2) ; v8 = vigie_snapshot.
+    version = 8,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -70,4 +114,5 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun deviceDao(): DeviceDao
     abstract fun quoteDao(): QuoteDao
     abstract fun watchlistDao(): WatchlistDao
+    abstract fun vigieDao(): VigieDao
 }

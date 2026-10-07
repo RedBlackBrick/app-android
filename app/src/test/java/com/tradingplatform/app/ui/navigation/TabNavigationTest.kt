@@ -55,6 +55,14 @@ class TabNavigationTest {
     }
 
     @Test
+    fun `the Vigie screen is a pushed screen, without the bottom bar, and its route doubles as the widget deep link`() {
+        assertEquals("vigie", Screen.Vigie.route)
+        assertFalse(showsBottomBar(Screen.Vigie.route))
+        assertFalse(Screen.Vigie.route in BOTTOM_BAR_ROUTES)
+        assertFalse(isBottomTabSelected(Screen.Dashboard, Screen.Vigie.route))
+    }
+
+    @Test
     fun `portfolio tab is selected on positions orders history and position detail`() {
         listOf("positions", "orders", "transactions", "position/{positionId}").forEach { route ->
             assertTrue("Portefeuille sélectionné sur $route", isBottomTabSelected(Screen.Positions, route))

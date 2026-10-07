@@ -46,6 +46,7 @@ import com.tradingplatform.app.ui.screens.dashboard.components.DashboardPortfoli
 import com.tradingplatform.app.ui.screens.dashboard.components.DashboardRiskBanner
 import com.tradingplatform.app.ui.screens.dashboard.components.DashboardSkeleton
 import com.tradingplatform.app.ui.screens.dashboard.components.DashboardStrategiesRow
+import com.tradingplatform.app.ui.screens.dashboard.components.DashboardVigieCard
 import com.tradingplatform.app.ui.theme.Spacing
 
 /** Nombre maximal de lignes de squelette de la carte « Mes portefeuilles » pendant son chargement. */
@@ -63,6 +64,8 @@ private const val OVERVIEW_PLACEHOLDER_MAX_ROWS = 3
  * @param onOpenSettings ouvre les réglages (action de la barre supérieure).
  * @param onOpenRisk ouvre l'écran Risque (bandeau de risque).
  * @param onOpenStrategies ouvre l'écran Stratégies (ligne « Stratégies — N actives »).
+ * @param onOpenVigie ouvre l'écran détail Vigie (carte Vigie, présente seulement si le réglage de
+ *   compte `showVigie` est vrai).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -72,6 +75,7 @@ fun DashboardScreen(
     onOpenSettings: () -> Unit = {},
     onOpenRisk: () -> Unit = {},
     onOpenStrategies: () -> Unit = {},
+    onOpenVigie: () -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: DashboardViewModel = hiltViewModel(),
 ) {
@@ -210,6 +214,12 @@ fun DashboardScreen(
                         brokerPill = brokerPill,
                         currencySymbol = currencySymbol,
                     )
+
+                    // ── Vigie : veille de la tension de marché, seulement si le réglage de compte
+                    //    `showVigie` est vrai. Section indépendante (état / erreur propres). ──
+                    if (uiState.showVigie) {
+                        DashboardVigieCard(state = uiState.vigie, onClick = onOpenVigie)
+                    }
 
                     // ── Détails repliables : KPI, portefeuilles, stratégies. Replié par défaut : l'Accueil
                     //    reste un coup d'œil (NAV, P&L, risque, activité) ; le reste est à un tap. ──

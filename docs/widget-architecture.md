@@ -8,7 +8,7 @@ local. Aucun widget ne fait d'appel reseau directement.
 
 ## Inventaire des widgets
 
-L'application declare cinq widgets, chacun associe a un `GlanceAppWidgetReceiver` et un fichier
+L'application declare six widgets, chacun associe a un `GlanceAppWidgetReceiver` et un fichier
 XML `appwidget-provider` dans `res/xml/`.
 
 ### PnlWidget
@@ -92,6 +92,29 @@ la purge des alertes expirees (30 jours ou 500 entrees max).
 Chaque instance de QuoteWidget peut afficher un symbole different. Le symbole est stocke dans
 `SharedPreferences` (fichier `quote_widget_prefs`) sous la cle `ticker_$appWidgetId`.
 
+### VigieWidget
+
+- **Classe** : `VigieWidget` / `VigieWidgetReceiver` (`res/xml/vigie_widget_info.xml`)
+- **Taille minimale** : 2x1 cellules (110x40 dp), redimensionnable
+- **Configurable** : non. **Donnee publique** : pas de garde admin, independant du reglage de
+  compte `ui.appearance.showVigie` (qui ne pilote que la carte de l'Accueil)
+- **Donnees affichees** (veille coincidente, jamais une prevision) :
+  - score (1 decimale) + niveau en toutes lettres, colore par `WidgetColors` (normal = `Positive`,
+    vigilance = `Warning`, alerte = `Negative`, crise = `Crisis`, inconnu = `Neutral`)
+  - famille la plus tendue abregee (« Tendue : F1 »), en gras quand elle est plus grave que le
+    niveau global (un global Normal ne masque pas une famille tres tendue)
+  - refuge (« Refuge : aucun / partiel / complet / inconnu »)
+  - `formatWidgetSyncTime(syncedAt, widgetStaleThreshold(CacheTtl.VIGIE_MS))` avec le badge
+    « perime · » ; le badge apparait aussi si le serveur dit `is_stale` (calcul trop ancien)
+  - aucune ligne Room : « Pas encore de donnee » neutre — jamais un niveau, jamais du vert ;
+    niveau `unknown` : « Donnees insuffisantes » neutre, sans score
+- **Source Room** : table `vigie_snapshot` (ligne unique, `id = 1`) via `WidgetEntryPoint.vigieDao().get()`
+  (colonnes scalaires, aucun JSON parse) ; contenu derive par `vigieWidgetModel()` (pur, teste)
+- **Action tap** : ouvre `MainActivity` avec l'extra `navigate_to = "vigie"` -> `SessionManager`
+  deep link -> `Screen.Vigie` pousse au-dessus de l'Accueil (meme chemin que le deep link FCM `alerts`)
+- **Synchro** : `WidgetUpdateWorker` (4e section IO, voir ci-dessous) — uniquement si au moins une
+  instance est posee (`VigieWidget.isPlaced`)
+
 ---
 
 ## Framework Glance
@@ -166,6 +189,7 @@ interface WidgetEntryPoint {
     fun getAlertsUseCase(): GetAlertsUseCase
     fun getDevicesUseCase(): GetDevicesUseCase
     fun getQuoteUseCase(): GetQuoteUseCase
+    fun getVigieUseCase(): GetVigieUseCase
 
     // DAOs (lecture cache Room)
     fun positionDao(): PositionDao
@@ -173,6 +197,7 @@ interface WidgetEntryPoint {
     fun alertDao(): AlertDao
     fun deviceDao(): DeviceDao
     fun quoteDao(): QuoteDao
+    fun vigieDao(): VigieDao
 
     // DataStore
     fun encryptedDataStore(): EncryptedDataStore
@@ -210,6 +235,7 @@ class WidgetUpdateWorker @AssistedInject constructor(
     private val getQuoteUseCase: GetQuoteUseCase,
     private val alertDao: AlertDao,
     private val quoteDao: QuoteDao,
+    private val getVigieUseCase: GetVigieUseCase,
 ) : CoroutineWorker(context, workerParams) { ... }
 ```
 
@@ -268,10 +294,16 @@ Chaque section est dans son propre `try/catch`. Un echec d'un bloc ne bloque pas
 3. **Sync quotes** -- union des tickers configures par un `QuoteWidget`, de la watchlist et des
    symboles deja en cache (`quoteDao.getAllSymbols()`). Si l'union est vide, rien n'est synchronise :
    aucun symbole n'est impose par defaut. Chaque symbole est synchronise independamment.
-4. **Purge alertes** -- suppression des alertes de plus de 30 jours et au-dela des 500
+4. **Sync Vigie** (4e section IO) -- `getVigieUseCase(forceRefresh = false)`, UNIQUEMENT si un
+   `VigieWidget` est pose (`VigieWidget.isPlaced`, lu une fois par cycle : le cache `vigie_snapshot` ne
+   sert qu'au widget, la carte Accueil et l'ecran detail passent par le repository). `forceRefresh =
+   false` : le repository ne sort sur le reseau que si la ligne a plus de `CacheTtl.VIGIE_MS` (6 h,
+   donnee quotidienne) — au plus un appel `v1/vigie` toutes les 6 h. Upsert + purge atomiques dans le
+   repository, apres une reponse reussie seulement ; sans reseau, la ligne perimee est conservee.
+5. **Purge alertes** -- suppression des alertes de plus de 30 jours et au-dela des 500
    dernieres (`alertDao.purgeExpired(cutoff)`). Les alertes ne sont pas synchronisees depuis le
    reseau -- elles proviennent de FCM uniquement.
-5. **Rafraichissement widgets** -- appel `updateAll()` sur les cinq widgets Glance pour qu'ils
+6. **Rafraichissement widgets** -- appel `updateAll()` sur les six widgets Glance pour qu'ils
    relisent Room dans leur `provideGlance()`.
 
 ### Strategie de retry
@@ -283,8 +315,11 @@ Chaque section est dans son propre `try/catch`. Un echec d'un bloc ne bloque pas
 | `SQLException`             | Logge l'erreur -- pas de retry (erreur Room locale)    |
 | Autres exceptions          | Loggees -- pas de retry                                |
 
-`Result.retry()` est retourne si au moins un bloc a echoue avec une `IOException`.
-WorkManager applique un `BackoffPolicy.EXPONENTIAL` par defaut.
+`Result.retry()` n'est retourne que si TOUTES les sections IO **tentees** ont echoue sur une
+`IOException` : `ioSectionsTotal` vaut 3 (positions, PnL, quotes) et 4 des qu'un `VigieWidget` est
+pose (la Vigie est alors la 4e section : 4/4 pour retenter). Une section non tentee ne compte pas :
+sans widget Vigie, la regle reste 3/3. Un echec isole ne declenche aucun retry (le cycle de 15 min
+re-tentera). WorkManager applique un `BackoffPolicy.EXPONENTIAL` par defaut.
 
 ### Timestamp de derniere tentative
 
@@ -307,13 +342,14 @@ a jour de ces tables (sauf `alerts` qui vient de FCM).
 | AlertsWidget       | `alerts`          | `title`, `read`, `receivedAt`                                | 30j/500 |
 | SystemStatusWidget | `devices`         | `status`, `name`, `id`, `lastHeartbeat`, `syncedAt`          | 1 min   |
 | QuoteWidget        | `quotes`          | `symbol`, `price`, `changePercent`, `syncedAt`               | 10 min  |
+| VigieWidget        | `vigie_snapshot`  | `level`, `score`, `mostStressedFamily*`, `refugeState`, `isStale`, `syncedAt` | 6 h |
 
 Toutes les entites Room portent un champ `syncedAt: Long` (epoch millis). Les widgets affichent
 ce timestamp systematiquement -- c'est une contrainte pour une application de trading ou un
 cours sans indication d'age serait trompeur.
 
 **Source unique des TTL : `data/local/db/CacheTtl.kt`** (`POSITIONS_MS`, `PNL_MS`, `QUOTES_MS`,
-`DEVICES_MS`, `ALERTS_RETENTION_MS` -- la colonne TTL ci-dessus reflete ces constantes, jamais
+`DEVICES_MS`, `VIGIE_MS`, `ALERTS_RETENTION_MS` -- la colonne TTL ci-dessus reflete ces constantes, jamais
 une valeur redeclaree localement). Le badge « perime » d'un widget n'utilise pas directement le
 TTL de la table : le seuil affiche est `maxOf(TTL entite, CacheTtl.WIDGET_STALE_GRACE_MS)`, soit
 **20 min** (periode Worker 15 min + 5 min de grace) -- sans ce plancher, un TTL de 5-10 min
@@ -445,6 +481,9 @@ widget/
   QuoteWidget.kt                        GlanceAppWidget cours
   QuoteWidgetReceiver.kt                GlanceAppWidgetReceiver
   QuoteWidgetConfigureActivity.kt       Configuration symbole boursier
+  VigieWidget.kt                        GlanceAppWidget Vigie « Refuge » (+ isPlaced)
+  VigieWidgetReceiver.kt                GlanceAppWidgetReceiver
+  VigieWidgetModel.kt                   Contenu pur du widget Vigie (teste) + ton -> WidgetColors
   WidgetUpdateWorker.kt                 Worker periodique (sync Room + refresh widgets)
   AdminWidgetVisibilityManagerImpl.kt   Masquage PackageManager des widgets admin
   WidgetTheme.kt                        Couleurs et formatage timestamp partages
@@ -458,4 +497,5 @@ res/xml/
   alerts_widget_info.xml                appwidget-provider (2x1)
   system_status_widget_info.xml         appwidget-provider (2x1)
   quote_widget_info.xml                 appwidget-provider (1x1, avec configure)
+  vigie_widget_info.xml                 appwidget-provider (2x1)
 ```

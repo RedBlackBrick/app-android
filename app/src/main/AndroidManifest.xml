@@ -155,6 +155,19 @@
                 android:resource="@xml/quote_widget_info" />
         </receiver>
 
+        <!-- Vigie « Refuge » : donnée publique (pas de garde admin), lue dans Room (vigie_snapshot) -->
+        <receiver
+            android:name=".widget.VigieWidgetReceiver"
+            android:exported="false"
+            android:label="@string/vigie_widget_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/vigie_widget_info" />
+        </receiver>
+
         <!-- QuoteWidget configuration activity -->
         <activity
             android:name=".widget.QuoteWidgetConfigureActivity"

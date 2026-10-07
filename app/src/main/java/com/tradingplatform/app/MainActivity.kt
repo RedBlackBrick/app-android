@@ -14,6 +14,7 @@ import com.tradingplatform.app.security.BiometricLockManager
 import com.tradingplatform.app.vpn.SystemVpnMonitor
 import com.tradingplatform.app.security.RootDetector
 import com.tradingplatform.app.ui.navigation.AppNavGraph
+import com.tradingplatform.app.ui.navigation.Screen
 import com.tradingplatform.app.ui.theme.TradingPlatformTheme
 import dagger.hilt.android.AndroidEntryPoint
 import timber.log.Timber
@@ -99,7 +100,7 @@ class MainActivity : FragmentActivity() {
     }
 
     /**
-     * Gère les deep links FCM : intent extra "navigate_to" = "alerts".
+     * Gère les deep links : intent extra "navigate_to" = "alerts" (FCM) ou [Screen.Vigie] (widget Vigie).
      * Notifie [SessionManager] qui réémet l'événement vers [AppNavViewModel].
      * Fonctionne pour onCreate (lancement depuis notification) ET onNewIntent
      * (app déjà en foreground au moment de la notification).
@@ -109,6 +110,9 @@ class MainActivity : FragmentActivity() {
         if (navigateTo == "alerts") {
             Timber.d("MainActivity: FCM deep link → alerts")
             sessionManager.notifyDeepLink("alerts")
+        } else if (navigateTo == Screen.Vigie.route) {
+            Timber.d("MainActivity: widget deep link → vigie")
+            sessionManager.notifyDeepLink(Screen.Vigie.route)
         }
     }
 }

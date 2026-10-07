@@ -168,6 +168,8 @@ class WidgetUpdateWorkerRoomTest {
                     alertDao = alertDao,
                     quoteDao = quoteDao,
                     watchlistDao = watchlistDao,
+                    // Aucun VigieWidget posé dans ce test : la Vigie n'est pas synchronisée.
+                    getVigieUseCase = mockk(),
                 )
             }
         ).build()

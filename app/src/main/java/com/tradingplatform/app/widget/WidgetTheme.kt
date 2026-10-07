@@ -33,6 +33,11 @@ internal object WidgetColors {
     val Negative = Tone(day = Color(0xFFBE123C), night = Color(0xFFFB7185)) // rose-700 / -400    — perte / offline
     val Neutral  = Tone(day = Color(0xFF64748B), night = Color(0xFF94A3B8)) // slate-500 / -400   — neutre
 
+    // Vigie « Refuge » : niveaux normal = Positive, alerte = Negative (rose-700 / -400) ; vigilance et
+    // crise ont leur propre ton. Le NIVEAU est toujours écrit en toutes lettres (pas la couleur seule).
+    val Warning = Tone(day = Color(0xFFB45309), night = Color(0xFFFBBF24)) // amber-700 / -400 — vigilance
+    val Crisis  = Tone(day = Color(0xFF881337), night = Color(0xFFFDA4AF)) // rose-900 / -300   — crise
+
     val StaleDay    = Color(0xFFD97706)  // amber-600   — donnée périmée (thème clair, = warning light)
     val StaleNight  = Color(0xFFFBBF24)  // amber-400   — donnée périmée (thème sombre, = warning dark)
 }

@@ -59,6 +59,7 @@ import com.tradingplatform.app.vpn.WireGuardManager
 import com.tradingplatform.app.ui.screens.strategies.StrategiesScreen
 import com.tradingplatform.app.ui.screens.settings.NotificationPrefsScreen
 import com.tradingplatform.app.ui.screens.risk.RiskScreen
+import com.tradingplatform.app.ui.screens.vigie.VigieScreen
 import com.tradingplatform.app.ui.screens.alerts.AlertListScreen
 import com.tradingplatform.app.ui.screens.auth.LoginScreen
 import com.tradingplatform.app.ui.screens.dashboard.DashboardScreen
@@ -789,7 +790,16 @@ fun AppNavGraph(
     LaunchedEffect(loggedIn) {
         if (!loggedIn) return@LaunchedEffect
         appNavViewModel.deepLinkEvents.collect { destination ->
-            if (destination == "alerts") {
+            if (destination == Screen.Vigie.route) {
+                // Widget Vigie : écran détail poussé AU-DESSUS de l'Accueil (retour → Accueil),
+                // mêmes garde et attente que « alerts ».
+                navController.currentBackStackEntryFlow
+                    .first { it.destination.route !in NO_SESSION_ROUTES }
+                navController.navigate(Screen.Vigie.route) {
+                    launchSingleTop = true
+                }
+                appNavViewModel.clearDeepLink()
+            } else if (destination == "alerts") {
                 // Back stack initialisée (cold start depuis notification) ET hors écrans
                 // non authentifiés (Login / Totp / Setup).
                 navController.currentBackStackEntryFlow
@@ -937,6 +947,7 @@ fun AppNavGraph(
                     },
                     onOpenRisk = { navController.navigate(Screen.Risk.route) },
                     onOpenStrategies = { navController.navigate(Screen.Strategies.route) },
+                    onOpenVigie = { navController.navigate(Screen.Vigie.route) },
                     // Même navigation que l'onglet Alertes de la barre (popUpTo Accueil,
                     // saveState/restoreState, launchSingleTop).
                     onNavigateToAlerts = {
@@ -1217,6 +1228,12 @@ fun AppNavGraph(
 
             composable(Screen.Risk.route) {
                 RiskScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                )
+            }
+
+            composable(Screen.Vigie.route) {
+                VigieScreen(
                     onNavigateBack = { navController.popBackStack() },
                 )
             }

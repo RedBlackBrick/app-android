@@ -16,6 +16,7 @@ import com.tradingplatform.app.domain.model.PnlPeriod
 import com.tradingplatform.app.domain.usecase.market.GetQuoteUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPnlUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPositionsUseCase
+import com.tradingplatform.app.domain.usecase.vigie.GetVigieUseCase
 import com.tradingplatform.app.vpn.VpnNotConnectedException
 import com.tradingplatform.app.vpn.SystemVpnMonitor
 import com.tradingplatform.app.vpn.VpnState
@@ -40,9 +41,10 @@ import java.util.concurrent.atomic.AtomicBoolean
  * Règles impératives (CLAUDE.md §2 WorkManager) :
  * - VPN absent → Result.success() sans rien faire (garder le cache daté affiché)
  * - Purge APRÈS sync réussie — jamais avant
- * - IOException → Result.retry() uniquement si TOUTES les sections IO (positions, PnL, quotes)
- *   ont échoué (BackoffPolicy.EXPONENTIAL) — un échec isolé n'entraîne pas de retry global, le
- *   cycle périodique 15 min re-tentera de toute façon
+ * - IOException → Result.retry() uniquement si TOUTES les sections IO tentées (positions, PnL,
+ *   quotes — et la Vigie, 4e section, quand un [VigieWidget] est posé : 4/4) ont échoué
+ *   (BackoffPolicy.EXPONENTIAL) — un échec isolé n'entraîne pas de retry global, le cycle
+ *   périodique 15 min re-tentera de toute façon
  * - VpnNotConnectedException → Result.success() (pas de retry — cas prévisible)
  * - Alertes NON synchronisées ici — elles viennent de FCM uniquement
  * - Chaque bloc est indépendant — un échec portfolio ne bloque pas les quotes
@@ -52,6 +54,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  * - positions : supprimer synced_at < now - CacheTtl.POSITIONS_MS (5 min)
  * - pnl_snapshots : supprimer synced_at < now - CacheTtl.PNL_RETENTION_MS (24 h — une ligne par période)
  * - quotes : supprimer synced_at < now - CacheTtl.QUOTES_MS (10 min)
+ * - vigie_snapshot : ligne unique, upsert + purge (synced_at < now - CacheTtl.VIGIE_MS) atomiques
+ *   dans le repository, après une réponse réussie seulement
  * - alerts : purge CacheTtl.ALERTS_RETENTION_MS (30 jours) / 500 max (ici — locale, données FCM)
  */
 @HiltWorker
@@ -67,7 +71,15 @@ class WidgetUpdateWorker @AssistedInject constructor(
     private val alertDao: AlertDao,
     private val quoteDao: QuoteDao,
     private val watchlistDao: WatchlistDao,
+    private val getVigieUseCase: GetVigieUseCase,
 ) : CoroutineWorker(context, workerParams) {
+
+    /**
+     * Un [VigieWidget] est-il posé ? Lu UNE fois par cycle : la Vigie n'est synchronisée que si oui
+     * (le cache Room `vigie_snapshot` ne sert qu'au widget — la carte Accueil et l'écran détail
+     * passent par le repository, TTL [CacheTtl.VIGIE_MS]). Seam de test (`internal var`).
+     */
+    internal var isVigieWidgetPlaced: () -> Boolean = { VigieWidget.isPlaced(applicationContext) }
 
     companion object {
         private const val TAG = "WidgetUpdateWorker"
@@ -135,12 +147,16 @@ class WidgetUpdateWorker @AssistedInject constructor(
         // Result.retry() est retourné uniquement si TOUTES les sections IO ont échoué —
         // évite de re-sync positions+PnL si seules les quotes ont eu un hiccup (WorkManager
         // re-run complet sinon). Le cycle périodique 15min re-tentera de toute façon.
-        val ioSectionsTotal = 3
+        // 3 sections IO (positions, PnL, quotes) + la Vigie (4e) seulement quand un VigieWidget est
+        // posé : une section NON tentée ne compte pas — sans widget, 3/3 échecs = retry (comme avant) ;
+        // avec widget, il faut 4/4.
+        val syncVigie = isVigieWidgetPlaced()
+        val ioSectionsTotal = if (syncVigie) 4 else 3
         val ioFailures = AtomicBoolean(false)
         val ioFailCount = java.util.concurrent.atomic.AtomicInteger(0)
 
         supervisorScope {
-            // 2, 2b, 3. Sync positions, PnL, and quotes in parallel
+            // 2, 2b, 3, 3b. Sync positions, PnL, quotes (et Vigie si un widget est posé) en parallèle
             val jobs = listOf(
                 async {
                     try {
@@ -180,6 +196,19 @@ class WidgetUpdateWorker @AssistedInject constructor(
                         ioFailCount.incrementAndGet()
                     } catch (e: android.database.SQLException) {
                         Timber.tag(TAG).e(e, "WidgetUpdateWorker — quotes sync Room error (non-retryable)")
+                    }
+                },
+                async {
+                    if (!syncVigie) return@async
+                    try {
+                        syncVigieSnapshot()
+                    } catch (e: VpnNotConnectedException) {
+                        Timber.tag(TAG).d("WidgetUpdateWorker — VPN disconnected during Vigie sync")
+                    } catch (e: IOException) {
+                        Timber.tag(TAG).w(e, "WidgetUpdateWorker — Vigie sync failed (IOException)")
+                        ioFailCount.incrementAndGet()
+                    } catch (e: android.database.SQLException) {
+                        Timber.tag(TAG).e(e, "WidgetUpdateWorker — Vigie sync Room error (non-retryable)")
                     }
                 }
             )
@@ -347,6 +376,32 @@ class WidgetUpdateWorker @AssistedInject constructor(
         return anySymbolFailed.get()
     }
 
+    // ── Sync Vigie ──────────────────────────────────────────────────────────────
+
+    /**
+     * Rafraîchit le cache `vigie_snapshot` lu par [VigieWidget]. `forceRefresh = false` : le
+     * repository ne sort sur le réseau que si la ligne a plus de [CacheTtl.VIGIE_MS] (donnée
+     * quotidienne — au plus un appel `v1/vigie` toutes les 6 h, pas toutes les 15 min). Upsert +
+     * purge atomiques dans le repository, après une réponse réussie seulement. Sans réseau, une
+     * ligne périmée est conservée (le widget affiche son vrai horodatage + « périmé · »).
+     *
+     * @throws IOException en cas d'erreur réseau transitoire SANS aucune ligne en cache
+     * @throws VpnNotConnectedException si le VPN est coupé pendant la sync
+     */
+    private suspend fun syncVigieSnapshot() {
+        getVigieUseCase(forceRefresh = false)
+            .onSuccess { cached ->
+                Timber.tag(TAG).d("WidgetUpdateWorker — Vigie synced (available=${cached.value.available})")
+            }
+            .onFailure { e ->
+                when (e) {
+                    is VpnNotConnectedException -> throw e
+                    is IOException -> throw e
+                    else -> Timber.tag(TAG).w(e, "WidgetUpdateWorker — Vigie sync error (non-retryable): ${e.message}")
+                }
+            }
+    }
+
     // ── Purge alertes ──────────────────────────────────────────────────────────
 
     /**
@@ -373,6 +428,7 @@ class WidgetUpdateWorker @AssistedInject constructor(
         AlertsWidget().updateAll(applicationContext)
         SystemStatusWidget().updateAll(applicationContext)
         QuoteWidget().updateAll(applicationContext)
+        VigieWidget().updateAll(applicationContext)
         Timber.tag(TAG).d("WidgetUpdateWorker — all widgets refreshed")
     }
 }

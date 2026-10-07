@@ -30,6 +30,7 @@ internal object NotificationPreferencesJson {
     private const val KEY_QUIET_HOURS = "quietHours"
     private const val KEY_THRESHOLDS = "riskAlertThresholds"
     private const val KEY_CATEGORY = "key"
+    private const val KEY_SHOW_VIGIE = "showVigie"
 
     /** Plus grand entier exactement représentable en `Double` (2^53). */
     private const val MAX_EXACT_DOUBLE_INTEGER = 9_007_199_254_740_992.0
@@ -72,7 +73,10 @@ internal object NotificationPreferencesJson {
                 (thresholds?.get("positionConcentrationPct") as? Number)?.toDouble()?.div(PERCENT),
         )
 
-        return NotificationPreferences(categories, quietHours, riskAlertThresholds)
+        // `ui.appearance.showVigie` : seul un booléen explicite `true` active la carte (défaut false).
+        val showVigie = asObject(ui?.get(KEY_APPEARANCE))?.get(KEY_SHOW_VIGIE) as? Boolean ?: false
+
+        return NotificationPreferences(categories, quietHours, riskAlertThresholds, showVigie)
     }
 
     /**

@@ -17,6 +17,7 @@ import com.tradingplatform.app.domain.model.Quote
 import com.tradingplatform.app.domain.usecase.market.GetQuoteUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPnlUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPositionsUseCase
+import com.tradingplatform.app.domain.usecase.vigie.GetVigieUseCase
 import com.tradingplatform.app.vpn.VpnState
 import com.tradingplatform.app.vpn.WireGuardManager
 import io.mockk.coEvery
@@ -56,6 +57,7 @@ class WidgetUpdateWorkerTest {
     private val alertDao = mockk<AlertDao>(relaxed = true)
     private val quoteDao = mockk<QuoteDao>(relaxed = true)
     private val watchlistDao = mockk<WatchlistDao>(relaxed = true)
+    private val getVigieUseCase = mockk<GetVigieUseCase>()
 
     // ── Fake data ──────────────────────────────────────────────────────────────
 
@@ -115,7 +117,7 @@ class WidgetUpdateWorkerTest {
      * [TestListenableWorkerBuilder] ne supporte pas l'injection Hilt directement.
      * On utilise une [androidx.work.WorkerFactory] pour injecter les mocks.
      */
-    private fun buildWorker(): WidgetUpdateWorker {
+    private fun buildWorker(vigieWidgetPlaced: Boolean = false): WidgetUpdateWorker {
         return TestListenableWorkerBuilder<WidgetUpdateWorker>(
             ApplicationProvider.getApplicationContext()
         ).setWorkerFactory(
@@ -137,10 +139,14 @@ class WidgetUpdateWorkerTest {
                         alertDao = alertDao,
                         quoteDao = quoteDao,
                         watchlistDao = watchlistDao,
+                        getVigieUseCase = getVigieUseCase,
                     )
                 }
             }
-        ).build()
+        ).build().also { worker ->
+            // Présence d'un VigieWidget : seam du worker (AppWidgetManager n'est pas l'objet de ces tests).
+            worker.isVigieWidgetPlaced = { vigieWidgetPlaced }
+        }
     }
 
     // ── Tests VPN ──────────────────────────────────────────────────────────────
@@ -448,5 +454,99 @@ class WidgetUpdateWorkerTest {
         val result = buildWorker().doWork()
 
         assertEquals(ListenableWorker.Result.retry(), result)
+    }
+
+    // ── 4e section : Vigie (seulement si un VigieWidget est posé) ──────────────
+
+    private val vigieCached = com.tradingplatform.app.domain.model.Cached(
+        com.tradingplatform.app.domain.model.Vigie.UNAVAILABLE,
+        syncedAt = 1_000L,
+    )
+
+    @Test
+    fun `doWork syncs the Vigie (forceRefresh false) when a VigieWidget is placed`() = runTest {
+        every { vpnManager.state } returns MutableStateFlow(VpnState.Connected())
+        coEvery { getVigieUseCase(any()) } returns Result.success(vigieCached)
+
+        val result = buildWorker(vigieWidgetPlaced = true).doWork()
+
+        assertEquals(ListenableWorker.Result.success(), result)
+        coVerify(exactly = 1) { getVigieUseCase(false) }
+    }
+
+    @Test
+    fun `doWork never calls the Vigie when no VigieWidget is placed`() = runTest {
+        every { vpnManager.state } returns MutableStateFlow(VpnState.Connected())
+
+        buildWorker(vigieWidgetPlaced = false).doWork()
+
+        coVerify(exactly = 0) { getVigieUseCase(any()) }
+    }
+
+    @Test
+    fun `doWork returns success when only the Vigie sync fails (isolated failure does not retry)`() = runTest {
+        every { vpnManager.state } returns MutableStateFlow(VpnState.Connected())
+        coEvery { getVigieUseCase(any()) } returns Result.failure(java.io.IOException("Timeout"))
+
+        val result = buildWorker(vigieWidgetPlaced = true).doWork()
+
+        assertEquals(ListenableWorker.Result.success(), result)
+        // Les trois autres sections ont quand même tourné.
+        coVerify(exactly = 1) { getPositionsUseCase("1") }
+        coVerify(exactly = 1) { getQuoteUseCase("AAPL") }
+    }
+
+    @Test
+    fun `doWork returns success when positions, PnL and quotes fail but the Vigie succeeds (3 of 4 is not enough)`() = runTest {
+        every { vpnManager.state } returns MutableStateFlow(VpnState.Connected())
+        coEvery { getPositionsUseCase(any()) } returns Result.failure(java.io.IOException("Timeout"))
+        coEvery { getPnlUseCase(any(), any()) } returns Result.failure(java.io.IOException("Timeout"))
+        coEvery { getQuoteUseCase(any()) } returns Result.failure(java.io.IOException("Timeout"))
+        coEvery { getVigieUseCase(any()) } returns Result.success(vigieCached)
+
+        val result = buildWorker(vigieWidgetPlaced = true).doWork()
+
+        assertEquals(ListenableWorker.Result.success(), result)
+    }
+
+    @Test
+    fun `doWork returns retry only when ALL FOUR IO sections fail with a VigieWidget placed`() = runTest {
+        every { vpnManager.state } returns MutableStateFlow(VpnState.Connected())
+        coEvery { getPositionsUseCase(any()) } returns Result.failure(java.io.IOException("Timeout"))
+        coEvery { getPnlUseCase(any(), any()) } returns Result.failure(java.io.IOException("Timeout"))
+        coEvery { getQuoteUseCase(any()) } returns Result.failure(java.io.IOException("Timeout"))
+        coEvery { getVigieUseCase(any()) } returns Result.failure(java.io.IOException("Timeout"))
+
+        val result = buildWorker(vigieWidgetPlaced = true).doWork()
+
+        assertEquals(ListenableWorker.Result.retry(), result)
+    }
+
+    @Test
+    fun `without a VigieWidget three failing IO sections still retry (the Vigie is not counted)`() = runTest {
+        every { vpnManager.state } returns MutableStateFlow(VpnState.Connected())
+        coEvery { getPositionsUseCase(any()) } returns Result.failure(java.io.IOException("Timeout"))
+        coEvery { getPnlUseCase(any(), any()) } returns Result.failure(java.io.IOException("Timeout"))
+        coEvery { getQuoteUseCase(any()) } returns Result.failure(java.io.IOException("Timeout"))
+
+        val result = buildWorker(vigieWidgetPlaced = false).doWork()
+
+        assertEquals(ListenableWorker.Result.retry(), result)
+    }
+
+    @Test
+    fun `a Vigie sync cut by VpnNotConnectedException neither retries nor counts as an IO failure`() = runTest {
+        every { vpnManager.state } returns MutableStateFlow(VpnState.Connected())
+        coEvery { getPositionsUseCase(any()) } returns Result.failure(java.io.IOException("Timeout"))
+        coEvery { getPnlUseCase(any(), any()) } returns Result.failure(java.io.IOException("Timeout"))
+        coEvery { getQuoteUseCase(any()) } returns Result.failure(java.io.IOException("Timeout"))
+        coEvery { getVigieUseCase(any()) } returns Result.failure(
+            com.tradingplatform.app.vpn.VpnNotConnectedException(),
+        )
+
+        val result = buildWorker(vigieWidgetPlaced = true).doWork()
+
+        // 3 échecs IO sur 4 sections tentées : pas de retry.
+        assertEquals(ListenableWorker.Result.success(), result)
     }
 }

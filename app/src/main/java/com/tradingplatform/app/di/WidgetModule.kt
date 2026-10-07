@@ -6,12 +6,14 @@ import com.tradingplatform.app.data.local.db.dao.DeviceDao
 import com.tradingplatform.app.data.local.db.dao.PnlDao
 import com.tradingplatform.app.data.local.db.dao.PositionDao
 import com.tradingplatform.app.data.local.db.dao.QuoteDao
+import com.tradingplatform.app.data.local.db.dao.VigieDao
 import com.tradingplatform.app.domain.usecase.alerts.GetAlertsUseCase
 import com.tradingplatform.app.domain.usecase.device.GetDevicesUseCase
 import com.tradingplatform.app.domain.usecase.market.GetQuoteUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPortfolioNavUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPositionsUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.GetPnlUseCase
+import com.tradingplatform.app.domain.usecase.vigie.GetVigieUseCase
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
@@ -52,6 +54,7 @@ interface WidgetEntryPoint {
     fun getAlertsUseCase(): GetAlertsUseCase
     fun getDevicesUseCase(): GetDevicesUseCase  // vérifier is_admin avant d'appeler
     fun getQuoteUseCase(): GetQuoteUseCase
+    fun getVigieUseCase(): GetVigieUseCase
 
     // DAOs — pour les GlanceAppWidgets (lecture cache Room uniquement, pas d'appel réseau)
     fun positionDao(): PositionDao
@@ -59,6 +62,7 @@ interface WidgetEntryPoint {
     fun alertDao(): AlertDao
     fun deviceDao(): DeviceDao
     fun quoteDao(): QuoteDao
+    fun vigieDao(): VigieDao
 
     // DataStore — pour lire portfolioId, is_admin depuis les widgets
     fun encryptedDataStore(): EncryptedDataStore

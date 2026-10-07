@@ -59,7 +59,7 @@ com.tradingplatform.app/
 │                          # DispatcherModule fournit @IoDispatcher — pour un appel OkHttp brut hors Retrofit
 │                          # (ex. MobileProvisioningRepositoryImpl), jamais pour des fonctions suspend Retrofit
 ├── data/
-│   ├── api/               # Interfaces Retrofit (AuthApi, PortfolioApi, MarketDataApi, DeviceApi, BrokerConnectionApi, PairingApi, NotificationApi, MobileProvisioningApi)
+│   ├── api/               # Interfaces Retrofit (AuthApi, PortfolioApi, MarketDataApi, DeviceApi, BrokerConnectionApi, PairingApi, NotificationApi, MobileProvisioningApi, VigieApi)
 │   │                      # AuthPaths.kt — source unique des chemins PUBLIC / CSRF_EXEMPT / VPN_EXCLUDED / COOKIE_SAVE
 │   ├── repository/        # Implémentations des Repository interfaces du domaine
 │   ├── local/
@@ -72,7 +72,8 @@ com.tradingplatform.app/
 │   │                      # Inclut : PerformanceMetrics, ActivityItem, WsUpdate (OrderUpdate, StrategySignal, CatalystEvent),
 │   │                      # BrokerConnection, Cached<T> (valeur + syncedAt), Page<T>, SymbolInfo/SymbolPage
 │   ├── repository/        # Interfaces Repository (définies dans domain, implémentées dans data)
-│   │                      # Inclut : WatchlistRepository, BrokerConnectionRepository (lecture seule), MobileProvisioningRepository, SetupRepository
+│   │                      # Inclut : WatchlistRepository, BrokerConnectionRepository (lecture seule), MobileProvisioningRepository, SetupRepository,
+│   │                      #   VigieRepository (Vigie « Refuge » : réseau → Room ligne unique, CacheTtl.VIGIE_MS)
 │   ├── exception/         # HttpStatusException (isRetryable — pilote les retries FCM/worker), UnrecognizedQrException, etc.
 │   ├── util/              # RunCatchingCancellable (relance CancellationException), InstantParsing (parseInstantLenient/parseInstantOrNull)
 │   └── usecase/
@@ -90,6 +91,8 @@ com.tradingplatform.app/
 │       ├── write/         # EvaluateWriteGateUseCase (VPN + session + donnée fraîche avant toute écriture) — docs/write-actions.md
 │       ├── vpn/           # ObserveVpnStateUseCase, ReconnectVpnUseCase, HasVpnConfigUseCase, GetVpnConsentIntentUseCase, RetryVpnAfterConsentUseCase (écran de connexion)
 │       ├── notification/  # RegisterFcmTokenUseCase, GetNotificationPreferencesUseCase, SetPushCategoryUseCase (écriture, read-modify-write)
+│       ├── vigie/         # GetVigieUseCase (forceRefresh, cache daté), GetShowVigieUseCase (réglage `ui.appearance.showVigie`, lu via le repository de préférences existant),
+│       │                  # GetHomeVigieUseCase (carte Accueil : AUCUN appel `v1/vigie` si le réglage est faux)
 │       ├── setup/         # MarkSetupCompletedUseCase (SetupViewModel ne touche plus le DataStore directement)
 │       └── pairing/       # ParseVpsQrUseCase, ScanDeviceQrUseCase, SendPinToDeviceUseCase, ConfirmPairingUseCase, ParseSetupQrUseCase, ProvisionMobileVpnUseCase
 ├── ui/
@@ -102,13 +105,16 @@ com.tradingplatform.app/
 │   └── screens/
 │       ├── auth/          # LoginScreen + LoginViewModel
 │       ├── dashboard/     # DashboardScreen (héros NAV + P&L de la période Jour/Sem./Mois/Tout + courbe de NAV, KPI (Liquidités, Latent, Win rate/Drawdown via GetPerformanceUseCase), bandeau de risque unique
-│       │                  #   (kill switch / circuit-breaker / violations / perte ≥ 80 %), « Mes portefeuilles » si ≥ 2, pastille broker, entrée Stratégies, flux 3 lignes)
+│       │                  #   (kill switch / circuit-breaker / violations / perte ≥ 80 %), « Mes portefeuilles » si ≥ 2, pastille broker, entrée Stratégies, flux 3 lignes,
+│       │                  #   carte Vigie `DashboardVigieCard` SEULEMENT si le réglage de compte `ui.appearance.showVigie` est vrai — section propre, `DataState` et erreur à elle)
 │       │                  #   + DashboardViewModel (suit le portefeuille actif) + DashboardPresentation (logique pure testée) + components/
 │       ├── market/        # MarketDataScreen + MarketDataViewModel + SymbolPickerSheet
 │       ├── portfolio/     # PositionsScreen, PositionDetailScreen, TransactionHistoryScreen + ViewModels (sélecteur de portefeuille dans la barre haute)
 │       ├── orders/        # OrdersScreen + OrdersViewModel : ordres actifs (avec « Annuler » : garde d'écriture → confirmation biométrique → « annulation demandée » → relecture) et terminés
 │       ├── strategies/    # StrategiesScreen + StrategiesViewModel : liens portefeuille-stratégie, pause / réactivation (écriture sûre) — écran poussé depuis l'Accueil
 │       ├── risk/          # RiskScreen + RiskViewModel : état du risque + kill switch portefeuille (ACTIVATION seule, motif obligatoire, levée sur le web) — écran poussé depuis l'Accueil
+│       ├── vigie/         # VigieScreen + VigieViewModel (`UiState` Loading/Success/Error, valeur périmée conservée) + VigiePresentation (logique pure testée : niveaux, tons, « le global Normal ne masque pas F1 rouge »)
+│       │                  #   + VigieComponents (pastille, mini-barres des 5 familles, courbe 90 j) — écran poussé depuis la carte Accueil ou le widget (`Screen.Vigie`), sans barre du bas
 │       ├── performance/   # PerformanceScreen + PerformanceViewModel
 │       ├── devices/       # DeviceListScreen, EdgeDeviceDashboardScreen (LECTURE SEULE : état, santé, broker gateway, scraping ; firmware/désappairage/reboot → web) + ViewModels
 │       ├── pairing/       # ScanVpsQrScreen, ScanDeviceQrScreen, PairingProgressScreen, PairingDoneScreen + PairingViewModel
@@ -137,6 +143,7 @@ com.tradingplatform.app/
     ├── AlertsWidget.kt          # Glance widget alertes
     ├── SystemStatusWidget.kt    # Glance widget état VPS/devices (admin)
     ├── QuoteWidget.kt / QuoteWidgetConfigureActivity.kt # Glance widget cours rapide 1x1 (ticker configurable)
+    ├── VigieWidget.kt / VigieWidgetReceiver.kt / VigieWidgetModel.kt # Glance widget Vigie « Refuge » 2x1 (donnée publique, lit `vigie_snapshot`, tap → écran Vigie)
     └── WidgetUpdateWorker.kt    # WorkManager periodic task (15 min, plancher OS — toutes sources)
 ```
 
@@ -190,7 +197,7 @@ d'entrée partagent le même graphe de navigation `PairingViewModel`/4 écrans ;
 retour (`pairingReturnRoute`) diffère selon la source.
 
 - La flotte d'appareils (`Screen.Devices`) est une entrée des **Réglages**, affichée **uniquement si `user.is_admin == true`** ; plus d'onglet dédié dans la barre
-- **Navigation (barre du bas à 4 onglets)** : Accueil (Dashboard), Portefeuille (Positions + segments Ordres / Historique via `PortfolioSegmentedTabs`, sélectionné aussi pour `orders`, `transactions`, `position/{id}`), Marchés, Alertes (badge non-lus). Les Réglages s'ouvrent par l'icône de la barre haute des écrans racines ; Performance s'ouvre depuis les tuiles KPI du Dashboard. Helpers : `ui/navigation/TabNavigation.kt`. La barre du bas n'apparaît que sur les 6 routes racines. Écrans poussés depuis l'Accueil : Performance, Stratégies (`Screen.Strategies`), Risque (`Screen.Risk`) ; depuis les Réglages : Notifications (`Screen.NotificationPrefs`).
+- **Navigation (barre du bas à 4 onglets)** : Accueil (Dashboard), Portefeuille (Positions + segments Ordres / Historique via `PortfolioSegmentedTabs`, sélectionné aussi pour `orders`, `transactions`, `position/{id}`), Marchés, Alertes (badge non-lus). Les Réglages s'ouvrent par l'icône de la barre haute des écrans racines ; Performance s'ouvre depuis les tuiles KPI du Dashboard. Helpers : `ui/navigation/TabNavigation.kt`. La barre du bas n'apparaît que sur les 6 routes racines. Écrans poussés depuis l'Accueil : Performance, Stratégies (`Screen.Strategies`), Risque (`Screen.Risk`), Vigie (`Screen.Vigie`, aussi ouvert par le widget Vigie via le deep link `navigate_to = "vigie"`) ; depuis les Réglages : Notifications (`Screen.NotificationPrefs`).
   Badge de l'onglet Alertes = `max(alertes locales non lues, notifications serveur non lues)` (un même événement peut exister des deux côtés : jamais la somme).
 - Les widgets admin (`SystemStatusWidget`) sont **désactivés** dans le launcher si `is_admin == false` — ils n'apparaissent pas dans le picker de widgets
 - Stocker `is_admin` dans `EncryptedDataStore` après login — relire à chaque démarrage
@@ -235,6 +242,7 @@ class WidgetUpdateWorker @AssistedInject constructor(
     private val alertDao: AlertDao,
     private val quoteDao: QuoteDao,
     private val watchlistDao: WatchlistDao,
+    private val getVigieUseCase: GetVigieUseCase,   // 4e section IO — seulement si un VigieWidget est posé
 ) : CoroutineWorker(context, workerParams) { ... }
 ```
 
@@ -254,6 +262,7 @@ interface WidgetEntryPoint {
     fun getAlertsUseCase(): GetAlertsUseCase
     fun getDevicesUseCase(): GetDevicesUseCase  // vérifier is_admin avant d'appeler
     fun getQuoteUseCase(): GetQuoteUseCase
+    fun getVigieUseCase(): GetVigieUseCase
 
     // DAOs — pour les GlanceAppWidgets (lecture cache Room uniquement, pas d'appel réseau)
     fun positionDao(): PositionDao
@@ -261,6 +270,7 @@ interface WidgetEntryPoint {
     fun alertDao(): AlertDao
     fun deviceDao(): DeviceDao
     fun quoteDao(): QuoteDao
+    fun vigieDao(): VigieDao   // VigieWidget : lecture de `vigie_snapshot` (ligne unique)
 
     // DataStore — pour lire portfolioId, is_admin depuis les widgets
     fun encryptedDataStore(): EncryptedDataStore
@@ -295,6 +305,7 @@ de TTL privée dans un repository, un widget ou un composant UI.
 | `devices` | `CacheTtl.DEVICES_MS` (1 min) | DeviceListScreen offline, détail device (`getDeviceStatus`), SystemStatusWidget |
 | `quotes` | `CacheTtl.QUOTES_MS` (10 min) | QuoteWidget, MarketDataScreen (offline-first cohérent) |
 | `watchlist` | permanent | MarketDataScreen, `WidgetUpdateWorker.syncQuotes` |
+| `vigie_snapshot` | `CacheTtl.VIGIE_MS` (6 h — donnée quotidienne) | VigieWidget (colonnes scalaires), écran Vigie hors ligne (`payload_json` complet), carte Accueil — **ligne unique** (`id = 1`) écrite par `VigieRepositoryImpl` ; une réponse `available = false` n'est JAMAIS persistée (la ligne est supprimée) |
 
 Le timestamp de dernière sync est stocké avec chaque entité (`synced_at: Long`).
 
@@ -328,6 +339,7 @@ Worker ; l'UI in-app (`CacheTimestamp`) garde les TTL d'entité.
 | `positions` | Supprimer les entrées dont `synced_at < now - CacheTtl.POSITIONS_MS` (remplacées à chaque sync) |
 | `pnl_snapshots` | Supprimer les entrées dont `synced_at < now - CacheTtl.PNL_RETENTION_MS` (**24 h**, pas 5 min : une ligne par période — une purge à 5 min après la sync d'une période supprimerait les lignes des autres périodes configurées par d'autres widgets) |
 | `devices` | Supprimer les entrées dont `synced_at < now - CacheTtl.DEVICES_MS` |
+| `vigie_snapshot` | Ligne unique remplacée à chaque sync ; purge `synced_at < now - CacheTtl.VIGIE_MS` dans la même transaction que l'upsert (`VigieDao.upsertAndPurge`), après une réponse réussie seulement — jamais avant, jamais sur échec réseau (la ligne périmée reste affichée datée) |
 | `watchlist` | Pas de purge — persistance permanente (symboles gérés par l'utilisateur) |
 
 **`WidgetUpdateWorker.syncQuotes`** rafraîchit tickers `QuoteWidget` configurés ∪ watchlist ∪
@@ -343,6 +355,10 @@ des upserts (`OnConflictStrategy.REPLACE`) plutôt que DELETE + INSERT séquenti
 ### Migration Room
 
 Activer `schemaDirectory` (déjà configuré) et appliquer la stratégie suivante :
+- **v8 (Vigie « Refuge »)** : ajout de la table `vigie_snapshot` — **première migration explicite**
+  (`MIGRATION_7_8` dans `AppDatabase.kt`, enregistrée par `.addMigrations(MIGRATION_7_8)` dans
+  `DatabaseModule.kt` pour TOUS les builds, `8.json` exporté par le build Room et commité,
+  `MigrationTest.migrate_7_to_8`). Purement additive : aucune donnée existante n'est touchée.
 - **Baseline v7** : l'app n'a jamais été livrée avant la version de schéma 7 (versionCode 1,
   aucun utilisateur en v1-6) — décision D2 du plan de remédiation (finding #5). Les anciens
   schémas `1.json`…`6.json` et les `MIGRATION_*` correspondants ont été supprimés ; `7.json`
@@ -357,8 +373,8 @@ Activer `schemaDirectory` (déjà configuré) et appliquer la stratégie suivant
   partir de là (perte de données `alerts`, pas de backup serveur). Voir la checklist « AJOUTER
   UNE MIGRATION » dans `AppDatabase.kt`.
 - **Tests** : `MigrationTest` (androidTest, `MigrationTestHelper`) valide que le schéma exporté
-  `7.json` correspond aux entités déclarées dans `AppDatabase` — c'est le seul test de migration
-  tant qu'il n'y a pas de v8 (exécuté par le job CI instrumenté). Une variante JVM/Robolectric a
+  `7.json` correspond aux entités déclarées (baseline) et que `MIGRATION_7_8` produit exactement
+  `8.json` en conservant les lignes existantes (exécuté par le job CI instrumenté). Une variante JVM/Robolectric a
   été tentée puis retirée : `MigrationTestHelper` ne voit pas les assets de schéma sous Robolectric.
 
 ### WorkManager — contraintes et comportement VPN
@@ -376,7 +392,7 @@ Si le VPN est inactif au moment du Worker (VpnRequiredInterceptor bloque) : reto
 `Result.success()` **sans mettre à jour Room** — le cache daté reste affiché.
 Ne jamais retourner `Result.failure()` pour absence de VPN (déclencherait les retries WorkManager
 en boucle). `Result.retry()` (`BackoffPolicy.EXPONENTIAL`) n'est renvoyé que si **toutes** les
-sections IO (positions, PnL, quotes) ont échoué sur une `IOException` — règle délibérée : si au
+sections IO tentées (positions, PnL, quotes — et la Vigie, 4e, quand un `VigieWidget` est posé : `ioSectionsTotal` = 4, sinon 3) ont échoué sur une `IOException` — règle délibérée : si au
 moins une section a réussi, un échec isolé et transitoire des autres ne vaut pas la peine de
 retenter tout le Worker avant le prochain cycle périodique (15 min).
 
@@ -389,7 +405,8 @@ override suspend fun doWork(): Result {
     }
 
     var ioFailCount = 0
-    val ioSectionsTotal = 3
+    val syncVigie = isVigieWidgetPlaced()           // la Vigie n'est synchronisée que si un widget est posé
+    val ioSectionsTotal = if (syncVigie) 4 else 3   // section non tentée = non comptée
 
     // Sync indépendante par section — try/catch par bloc ; SQLException = non-retryable (log only)
     try {
@@ -402,6 +419,10 @@ override suspend fun doWork(): Result {
 
     try {
         syncQuotes()
+    } catch (e: IOException) { ioFailCount++ } catch (e: SQLException) { /* log, non-retryable */ }
+
+    if (syncVigie) try {
+        syncVigieSnapshot()   // getVigieUseCase(forceRefresh = false) : réseau seulement si la ligne a > 6 h
     } catch (e: IOException) { ioFailCount++ } catch (e: SQLException) { /* log, non-retryable */ }
 
     purgeExpired()  // alertes + entités périmées, après les tentatives de sync
@@ -485,6 +506,16 @@ domain/usecase/alerts/
 ├── GetFilteredAlertsUseCase  — Flow<List<Alert>> filtré par Set<AlertType> (query Room)
 └── MarkAlertReadUseCase      — marque une alerte comme lue (Room update)
 ```
+
+### Vigie « Refuge » — veille de la tension de marché (`GET v1/vigie`)
+
+Veille **coïncidente**, jamais une prévision : tout libellé dit « veille » / « tension ». Contrat : `trading-platform2/audit/vigie/API.md` (un seul appel porte score, familles, indicateurs, régime, refuge, courbe 90 j).
+- **Réglage de compte** `ui.appearance.showVigie` (booléen, absent ⇒ `false`) : lu via `GET v1/auth/preferences` par le repository de préférences EXISTANT (`NotificationPreferences.showVigie`, `GetShowVigieUseCase`) — **lecture seule** : l'app ne l'écrit jamais (le compte fait foi, bascule sur le web ; `PreferencesWriteApi` le conserve tel quel). Il ne pilote que la **carte Accueil** (`GetHomeVigieUseCase` : réglage faux ⇒ aucun appel `v1/vigie` ; réglage illisible ⇒ rien de nouveau n'apparaît). L'écran détail et le widget n'en dépendent pas.
+- **Cache** : `vigie_snapshot` (ligne unique), `CacheTtl.VIGIE_MS` (6 h), `Cached<Vigie>` avec le vrai `syncedAt` ; hors ligne / VPN coupé = dernière ligne datée, pas d'erreur bloquante ; `available = false` jamais persisté.
+- **Jamais de vert par défaut** : `available = false`, niveau `unknown` ou valeur inconnue ⇒ neutre « Données insuffisantes » (couleur neutre, pas de score) ; un indicateur non prouvé frais est « inconnu », pas 0.
+- **Le score global est une moyenne des 5 familles** : un global Normal peut cacher une famille très tendue → la famille la plus tendue et les 5 familles sont TOUJOURS affichées à côté du score (`VigiePresentation.masksFamilyStress`, testé).
+- Couleurs : jetons du thème (`VigieTone` → `successContainer` / `warningContainer` / `errorContainer` / `error`), widget via `WidgetColors` ; jamais de couleur en dur.
+- **Teinte d'une famille = 3 bandes, identiques au web (`scoreBand`)** : score 0..2 `< 0,5` vert · `0,5 ≤ s < 1,5` orange · `≥ 1,5` rouge (`familyTone`, même échelle que `indicatorTone`) ; « Crise » n'existe que pour le NIVEAU GLOBAL.
 
 ### Pattern Result<T> — Repository et UseCase (obligatoire)
 

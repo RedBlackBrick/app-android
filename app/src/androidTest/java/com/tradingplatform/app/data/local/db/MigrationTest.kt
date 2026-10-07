@@ -4,26 +4,27 @@ import androidx.room.testing.MigrationTestHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.IOException
 
 /**
- * Test de baseline Room pour [AppDatabase].
+ * Tests de schéma Room pour [AppDatabase].
  *
  * v7 est la baseline du premier release (CLAUDE.md §2) : l'app n'a jamais été livrée
  * avant cette version, donc il n'existe (et n'a besoin d'exister) aucun chemin de
  * migration antérieur. Les anciens schémas 1.json…6.json et les tests par étape ont
  * été supprimés (PR 1.6, finding #5, décision D2).
  *
- * Ce test se contente de vérifier que le schéma exporté (`app/schemas/.../7.json`)
- * correspond bien aux entités déclarées dans [AppDatabase] — une divergence ici
- * indique un schéma JSON non régénéré/non commité après un changement d'entité.
- *
- * Premier changement de schéma post-release (v8+) : voir la checklist dans
- * AppDatabase.kt — ajouter MIGRATION_7_8, 8.json, et une étape de migration dans
- * ce fichier qui exerce explicitement le chemin 7→8.
+ * - [baseline_v7_exportedSchemaMatchesEntities] : le schéma exporté `7.json` se crée et se
+ *   valide tel quel (baseline figée).
+ * - [migrate_7_to_8] : [MIGRATION_7_8] (table `vigie_snapshot`, Vigie « Refuge ») produit
+ *   exactement le schéma exporté `8.json` ET conserve les lignes des tables existantes
+ *   (une ligne `alerts` écrite en v7 survit). `8.json` est généré par le build Room (KSP)
+ *   — une divergence ici indique un `8.json` non régénéré/non commité, ou un SQL de
+ *   migration qui s'écarte de [com.tradingplatform.app.data.local.db.entity.VigieSnapshotEntity].
  *
  * Exécution :
  * ```
@@ -54,6 +55,33 @@ class MigrationTest {
         // avec une liste vide valide que le schéma créé par Room à partir des
         // entités correspond au JSON exporté (7.json).
         val db = helper.runMigrationsAndValidate(TEST_DB, 7, true)
+        db.close()
+    }
+
+    @Test
+    @Throws(IOException::class)
+    fun migrate_7_to_8() {
+        helper.createDatabase(TEST_DB, 7).apply {
+            // Une alerte locale (pas de backup serveur) doit survivre à la migration.
+            execSQL(
+                "INSERT INTO alerts (title, body, type, received_at, `read`, synced_at) " +
+                    "VALUES ('titre', 'corps', 'info', 1000, 0, 1000)",
+            )
+            close()
+        }
+
+        // validateDroppedTables = true : le schéma obtenu doit égaler 8.json (table + index).
+        val db = helper.runMigrationsAndValidate(TEST_DB, 8, true, MIGRATION_7_8)
+
+        db.query("SELECT COUNT(*) FROM alerts").use {
+            it.moveToFirst()
+            assertEquals(1, it.getInt(0))
+        }
+        // La nouvelle table existe, vide, et accepte une ligne conforme à l'entité.
+        db.query("SELECT COUNT(*) FROM vigie_snapshot").use {
+            it.moveToFirst()
+            assertEquals(0, it.getInt(0))
+        }
         db.close()
     }
 

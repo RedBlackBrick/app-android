@@ -109,4 +109,19 @@ class NotificationPreferencesJsonTest {
 
         assertEquals(true, entry["push"])
     }
+
+    @Test
+    fun `parse reads appearance showVigie only when it is an explicit boolean true`() {
+        fun showVigie(value: Any?) = NotificationPreferencesJson.parse(
+            mapOf<String, Any?>("appearance" to mapOf<String, Any?>("showVigie" to value)),
+        ).showVigie
+
+        assertTrue(showVigie(true))
+        assertFalse(showVigie(false))
+        assertFalse(showVigie(null))
+        assertFalse(showVigie("true"))
+        assertFalse(showVigie(1.0))
+        assertFalse(NotificationPreferencesJson.parse(null).showVigie)
+        assertFalse(NotificationPreferencesJson.parse(mapOf("appearance" to "oops")).showVigie)
+    }
 }

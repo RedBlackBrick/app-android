@@ -3,6 +3,7 @@ package com.tradingplatform.app.ui.screens.dashboard
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tradingplatform.app.domain.model.ActivityItem
+import com.tradingplatform.app.domain.model.HomeVigie
 import com.tradingplatform.app.domain.model.NavCurve
 import com.tradingplatform.app.domain.model.NavSummary
 import com.tradingplatform.app.domain.model.PerformanceMetrics
@@ -13,6 +14,7 @@ import com.tradingplatform.app.domain.model.PortfolioBrokerStatus
 import com.tradingplatform.app.domain.model.PortfolioCircuitBreakerStatus
 import com.tradingplatform.app.domain.model.PortfolioOverviewItem
 import com.tradingplatform.app.domain.model.RiskStatus
+import com.tradingplatform.app.domain.model.Vigie
 import com.tradingplatform.app.domain.model.WsConnectionState
 import com.tradingplatform.app.domain.model.WsUpdate
 import com.tradingplatform.app.domain.usecase.activity.GetActivityFeedUseCase
@@ -31,6 +33,7 @@ import com.tradingplatform.app.domain.usecase.portfolio.RefreshPortfoliosUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.SelectPortfolioUseCase
 import com.tradingplatform.app.domain.usecase.risk.GetPortfolioCircuitBreakerStatusUseCase
 import com.tradingplatform.app.domain.usecase.risk.GetRiskStatusUseCase
+import com.tradingplatform.app.domain.usecase.vigie.GetHomeVigieUseCase
 import com.tradingplatform.app.ui.common.DataState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -125,6 +128,20 @@ data class DashboardUiState(
      * changement de période, pour ne jamais montrer un P&L sous le mauvais libellé de période.
      */
     val portfolioOverview: DataState<List<PortfolioOverviewItem>> = DataState(),
+
+    /**
+     * Réglage de compte `ui.appearance.showVigie` : la carte Vigie n'existe que s'il est vrai.
+     * `false` tant qu'il n'a pas été LU avec succès (un réglage illisible ne fait jamais apparaître
+     * la carte). Niveau compte comme [portfolioOverview] : survit au changement de portefeuille.
+     */
+    val showVigie: Boolean = false,
+
+    /**
+     * Vigie « Refuge » de la carte Accueil — section PROPRE (état et erreur à elle, jamais dans les
+     * skeletons NAV/PnL). Niveau compte : survit au changement de portefeuille. Valeur périmée
+     * conservée en cas d'échec ([DataState]).
+     */
+    val vigie: DataState<Vigie> = DataState(),
 )
 
 /**
@@ -167,6 +184,7 @@ class DashboardViewModel @Inject constructor(
     private val getPortfoliosOverviewUseCase: GetPortfoliosOverviewUseCase,
     private val getRiskStatusUseCase: GetRiskStatusUseCase,
     private val getPortfolioBrokerStatusUseCase: GetPortfolioBrokerStatusUseCase,
+    private val getHomeVigieUseCase: GetHomeVigieUseCase,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(DashboardUiState())
@@ -245,6 +263,9 @@ class DashboardViewModel @Inject constructor(
     /** Lecture de « Mes portefeuilles » en cours — remplacée à chaque nouveau déclencheur. */
     private var overviewJob: Job? = null
 
+    /** Lecture de la Vigie (carte Accueil) en cours — garde : un appel pendant un autre est ignoré. */
+    private var vigieJob: Job? = null
+
     /**
      * Signal « un portfolio_update WS est arrivé » → refetch REST NAV + PnL debouncé de
      * [WS_REFETCH_DEBOUNCE_MS]. Buffer 1 / DROP_OLDEST : `tryEmit` ne suspend jamais et une
@@ -268,6 +289,9 @@ class DashboardViewModel @Inject constructor(
 
         // Carte « Mes portefeuilles » : chargée dès que le compte en a ≥ 2.
         startPortfolioListCollection()
+
+        // Carte Vigie : réglage de compte d'abord, aucun appel `v1/vigie` s'il est faux.
+        fetchVigie(forceRefresh = false)
 
         // Collect real-time portfolio updates from the private WebSocket.
         // Chaque portfolio_update patche la NAV immédiatement puis déclenche un refetch
@@ -304,6 +328,9 @@ class DashboardViewModel @Inject constructor(
                 selectedPeriod = previous.selectedPeriod,
                 wsPrivateDegraded = previous.wsPrivateDegraded,
                 portfolioOverview = previous.portfolioOverview,
+                // Niveau compte, pas portefeuille : la Vigie et son réglage survivent au changement.
+                showVigie = previous.showVigie,
+                vigie = previous.vigie,
             )
         }
         loadPortfolioData(portfolioId, _uiState.value.selectedPeriod)
@@ -541,6 +568,8 @@ class DashboardViewModel @Inject constructor(
     }
 
     fun refresh() {
+        // Vigie : niveau compte, indépendante du portefeuille actif (et de sa garde ci-dessous).
+        fetchVigie(forceRefresh = true)
         val state = _uiState.value
         val portfolioId = state.portfolioId
         if (portfolioId.isEmpty()) {
@@ -712,6 +741,42 @@ class DashboardViewModel @Inject constructor(
             .onFailure { e ->
                 Timber.tag(TAG).w(e, "DashboardViewModel: broker status fetch failed")
             }
+    }
+
+    /**
+     * Carte Vigie : lit le réglage `showVigie` puis, SEULEMENT s'il est vrai, `v1/vigie` (cache Room,
+     * [forceRefresh] au pull-to-refresh). Section indépendante : un échec n'affecte aucune autre.
+     *
+     * - réglage faux → carte absente, état remis à zéro ;
+     * - réglage illisible ou Vigie en échec → la carte DÉJÀ affichée garde sa valeur périmée + erreur
+     *   discrète ; sinon rien n'apparaît (on ne devine pas le réglage).
+     */
+    private fun fetchVigie(forceRefresh: Boolean) {
+        if (vigieJob?.isActive == true) return
+        vigieJob = viewModelScope.launch {
+            _uiState.update { if (it.showVigie) it.copy(vigie = it.vigie.loading()) else it }
+            getHomeVigieUseCase(forceRefresh)
+                .onSuccess { home ->
+                    when (home) {
+                        HomeVigie.Hidden ->
+                            _uiState.update { it.copy(showVigie = false, vigie = DataState()) }
+                        is HomeVigie.Shown ->
+                            _uiState.update {
+                                // syncedAt = instant RÉEL de la sync (cache ou réseau), jamais « maintenant ».
+                                it.copy(
+                                    showVigie = true,
+                                    vigie = it.vigie.success(home.vigie.value, home.vigie.syncedAt),
+                                )
+                            }
+                    }
+                }
+                .onFailure { e ->
+                    Timber.tag(TAG).w(e, "DashboardViewModel: vigie fetch failed")
+                    _uiState.update {
+                        if (it.showVigie) it.copy(vigie = it.vigie.failure(e.toUserMessage("Vigie indisponible"))) else it
+                    }
+                }
+        }
     }
 
     /**

@@ -3,7 +3,9 @@ package com.tradingplatform.app.ui.screens.dashboard
 import androidx.lifecycle.viewModelScope
 import app.cash.turbine.test
 import com.tradingplatform.app.domain.model.ActivityItem
+import com.tradingplatform.app.domain.model.Cached
 import com.tradingplatform.app.domain.model.CircuitBreakerState
+import com.tradingplatform.app.domain.model.HomeVigie
 import com.tradingplatform.app.domain.model.NavCurve
 import com.tradingplatform.app.domain.model.NavPoint
 import com.tradingplatform.app.domain.model.NavSummary
@@ -15,6 +17,8 @@ import com.tradingplatform.app.domain.model.PortfolioBrokerStatus
 import com.tradingplatform.app.domain.model.PortfolioCircuitBreakerStatus
 import com.tradingplatform.app.domain.model.PortfolioOverviewItem
 import com.tradingplatform.app.domain.model.RiskStatus
+import com.tradingplatform.app.domain.model.Vigie
+import com.tradingplatform.app.domain.model.VigieLevel
 import com.tradingplatform.app.domain.model.WsConnectionState
 import com.tradingplatform.app.domain.model.WsUpdate
 import com.tradingplatform.app.domain.usecase.activity.GetActivityFeedUseCase
@@ -33,6 +37,7 @@ import com.tradingplatform.app.domain.usecase.portfolio.RefreshPortfoliosUseCase
 import com.tradingplatform.app.domain.usecase.portfolio.SelectPortfolioUseCase
 import com.tradingplatform.app.domain.usecase.risk.GetPortfolioCircuitBreakerStatusUseCase
 import com.tradingplatform.app.domain.usecase.risk.GetRiskStatusUseCase
+import com.tradingplatform.app.domain.usecase.vigie.GetHomeVigieUseCase
 import com.tradingplatform.app.ui.common.DataState
 import com.tradingplatform.app.util.MainDispatcherRule
 import io.mockk.coEvery
@@ -82,6 +87,7 @@ class DashboardViewModelTest {
     private val getPortfoliosOverviewUseCase = mockk<GetPortfoliosOverviewUseCase>()
     private val getRiskStatusUseCase = mockk<GetRiskStatusUseCase>()
     private val getPortfolioBrokerStatusUseCase = mockk<GetPortfolioBrokerStatusUseCase>()
+    private val getHomeVigieUseCase = mockk<GetHomeVigieUseCase>()
 
     /** Portefeuille actif simulé : modifier `.value` équivaut à un changement de sélection. */
     private val activePortfolio = MutableStateFlow("1")
@@ -209,6 +215,8 @@ class DashboardViewModelTest {
         coEvery { getRiskStatusUseCase(any()) } returns Result.failure(IOException("not stubbed"))
         coEvery { getPortfolioBrokerStatusUseCase(any()) } returns Result.failure(IOException("not stubbed"))
         coEvery { getPortfoliosOverviewUseCase(any()) } returns Result.success(overviewDay)
+        // Vigie : réglage faux par défaut (carte absente) — les fixtures existantes ne la connaissent pas.
+        coEvery { getHomeVigieUseCase(any()) } returns Result.success(HomeVigie.Hidden)
     }
 
     @After
@@ -233,6 +241,7 @@ class DashboardViewModelTest {
         getPortfoliosOverviewUseCase = getPortfoliosOverviewUseCase,
         getRiskStatusUseCase = getRiskStatusUseCase,
         getPortfolioBrokerStatusUseCase = getPortfolioBrokerStatusUseCase,
+        getHomeVigieUseCase = getHomeVigieUseCase,
     ).also { viewModel = it }
 
     private fun catalyst() = ActivityItem.CatalystEvent(
@@ -1081,5 +1090,103 @@ class DashboardViewModelTest {
         // Un seul jeu de requêtes malgré trois demandes (le premier est encore en vol).
         coVerify(exactly = 2) { getPortfolioNavUseCase("1") }
         gate.complete(Result.success(fakeNav))
+    }
+
+    // ── Carte Vigie (réglage de compte showVigie, section propre) ─────────────────
+
+    private fun vigie(level: VigieLevel = VigieLevel.NORMAL) =
+        Vigie.UNAVAILABLE.copy(available = true, level = level, score = 1.25)
+
+    @Test
+    fun `vigie card is hidden when the account setting is off, and the section stays empty`() = runTest {
+        createViewModel()
+
+        val state = viewModel.uiState.value
+        assertFalse(state.showVigie)
+        assertNull(state.vigie.value)
+        coVerify(exactly = 1) { getHomeVigieUseCase(false) }
+    }
+
+    @Test
+    fun `vigie card shows the cached value with its REAL syncedAt when the setting is on`() = runTest {
+        coEvery { getHomeVigieUseCase(any()) } returns
+            Result.success(HomeVigie.Shown(Cached(vigie(), syncedAt = 4_242L)))
+
+        createViewModel()
+
+        val state = viewModel.uiState.value
+        assertTrue(state.showVigie)
+        assertEquals(VigieLevel.NORMAL, state.vigie.value?.level)
+        // Jamais « maintenant » : l'instant de sync réel du cache.
+        assertEquals(4_242L, state.vigie.syncedAt)
+        assertNull(state.vigie.error)
+    }
+
+    @Test
+    fun `an unreadable setting never makes the card appear`() = runTest {
+        coEvery { getHomeVigieUseCase(any()) } returns Result.failure(IOException("VPN down"))
+
+        createViewModel()
+
+        val state = viewModel.uiState.value
+        assertFalse(state.showVigie)
+        assertNull(state.vigie.value)
+    }
+
+    @Test
+    fun `a failed refresh keeps the stale Vigie and records the error`() = runTest {
+        coEvery { getHomeVigieUseCase(any()) } returns
+            Result.success(HomeVigie.Shown(Cached(vigie(), syncedAt = 10L)))
+        createViewModel()
+        coEvery { getHomeVigieUseCase(true) } returns Result.failure(IOException("Timeout"))
+
+        viewModel.refresh()
+
+        val state = viewModel.uiState.value
+        assertTrue(state.showVigie)
+        assertEquals(VigieLevel.NORMAL, state.vigie.value?.level)
+        assertEquals(10L, state.vigie.syncedAt)
+        assertNotNull(state.vigie.error)
+    }
+
+    @Test
+    fun `refresh forces the Vigie read, the initial load does not`() = runTest {
+        createViewModel()
+        coVerify(exactly = 1) { getHomeVigieUseCase(false) }
+
+        viewModel.refresh()
+
+        coVerify(exactly = 1) { getHomeVigieUseCase(true) }
+    }
+
+    @Test
+    fun `turning the setting off hides a card that was shown`() = runTest {
+        coEvery { getHomeVigieUseCase(any()) } returns
+            Result.success(HomeVigie.Shown(Cached(vigie(), syncedAt = 10L)))
+        createViewModel()
+        assertTrue(viewModel.uiState.value.showVigie)
+        coEvery { getHomeVigieUseCase(true) } returns Result.success(HomeVigie.Hidden)
+
+        viewModel.refresh()
+
+        assertFalse(viewModel.uiState.value.showVigie)
+        assertNull(viewModel.uiState.value.vigie.value)
+    }
+
+    @Test
+    fun `the Vigie survives an active portfolio change, it is account level`() = runTest {
+        coEvery { getHomeVigieUseCase(any()) } returns
+            Result.success(HomeVigie.Shown(Cached(vigie(VigieLevel.VIGILANCE), syncedAt = 77L)))
+        createViewModel()
+
+        activePortfolio.value = "2"
+
+        val state = viewModel.uiState.value
+        assertEquals("2", state.portfolioId)
+        assertTrue(state.showVigie)
+        assertEquals(VigieLevel.VIGILANCE, state.vigie.value?.level)
+        assertEquals(77L, state.vigie.syncedAt)
+        // Le changement de portefeuille ne relit pas la Vigie.
+        coVerify(exactly = 1) { getHomeVigieUseCase(false) }
     }
 }

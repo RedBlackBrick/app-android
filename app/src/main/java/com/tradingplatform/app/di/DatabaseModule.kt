@@ -3,11 +3,13 @@ package com.tradingplatform.app.di
 import android.content.Context
 import androidx.room.Room
 import com.tradingplatform.app.data.local.db.AppDatabase
+import com.tradingplatform.app.data.local.db.MIGRATION_7_8
 import com.tradingplatform.app.data.local.db.dao.AlertDao
 import com.tradingplatform.app.data.local.db.dao.DeviceDao
 import com.tradingplatform.app.data.local.db.dao.PnlDao
 import com.tradingplatform.app.data.local.db.dao.PositionDao
 import com.tradingplatform.app.data.local.db.dao.QuoteDao
+import com.tradingplatform.app.data.local.db.dao.VigieDao
 import com.tradingplatform.app.data.local.db.dao.WatchlistDao
 import com.tradingplatform.app.BuildConfig
 import dagger.Module
@@ -30,17 +32,18 @@ object DatabaseModule {
         AppDatabase::class.java,
         "trading_platform_db"
     )
-        // v7 est la baseline du premier release (CLAUDE.md §2) : aucune migration
-        // n'existe avant elle, donc rien à déclarer ici via .addMigrations(...).
+        // v7 est la baseline du premier release (CLAUDE.md §2) : aucune migration n'existe avant
+        // elle. v8 (table vigie_snapshot) est la première migration EXPLICITE — enregistrée pour
+        // TOUS les builds (debug comme release) : le fallback destructif debug ne sert que de filet.
+        .addMigrations(MIGRATION_7_8)
         .apply {
             if (BuildConfig.DEBUG) {
                 fallbackToDestructiveMigration(dropAllTables = true)
             }
-            // En release, PAS de fallback par design : la baseline v7 ne cible que
-            // les installations fraîches (versionCode 1, personne en v<7). Un futur
-            // changement de schéma (v8+) devra ajouter une migration explicite
-            // (MIGRATION_7_8) avant d'être livré — sinon crash explicite au boot,
-            // ce qui est préférable à une perte silencieuse des alertes locales.
+            // En release, PAS de fallback par design (v8+ : migration explicite obligatoire,
+            // jamais fallbackToDestructiveMigration). Tout futur changement de schéma doit
+            // ajouter MIGRATION_8_9… avant d'être livré — sinon crash explicite au boot, ce qui
+            // est préférable à une perte silencieuse des alertes locales.
         }
         .build()
 
@@ -61,4 +64,7 @@ object DatabaseModule {
 
     @Provides
     fun provideWatchlistDao(db: AppDatabase): WatchlistDao = db.watchlistDao()
+
+    @Provides
+    fun provideVigieDao(db: AppDatabase): VigieDao = db.vigieDao()
 }
